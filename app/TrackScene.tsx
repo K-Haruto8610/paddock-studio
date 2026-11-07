@@ -3,7 +3,8 @@ import {useEffect, useRef, useSyncExternalStore} from 'react';
 import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import type {Race} from './types';
-import {makeTrack, makeRoute, availableKinds, type RaceRoute} from './trackGeometry';
+import {makeTrack, availableKinds} from './trackGeometry';
+import {makeRoute, type RaceRoute} from './raceRoutes';
 import {sampleLayouts} from './raceLayout';
 import type {PlaybackPlan} from './playback';
 import {createPackCamera} from './packCamera';
@@ -125,8 +126,8 @@ export default function TrackScene({
     const track = makeTrack(race);
     const route = makeRoute(race, track);
     const courses = buildCourseSet(race, track, availableKinds(race));
-    const terrain = addGround(scene, courses.tracks);
-    addCourseSurfaces(scene, courses, terrain, tokyo);
+    const terrain = addGround(scene, courses.tracks, route);
+    addCourseSurfaces(scene, courses, terrain, tokyo, route);
     addRails(scene, track, courses.turf);
     addMarkers(scene, race, track, route);
 
