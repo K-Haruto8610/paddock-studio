@@ -5,6 +5,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import type {Race} from './types';
 import {makeTrack,makeRoute,type TrackModel} from './trackGeometry';
 import {buildLayouts,sampleLayouts} from './raceLayout';
+import type {PlaybackPlan} from './playback';
 import {plush,label} from './plushHorse';
 
 const HORSE_SCALE=.60; // 4m model length -> ~2.4m physical silhouette; never enlarged on selection.
@@ -23,7 +24,7 @@ function rail(track:TrackModel,lane:number){
  const count=Math.ceil(track.lap/8),posts=new T.InstancedMesh(postGeo,postMat,count),dummy=new T.Object3D();
  for(let i=0;i<count;i++){dummy.position.copy(track.sample(i/count*track.lap,lane).point);dummy.position.y+=.55;dummy.updateMatrix();posts.setMatrixAt(i,dummy.matrix);}group.add(posts);return group;
 }
-export default function TrackScene({race,progress,selected,view,onSelect}:{race:Race;progress:number;selected:number|null;view:string;onSelect:(n:number)=>void}){
+export default function TrackScene({race,plan,progress,selected,view,onSelect}:{race:Race;plan:PlaybackPlan;progress:number;selected:number|null;view:string;onSelect:(n:number)=>void}){
  const host=useRef<HTMLDivElement>(null),state=useRef({progress,selected,view}),select=useRef(onSelect);state.current={progress,selected,view};select.current=onSelect;const [error,setError]=useState('');
  useEffect(()=>{
  const el=host.current!;let renderer:T.WebGLRenderer;try{renderer=new T.WebGLRenderer({antialias:true});setError('');}catch{setError('3D表示にはWebGL対応ブラウザーが必要です。');return;}
@@ -55,9 +56,9 @@ export default function TrackScene({race,progress,selected,view,onSelect}:{race:
  if(tokyo){for(const [text,x,z] of [['1角',471,239],['2角',465,107],['3角',70,91],['4角',63,255]] as [string,number,number][]){const p=turf.pixel(x,z);p.y=4;const s=mark(text,p,18);s.position.z+=(text==='1角'||text==='4角'?35:-35);}}
  // Gate stalls use the same 1.65m spacing as each horse's starting lane.
  const gateGroup=new T.Group();for(const [i] of race.horses.entries()){const p=route.sample(0,buildLayouts(race)[0][i].lane);const gate=mesh(new T.BoxGeometry(.18,2.9,1.3),'#386d62');gate.position.copy(p.point);gate.position.y+=1.4;gate.rotation.y=-Math.atan2(p.tangent.z,p.tangent.x);gateGroup.add(gate);}scene.add(gateGroup);
- const layouts=buildLayouts(race);
+ const layouts=plan.layouts;
  // Start -> early -> middle -> final corner -> final straight. Distances are route-specific.
- const knots=route.phaseDistances;
+ const knots=plan.knots;
  const horses=race.horses.map(h=>{const g=plush(h);g.scale.setScalar(HORSE_SCALE);g.userData.number=h.number;const name=g.getObjectByName('nameplate')!;name.visible=false;const number=g.getObjectByName('numberplate') as T.Sprite;number.position.set(0,4,0);number.scale.set(3.6,3.6,1);scene.add(g);return g;});
  const ring=mesh(new T.RingGeometry(1.5,1.7,40),'#f4cf65');ring.rotation.x=-Math.PI/2;scene.add(ring);ring.visible=false;
  const ray=new T.Raycaster(),mouse=new T.Vector2();let down=[0,0];const pd=(e:PointerEvent)=>{down=[e.clientX,e.clientY];};const click=(e:PointerEvent)=>{if(Math.hypot(e.clientX-down[0],e.clientY-down[1])>5)return;const b=el.getBoundingClientRect();mouse.set((e.clientX-b.left)/b.width*2-1,-(e.clientY-b.top)/b.height*2+1);ray.setFromCamera(mouse,camera);const hit=ray.intersectObjects(horses,true)[0];if(hit){let o:T.Object3D=hit.object;while(o.parent&&!o.userData.number)o=o.parent;if(o.userData.number)select.current(o.userData.number);}};
@@ -66,7 +67,7 @@ export default function TrackScene({race,progress,selected,view,onSelect}:{race:
  let frame=0,lastView='',following=true;const onControlStart=()=>{following=false;};controls.addEventListener('start',onControlStart);
  const bbox=new T.Box3().setFromPoints(turf.curve.getPoints(256));const size=bbox.getSize(new T.Vector3()),center=bbox.getCenter(new T.Vector3());
  const overviewDistance=()=>Math.max((size.x+120)/camera.aspect,size.z+170)/(2*Math.tan(T.MathUtils.degToRad(20)))*1.12;
- let lastTime=performance.now();
+ let lastTime=performance.now(),lastProgress=state.current.progress;
  function draw(now=performance.now()){
   const dt=Math.min((now-lastTime)/1000,.1);lastTime=now;const {progress:p,selected,view}=state.current;const travel=p*race.distance;
   const placements=sampleLayouts(layouts,travel,knots);ring.visible=selected!==null;
@@ -77,13 +78,13 @@ export default function TrackScene({race,progress,selected,view,onSelect}:{race:
   const heading=route.sample(Math.max(0,travel-fieldSpan/2));
   const packOffset=heading.outward.clone().multiplyScalar(closeDistance).addScaledVector(heading.tangent,closeDistance*.12);packOffset.y=closeDistance*.8;
   if(view!==lastView){following=true;lastView=view;if(view==='top'){controls.target.copy(center);camera.position.copy(center).add(new T.Vector3(0,overviewDistance(),.01));}else if(view==='orbit'){controls.target.copy(center);camera.position.copy(center).add(new T.Vector3(0,overviewDistance()*.78,overviewDistance()*.80));}else {controls.target.copy(packCenter);camera.position.copy(packCenter).add(packOffset);}}
-  if(view==='pack'&&following){const alpha=1-Math.exp(-dt*6);controls.target.lerp(packCenter,alpha);camera.position.lerp(packCenter.clone().add(packOffset),alpha);}
+  if(view==='pack'&&following){const alpha=Math.abs(p-lastProgress)>.03?1:1-Math.exp(-dt*6);controls.target.lerp(packCenter,alpha);camera.position.lerp(packCenter.clone().add(packOffset),alpha);}lastProgress=p;
   majorLabels.forEach(s=>{s.visible=view!=='pack';const pixels=s===majorLabels[0]?42:28;const h=camera.position.distanceTo(s.position)*2*Math.tan(T.MathUtils.degToRad(20))*pixels/el.clientHeight;s.scale.set(h*2,h,1);});
   const overview=view!=='pack';horses.forEach((g,i)=>{(g.getObjectByName('numberplate') as T.Sprite).visible=!overview||selected===race.horses[i].number;});
   sun.target.position.copy(packCenter);sun.position.copy(packCenter).add(new T.Vector3(-200,500,180));
   controls.update();renderer.render(scene,camera);frame=requestAnimationFrame(draw);
  }
  draw();return()=>{cancelAnimationFrame(frame);observer.disconnect();controls.removeEventListener('start',onControlStart);controls.dispose();renderer.domElement.removeEventListener('pointerdown',pd);renderer.domElement.removeEventListener('pointerup',click);scene.traverse(o=>{if(o instanceof T.Mesh)o.geometry.dispose();if(o instanceof T.Mesh||o instanceof T.Sprite){for(const m of Array.isArray(o.material)?o.material:[o.material]){if('map' in m&&m.map)m.map.dispose();m.dispose();}}});renderer.dispose();renderer.domElement.remove();};
- },[race]);
+ },[race,plan]);
  return <div className="scene" ref={host} aria-label={`${race.name}の3D展開予想。ドラッグで回転、スクロールで拡大`}>{error&&<p className="scene-error">{error}</p>}</div>;
 }

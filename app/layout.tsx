@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./playback.css";
 
 export const metadata: Metadata = {
   title: "Paddock Studio｜GⅠ展開予想",

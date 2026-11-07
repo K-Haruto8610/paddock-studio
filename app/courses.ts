@@ -10,3 +10,9 @@ const specs:Record<string,{slug:string;left:boolean;turf:number[];outer?:number[
 };
 export function courseFor(r:Race){const s=specs[r.venueCode]; const outer=[12,14,17,19,20,21,22].includes(r.trackCode)&&!!s.outer; const [lap,straight,rise]=r.surface==='ダート'?s.dirt:outer?s.outer!:s.turf;
 return {...s,lap,straight,rise,outer,source:`https://www.jra.go.jp/facilities/race/${s.slug}/course/index.html`,label:r.surface==='ダート'?'ダート':`${s.outer?(outer?'外回り・':'内回り・'):''}Aコース基準`};}
+export function checkpointDistances(race:Race){
+ const c=courseFor(race),lastLapStart=race.distance-c.lap,approach=race.distance-c.straight;
+ return race.venueCode==='05'
+  ? [0,race.distance<=1800?race.distance*.12:Math.max(150,lastLapStart+200),race.distance<=1800?race.distance*.28:Math.max(350,lastLapStart+650),race.distance-950,approach]
+  : [0,approach*.18,approach*.48,approach*.82,approach];
+}

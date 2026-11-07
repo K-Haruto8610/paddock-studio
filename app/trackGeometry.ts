@@ -1,6 +1,6 @@
 import * as T from 'three';
 import type {Race} from './types';
-import {courseFor} from './courses';
+import {courseFor,checkpointDistances} from './courses';
 
 // Digitized INNER RAIL from JRA's 568 x 385 Tokyo plan (not an aerial survey).
 // Origin is the winning post. Order follows the official left-handed direction.
@@ -63,10 +63,6 @@ export function makeRoute(race:Race,track:TrackModel):RaceRoute{
   sample=(travel,lane=0)=>{if(travel>=branchRaceDistance)return track.sample(best+travel-branchRaceDistance,lane);const u=T.MathUtils.clamp(travel/branchRaceDistance,0,1);const point=branch.getPointAt(u),tangent=branch.getTangentAt(u),outward=new T.Vector3(-tangent.z,0,tangent.x).normalize();point.addScaledVector(outward,lane);point.y=track.height(best);return {point,tangent,outward};};
  }
  // Last-lap checkpoints: no nonexistent 1/2 corners in Tokyo mile races.
- const lastLapStart=race.distance-track.lap;
- const straight=courseFor(race).straight,approach=race.distance-straight;
- const phaseDistances=race.venueCode==='05'
-  ? [0,race.distance<=1800?race.distance*.12:Math.max(150,lastLapStart+200),race.distance<=1800?race.distance*.28:Math.max(350,lastLapStart+650),race.distance-950,approach]
-  : [0,approach*.18,approach*.48,approach*.82,approach];
+ const phaseDistances=checkpointDistances(race);
  return {sample,start:sample(0).point,chute,phaseDistances};
 }

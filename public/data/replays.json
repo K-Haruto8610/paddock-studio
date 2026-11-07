@@ -1,0 +1,2200 @@
+{
+  "generatedAt": "2026-11-07T16:58:44.869267+00:00",
+  "races": {
+    "2026053105021211": {
+      "horses": {
+        "1": {
+          "corners": [
+            3,
+            3,
+            6,
+            5
+          ],
+          "finish": 8,
+          "officialFinish": 8,
+          "last3": 33.8,
+          "abnormality": "0"
+        },
+        "2": {
+          "corners": [
+            3,
+            4,
+            8,
+            8
+          ],
+          "finish": 5,
+          "officialFinish": 5,
+          "last3": 33.4,
+          "abnormality": "0"
+        },
+        "3": {
+          "corners": [
+            9,
+            6,
+            9,
+            11
+          ],
+          "finish": 15,
+          "officialFinish": 15,
+          "last3": 34.4,
+          "abnormality": "0"
+        },
+        "4": {
+          "corners": [
+            13,
+            10,
+            17,
+            15
+          ],
+          "finish": 6,
+          "officialFinish": 6,
+          "last3": 33.1,
+          "abnormality": "0"
+        },
+        "5": {
+          "corners": [
+            18,
+            18,
+            2,
+            2
+          ],
+          "finish": 3,
+          "officialFinish": 3,
+          "last3": 34.0,
+          "abnormality": "0"
+        },
+        "6": {
+          "corners": [
+            6,
+            9,
+            9,
+            8
+          ],
+          "finish": 9,
+          "officialFinish": 9,
+          "last3": 33.6,
+          "abnormality": "0"
+        },
+        "7": {
+          "corners": [
+            1,
+            1,
+            2,
+            2
+          ],
+          "finish": 13,
+          "officialFinish": 13,
+          "last3": 34.9,
+          "abnormality": "0"
+        },
+        "8": {
+          "corners": [
+            15,
+            14,
+            17,
+            17
+          ],
+          "finish": 17,
+          "officialFinish": 17,
+          "last3": 34.1,
+          "abnormality": "0"
+        },
+        "9": {
+          "corners": [
+            17,
+            17,
+            15,
+            17
+          ],
+          "finish": 11,
+          "officialFinish": 11,
+          "last3": 33.2,
+          "abnormality": "0"
+        },
+        "10": {
+          "corners": [
+            13,
+            14,
+            12,
+            11
+          ],
+          "finish": 18,
+          "officialFinish": 18,
+          "last3": 34.7,
+          "abnormality": "0"
+        },
+        "11": {
+          "corners": [
+            2,
+            2,
+            1,
+            1
+          ],
+          "finish": 7,
+          "officialFinish": 7,
+          "last3": 34.6,
+          "abnormality": "0"
+        },
+        "12": {
+          "corners": [
+            3,
+            4,
+            4,
+            5
+          ],
+          "finish": 10,
+          "officialFinish": 10,
+          "last3": 33.9,
+          "abnormality": "0"
+        },
+        "13": {
+          "corners": [
+            6,
+            6,
+            6,
+            5
+          ],
+          "finish": 2,
+          "officialFinish": 2,
+          "last3": 33.4,
+          "abnormality": "0"
+        },
+        "14": {
+          "corners": [
+            15,
+            14,
+            15,
+            15
+          ],
+          "finish": 4,
+          "officialFinish": 4,
+          "last3": 32.8,
+          "abnormality": "0"
+        },
+        "15": {
+          "corners": [
+            11,
+            13,
+            12,
+            11
+          ],
+          "finish": 12,
+          "officialFinish": 12,
+          "last3": 33.8,
+          "abnormality": "0"
+        },
+        "16": {
+          "corners": [
+            11,
+            10,
+            12,
+            11
+          ],
+          "finish": 16,
+          "officialFinish": 16,
+          "last3": 34.4,
+          "abnormality": "0"
+        },
+        "17": {
+          "corners": [
+            9,
+            10,
+            9,
+            8
+          ],
+          "finish": 1,
+          "officialFinish": 1,
+          "last3": 33.2,
+          "abnormality": "0"
+        },
+        "18": {
+          "corners": [
+            6,
+            6,
+            4,
+            4
+          ],
+          "finish": 14,
+          "officialFinish": 14,
+          "last3": 34.7,
+          "abnormality": "0"
+        }
+      },
+      "corners": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "partialCorners": [],
+      "completeFinish": true,
+      "source": "mykeibadb.umagoto_race_joho (JV-Data)",
+      "raceDate": "20260531"
+    },
+    "2026052405021011": {
+      "horses": {
+        "1": {
+          "corners": [
+            18,
+            18,
+            18,
+            18
+          ],
+          "finish": 16,
+          "officialFinish": 16,
+          "last3": 33.9,
+          "abnormality": "0"
+        },
+        "2": {
+          "corners": [
+            13,
+            12,
+            12,
+            10
+          ],
+          "finish": 6,
+          "officialFinish": 6,
+          "last3": 33.6,
+          "abnormality": "0"
+        },
+        "3": {
+          "corners": [
+            10,
+            10,
+            11,
+            10
+          ],
+          "finish": 8,
+          "officialFinish": 8,
+          "last3": 33.9,
+          "abnormality": "0"
+        },
+        "4": {
+          "corners": [
+            8,
+            7,
+            10,
+            8
+          ],
+          "finish": 11,
+          "officialFinish": 11,
+          "last3": 34.4,
+          "abnormality": "0"
+        },
+        "5": {
+          "corners": [
+            10,
+            10,
+            2,
+            2
+          ],
+          "finish": 4,
+          "officialFinish": 4,
+          "last3": 34.6,
+          "abnormality": "0"
+        },
+        "6": {
+          "corners": [
+            4,
+            4,
+            6,
+            5
+          ],
+          "finish": 17,
+          "officialFinish": 17,
+          "last3": 36.3,
+          "abnormality": "0"
+        },
+        "7": {
+          "corners": [
+            7,
+            7,
+            5,
+            5
+          ],
+          "finish": 18,
+          "officialFinish": 18,
+          "last3": 36.4,
+          "abnormality": "0"
+        },
+        "8": {
+          "corners": [
+            8,
+            7,
+            8,
+            8
+          ],
+          "finish": 15,
+          "officialFinish": 15,
+          "last3": 35.2,
+          "abnormality": "0"
+        },
+        "9": {
+          "corners": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "finish": 10,
+          "officialFinish": 10,
+          "last3": 35.4,
+          "abnormality": "0"
+        },
+        "10": {
+          "corners": [
+            4,
+            6,
+            8,
+            10
+          ],
+          "finish": 12,
+          "officialFinish": 12,
+          "last3": 34.3,
+          "abnormality": "0"
+        },
+        "11": {
+          "corners": [
+            2,
+            2,
+            3,
+            3
+          ],
+          "finish": 14,
+          "officialFinish": 14,
+          "last3": 35.5,
+          "abnormality": "0"
+        },
+        "12": {
+          "corners": [
+            4,
+            4,
+            3,
+            3
+          ],
+          "finish": 2,
+          "officialFinish": 2,
+          "last3": 34.3,
+          "abnormality": "0"
+        },
+        "13": {
+          "corners": [
+            17,
+            17,
+            17,
+            17
+          ],
+          "finish": 7,
+          "officialFinish": 7,
+          "last3": 33.1,
+          "abnormality": "0"
+        },
+        "14": {
+          "corners": [
+            15,
+            15,
+            15,
+            14
+          ],
+          "finish": 13,
+          "officialFinish": 13,
+          "last3": 34.3,
+          "abnormality": "0"
+        },
+        "15": {
+          "corners": [
+            15,
+            15,
+            15,
+            14
+          ],
+          "finish": 9,
+          "officialFinish": 9,
+          "last3": 33.4,
+          "abnormality": "0"
+        },
+        "16": {
+          "corners": [
+            13,
+            12,
+            14,
+            14
+          ],
+          "finish": 1,
+          "officialFinish": 1,
+          "last3": 33.1,
+          "abnormality": "0"
+        },
+        "17": {
+          "corners": [
+            3,
+            3,
+            6,
+            5
+          ],
+          "finish": 5,
+          "officialFinish": 5,
+          "last3": 34.1,
+          "abnormality": "0"
+        },
+        "18": {
+          "corners": [
+            10,
+            12,
+            12,
+            13
+          ],
+          "finish": 3,
+          "officialFinish": 3,
+          "last3": 33.3,
+          "abnormality": "0"
+        }
+      },
+      "corners": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "partialCorners": [],
+      "completeFinish": true,
+      "source": "mykeibadb.umagoto_race_joho (JV-Data)",
+      "raceDate": "20260524"
+    },
+    "2026051705020811": {
+      "horses": {
+        "1": {
+          "corners": [
+            null,
+            null,
+            3,
+            3
+          ],
+          "finish": 17,
+          "officialFinish": 17,
+          "last3": 34.4,
+          "abnormality": "0"
+        },
+        "2": {
+          "corners": [
+            null,
+            null,
+            14,
+            15
+          ],
+          "finish": 15,
+          "officialFinish": 15,
+          "last3": 33.2,
+          "abnormality": "0"
+        },
+        "3": {
+          "corners": [
+            null,
+            null,
+            3,
+            5
+          ],
+          "finish": 9,
+          "officialFinish": 9,
+          "last3": 33.9,
+          "abnormality": "0"
+        },
+        "4": {
+          "corners": [
+            null,
+            null,
+            1,
+            1
+          ],
+          "finish": 4,
+          "officialFinish": 4,
+          "last3": 34.1,
+          "abnormality": "0"
+        },
+        "5": {
+          "corners": [
+            null,
+            null,
+            16,
+            17
+          ],
+          "finish": 14,
+          "officialFinish": 14,
+          "last3": 32.8,
+          "abnormality": "0"
+        },
+        "6": {
+          "corners": [
+            null,
+            null,
+            8,
+            7
+          ],
+          "finish": 7,
+          "officialFinish": 7,
+          "last3": 33.6,
+          "abnormality": "0"
+        },
+        "7": {
+          "corners": [
+            null,
+            null,
+            8,
+            10
+          ],
+          "finish": 3,
+          "officialFinish": 3,
+          "last3": 33.1,
+          "abnormality": "0"
+        },
+        "8": {
+          "corners": [
+            null,
+            null,
+            7,
+            7
+          ],
+          "finish": 2,
+          "officialFinish": 2,
+          "last3": 33.1,
+          "abnormality": "0"
+        },
+        "9": {
+          "corners": [
+            null,
+            null,
+            11,
+            12
+          ],
+          "finish": 5,
+          "officialFinish": 5,
+          "last3": 32.9,
+          "abnormality": "0"
+        },
+        "10": {
+          "corners": [
+            null,
+            null,
+            18,
+            18
+          ],
+          "finish": 18,
+          "officialFinish": 18,
+          "last3": 32.9,
+          "abnormality": "0"
+        },
+        "11": {
+          "corners": [
+            null,
+            null,
+            11,
+            11
+          ],
+          "finish": 11,
+          "officialFinish": 11,
+          "last3": 33.3,
+          "abnormality": "0"
+        },
+        "12": {
+          "corners": [
+            null,
+            null,
+            6,
+            6
+          ],
+          "finish": 1,
+          "officialFinish": 1,
+          "last3": 33.0,
+          "abnormality": "0"
+        },
+        "13": {
+          "corners": [
+            null,
+            null,
+            14,
+            13
+          ],
+          "finish": 10,
+          "officialFinish": 10,
+          "last3": 33.0,
+          "abnormality": "0"
+        },
+        "14": {
+          "corners": [
+            null,
+            null,
+            8,
+            9
+          ],
+          "finish": 8,
+          "officialFinish": 8,
+          "last3": 33.5,
+          "abnormality": "0"
+        },
+        "15": {
+          "corners": [
+            null,
+            null,
+            16,
+            15
+          ],
+          "finish": 13,
+          "officialFinish": 13,
+          "last3": 32.9,
+          "abnormality": "0"
+        },
+        "16": {
+          "corners": [
+            null,
+            null,
+            2,
+            2
+          ],
+          "finish": 6,
+          "officialFinish": 6,
+          "last3": 34.1,
+          "abnormality": "0"
+        },
+        "17": {
+          "corners": [
+            null,
+            null,
+            13,
+            13
+          ],
+          "finish": 12,
+          "officialFinish": 12,
+          "last3": 33.2,
+          "abnormality": "0"
+        },
+        "18": {
+          "corners": [
+            null,
+            null,
+            3,
+            3
+          ],
+          "finish": 16,
+          "officialFinish": 16,
+          "last3": 34.4,
+          "abnormality": "0"
+        }
+      },
+      "corners": [
+        3,
+        4
+      ],
+      "partialCorners": [],
+      "completeFinish": true,
+      "source": "mykeibadb.umagoto_race_joho (JV-Data)",
+      "raceDate": "20260517"
+    },
+    "2026051005020611": {
+      "horses": {
+        "1": {
+          "corners": [
+            null,
+            null,
+            4,
+            4
+          ],
+          "finish": 16,
+          "officialFinish": 16,
+          "last3": 36.3,
+          "abnormality": "0"
+        },
+        "2": {
+          "corners": [
+            null,
+            null,
+            1,
+            1
+          ],
+          "finish": 17,
+          "officialFinish": 17,
+          "last3": 36.6,
+          "abnormality": "0"
+        },
+        "3": {
+          "corners": [
+            null,
+            null,
+            17,
+            14
+          ],
+          "finish": 14,
+          "officialFinish": 14,
+          "last3": 34.2,
+          "abnormality": "0"
+        },
+        "4": {
+          "corners": [
+            null,
+            null,
+            7,
+            7
+          ],
+          "finish": 12,
+          "officialFinish": 12,
+          "last3": 35.0,
+          "abnormality": "0"
+        },
+        "5": {
+          "corners": [
+            null,
+            null,
+            11,
+            10
+          ],
+          "finish": 11,
+          "officialFinish": 11,
+          "last3": 34.6,
+          "abnormality": "0"
+        },
+        "6": {
+          "corners": [
+            null,
+            null,
+            7,
+            7
+          ],
+          "finish": 13,
+          "officialFinish": 13,
+          "last3": 34.9,
+          "abnormality": "0"
+        },
+        "7": {
+          "corners": [
+            null,
+            null,
+            4,
+            5
+          ],
+          "finish": 5,
+          "officialFinish": 5,
+          "last3": 34.8,
+          "abnormality": "0"
+        },
+        "8": {
+          "corners": [
+            null,
+            null,
+            10,
+            10
+          ],
+          "finish": 4,
+          "officialFinish": 4,
+          "last3": 34.1,
+          "abnormality": "0"
+        },
+        "9": {
+          "corners": [
+            null,
+            null,
+            6,
+            5
+          ],
+          "finish": 7,
+          "officialFinish": 7,
+          "last3": 34.8,
+          "abnormality": "0"
+        },
+        "10": {
+          "corners": [
+            null,
+            null,
+            15,
+            16
+          ],
+          "finish": 9,
+          "officialFinish": 9,
+          "last3": 33.7,
+          "abnormality": "0"
+        },
+        "11": {
+          "corners": [
+            null,
+            null,
+            7,
+            7
+          ],
+          "finish": 3,
+          "officialFinish": 3,
+          "last3": 34.2,
+          "abnormality": "0"
+        },
+        "12": {
+          "corners": [
+            null,
+            null,
+            13,
+            12
+          ],
+          "finish": 8,
+          "officialFinish": 8,
+          "last3": 34.2,
+          "abnormality": "0"
+        },
+        "13": {
+          "corners": [
+            null,
+            null,
+            2,
+            2
+          ],
+          "finish": 18,
+          "officialFinish": 18,
+          "last3": 36.7,
+          "abnormality": "0"
+        },
+        "14": {
+          "corners": [
+            null,
+            null,
+            16,
+            17
+          ],
+          "finish": 10,
+          "officialFinish": 10,
+          "last3": 33.5,
+          "abnormality": "0"
+        },
+        "15": {
+          "corners": [
+            null,
+            null,
+            2,
+            2
+          ],
+          "finish": 6,
+          "officialFinish": 6,
+          "last3": 35.0,
+          "abnormality": "0"
+        },
+        "16": {
+          "corners": [
+            null,
+            null,
+            11,
+            12
+          ],
+          "finish": 2,
+          "officialFinish": 2,
+          "last3": 33.5,
+          "abnormality": "0"
+        },
+        "17": {
+          "corners": [
+            null,
+            null,
+            14,
+            14
+          ],
+          "finish": 1,
+          "officialFinish": 1,
+          "last3": 33.3,
+          "abnormality": "0"
+        },
+        "18": {
+          "corners": [
+            null,
+            null,
+            17,
+            17
+          ],
+          "finish": 15,
+          "officialFinish": 15,
+          "last3": 34.3,
+          "abnormality": "0"
+        }
+      },
+      "corners": [
+        3,
+        4
+      ],
+      "partialCorners": [],
+      "completeFinish": true,
+      "source": "mykeibadb.umagoto_race_joho (JV-Data)",
+      "raceDate": "20260510"
+    },
+    "2026050308030411": {
+      "horses": {
+        "1": {
+          "corners": [
+            6,
+            7,
+            7,
+            6
+          ],
+          "finish": 9,
+          "officialFinish": 9,
+          "last3": 36.1,
+          "abnormality": "0"
+        },
+        "2": {
+          "corners": [
+            4,
+            2,
+            2,
+            1
+          ],
+          "finish": 11,
+          "officialFinish": 11,
+          "last3": 37.3,
+          "abnormality": "0"
+        },
+        "3": {
+          "corners": [
+            12,
+            10,
+            11,
+            10
+          ],
+          "finish": 3,
+          "officialFinish": 3,
+          "last3": 34.7,
+          "abnormality": "0"
+        },
+        "4": {
+          "corners": [
+            8,
+            8,
+            7,
+            6
+          ],
+          "finish": 4,
+          "officialFinish": 4,
+          "last3": 35.0,
+          "abnormality": "0"
+        },
+        "5": {
+          "corners": [
+            10,
+            10,
+            11,
+            14
+          ],
+          "finish": 12,
+          "officialFinish": 12,
+          "last3": 36.3,
+          "abnormality": "0"
+        },
+        "6": {
+          "corners": [
+            3,
+            4,
+            5,
+            8
+          ],
+          "finish": 15,
+          "officialFinish": 15,
+          "last3": 37.4,
+          "abnormality": "0"
+        },
+        "7": {
+          "corners": [
+            6,
+            5,
+            5,
+            3
+          ],
+          "finish": 1,
+          "officialFinish": 1,
+          "last3": 34.9,
+          "abnormality": "0"
+        },
+        "8": {
+          "corners": [
+            10,
+            10,
+            9,
+            10
+          ],
+          "finish": 7,
+          "officialFinish": 7,
+          "last3": 35.5,
+          "abnormality": "0"
+        },
+        "9": {
+          "corners": [
+            13,
+            13,
+            13,
+            14
+          ],
+          "finish": 13,
+          "officialFinish": 13,
+          "last3": 36.6,
+          "abnormality": "0"
+        },
+        "10": {
+          "corners": [
+            4,
+            5,
+            3,
+            3
+          ],
+          "finish": 10,
+          "officialFinish": 10,
+          "last3": 36.6,
+          "abnormality": "0"
+        },
+        "11": {
+          "corners": [
+            13,
+            13,
+            13,
+            12
+          ],
+          "finish": 6,
+          "officialFinish": 6,
+          "last3": 35.2,
+          "abnormality": "0"
+        },
+        "12": {
+          "corners": [
+            9,
+            9,
+            9,
+            8
+          ],
+          "finish": 5,
+          "officialFinish": 5,
+          "last3": 35.1,
+          "abnormality": "0"
+        },
+        "13": {
+          "corners": [
+            1,
+            1,
+            1,
+            2
+          ],
+          "finish": 8,
+          "officialFinish": 8,
+          "last3": 36.5,
+          "abnormality": "0"
+        },
+        "14": {
+          "corners": [
+            2,
+            2,
+            3,
+            3
+          ],
+          "finish": 14,
+          "officialFinish": 14,
+          "last3": 37.4,
+          "abnormality": "0"
+        },
+        "15": {
+          "corners": [
+            15,
+            15,
+            15,
+            12
+          ],
+          "finish": 2,
+          "officialFinish": 2,
+          "last3": 34.3,
+          "abnormality": "0"
+        }
+      },
+      "corners": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "partialCorners": [],
+      "completeFinish": true,
+      "source": "mykeibadb.umagoto_race_joho (JV-Data)",
+      "raceDate": "20260503"
+    },
+    "2026041906030811": {
+      "horses": {
+        "1": {
+          "corners": [
+            3,
+            3,
+            3,
+            3
+          ],
+          "finish": 13,
+          "officialFinish": 13,
+          "last3": 35.0,
+          "abnormality": "0"
+        },
+        "2": {
+          "corners": [
+            8,
+            6,
+            7,
+            6
+          ],
+          "finish": 6,
+          "officialFinish": 6,
+          "last3": 34.1,
+          "abnormality": "0"
+        },
+        "3": {
+          "corners": [
+            13,
+            13,
+            13,
+            10
+          ],
+          "finish": 9,
+          "officialFinish": 9,
+          "last3": 33.9,
+          "abnormality": "0"
+        },
+        "4": {
+          "corners": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "finish": 1,
+          "officialFinish": 1,
+          "last3": 34.2,
+          "abnormality": "0"
+        },
+        "5": {
+          "corners": [
+            5,
+            5,
+            3,
+            3
+          ],
+          "finish": 4,
+          "officialFinish": 4,
+          "last3": 34.2,
+          "abnormality": "0"
+        },
+        "6": {
+          "corners": [
+            17,
+            16,
+            15,
+            13
+          ],
+          "finish": 5,
+          "officialFinish": 5,
+          "last3": 33.4,
+          "abnormality": "0"
+        },
+        "7": {
+          "corners": [
+            8,
+            9,
+            11,
+            10
+          ],
+          "finish": 17,
+          "officialFinish": 17,
+          "last3": 34.8,
+          "abnormality": "0"
+        },
+        "8": {
+          "corners": [
+            15,
+            17,
+            17,
+            13
+          ],
+          "finish": 10,
+          "officialFinish": 10,
+          "last3": 33.8,
+          "abnormality": "0"
+        },
+        "9": {
+          "corners": [
+            10,
+            9,
+            9,
+            8
+          ],
+          "finish": 3,
+          "officialFinish": 3,
+          "last3": 33.8,
+          "abnormality": "0"
+        },
+        "10": {
+          "corners": [
+            6,
+            6,
+            7,
+            8
+          ],
+          "finish": 8,
+          "officialFinish": 8,
+          "last3": 34.2,
+          "abnormality": "0"
+        },
+        "11": {
+          "corners": [
+            12,
+            12,
+            11,
+            17
+          ],
+          "finish": 14,
+          "officialFinish": 14,
+          "last3": 34.5,
+          "abnormality": "0"
+        },
+        "12": {
+          "corners": [
+            13,
+            14,
+            13,
+            10
+          ],
+          "finish": 7,
+          "officialFinish": 7,
+          "last3": 33.6,
+          "abnormality": "0"
+        },
+        "13": {
+          "corners": [
+            6,
+            6,
+            6,
+            6
+          ],
+          "finish": 16,
+          "officialFinish": 16,
+          "last3": 35.2,
+          "abnormality": "0"
+        },
+        "14": {
+          "corners": [
+            15,
+            14,
+            15,
+            15
+          ],
+          "finish": 12,
+          "officialFinish": 12,
+          "last3": 34.0,
+          "abnormality": "0"
+        },
+        "15": {
+          "corners": [
+            2,
+            2,
+            2,
+            2
+          ],
+          "finish": 2,
+          "officialFinish": 2,
+          "last3": 34.4,
+          "abnormality": "0"
+        },
+        "16": {
+          "corners": [
+            10,
+            9,
+            9,
+            15
+          ],
+          "finish": 18,
+          "officialFinish": 18,
+          "last3": 35.8,
+          "abnormality": "0"
+        },
+        "17": {
+          "corners": [
+            3,
+            3,
+            3,
+            3
+          ],
+          "finish": 15,
+          "officialFinish": 15,
+          "last3": 35.4,
+          "abnormality": "0"
+        },
+        "18": {
+          "corners": [
+            18,
+            18,
+            18,
+            17
+          ],
+          "finish": 11,
+          "officialFinish": 11,
+          "last3": 33.6,
+          "abnormality": "0"
+        }
+      },
+      "corners": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "partialCorners": [],
+      "completeFinish": true,
+      "source": "mykeibadb.umagoto_race_joho (JV-Data)",
+      "raceDate": "20260419"
+    },
+    "2026041209020611": {
+      "horses": {
+        "1": {
+          "corners": [
+            null,
+            null,
+            11,
+            11
+          ],
+          "finish": 17,
+          "officialFinish": 17,
+          "last3": 35.7,
+          "abnormality": "0"
+        },
+        "2": {
+          "corners": [
+            null,
+            null,
+            7,
+            7
+          ],
+          "finish": 7,
+          "officialFinish": 7,
+          "last3": 34.5,
+          "abnormality": "0"
+        },
+        "3": {
+          "corners": [
+            null,
+            null,
+            9,
+            9
+          ],
+          "finish": 12,
+          "officialFinish": 12,
+          "last3": 35.0,
+          "abnormality": "0"
+        },
+        "4": {
+          "corners": [
+            null,
+            null,
+            13,
+            13
+          ],
+          "finish": 8,
+          "officialFinish": 8,
+          "last3": 34.3,
+          "abnormality": "0"
+        },
+        "5": {
+          "corners": [
+            null,
+            null,
+            5,
+            4
+          ],
+          "finish": 2,
+          "officialFinish": 2,
+          "last3": 34.4,
+          "abnormality": "0"
+        },
+        "6": {
+          "corners": [
+            null,
+            null,
+            4,
+            4
+          ],
+          "finish": 4,
+          "officialFinish": 4,
+          "last3": 34.7,
+          "abnormality": "0"
+        },
+        "7": {
+          "corners": [
+            null,
+            null,
+            17,
+            17
+          ],
+          "finish": 5,
+          "officialFinish": 5,
+          "last3": 33.8,
+          "abnormality": "0"
+        },
+        "8": {
+          "corners": [
+            null,
+            null,
+            1,
+            1
+          ],
+          "finish": 18,
+          "officialFinish": 18,
+          "last3": 37.3,
+          "abnormality": "0"
+        },
+        "9": {
+          "corners": [
+            null,
+            null,
+            2,
+            2
+          ],
+          "finish": 14,
+          "officialFinish": 14,
+          "last3": 35.8,
+          "abnormality": "0"
+        },
+        "10": {
+          "corners": [
+            null,
+            null,
+            13,
+            13
+          ],
+          "finish": 6,
+          "officialFinish": 6,
+          "last3": 34.1,
+          "abnormality": "0"
+        },
+        "11": {
+          "corners": [
+            null,
+            null,
+            17,
+            17
+          ],
+          "finish": 3,
+          "officialFinish": 3,
+          "last3": 33.7,
+          "abnormality": "0"
+        },
+        "12": {
+          "corners": [
+            null,
+            null,
+            13,
+            15
+          ],
+          "finish": 13,
+          "officialFinish": 13,
+          "last3": 34.7,
+          "abnormality": "0"
+        },
+        "13": {
+          "corners": [
+            null,
+            null,
+            16,
+            16
+          ],
+          "finish": 11,
+          "officialFinish": 11,
+          "last3": 34.4,
+          "abnormality": "0"
+        },
+        "14": {
+          "corners": [
+            null,
+            null,
+            11,
+            11
+          ],
+          "finish": 9,
+          "officialFinish": 9,
+          "last3": 34.4,
+          "abnormality": "0"
+        },
+        "15": {
+          "corners": [
+            null,
+            null,
+            9,
+            9
+          ],
+          "finish": 1,
+          "officialFinish": 1,
+          "last3": 33.7,
+          "abnormality": "0"
+        },
+        "16": {
+          "corners": [
+            null,
+            null,
+            5,
+            4
+          ],
+          "finish": 10,
+          "officialFinish": 10,
+          "last3": 35.1,
+          "abnormality": "0"
+        },
+        "17": {
+          "corners": [
+            null,
+            null,
+            7,
+            7
+          ],
+          "finish": 15,
+          "officialFinish": 15,
+          "last3": 35.8,
+          "abnormality": "0"
+        },
+        "18": {
+          "corners": [
+            null,
+            null,
+            2,
+            2
+          ],
+          "finish": 16,
+          "officialFinish": 16,
+          "last3": 36.3,
+          "abnormality": "0"
+        }
+      },
+      "corners": [
+        3,
+        4
+      ],
+      "partialCorners": [],
+      "completeFinish": true,
+      "source": "mykeibadb.umagoto_race_joho (JV-Data)",
+      "raceDate": "20260412"
+    },
+    "2026040509020411": {
+      "horses": {
+        "1": {
+          "corners": [
+            14,
+            14,
+            14,
+            13
+          ],
+          "finish": 12,
+          "officialFinish": 12,
+          "last3": 35.7,
+          "abnormality": "0"
+        },
+        "2": {
+          "corners": [
+            12,
+            12,
+            12,
+            12
+          ],
+          "finish": 11,
+          "officialFinish": 11,
+          "last3": 35.7,
+          "abnormality": "0"
+        },
+        "3": {
+          "corners": [
+            3,
+            4,
+            3,
+            4
+          ],
+          "finish": 5,
+          "officialFinish": 5,
+          "last3": 35.3,
+          "abnormality": "0"
+        },
+        "4": {
+          "corners": [
+            6,
+            6,
+            6,
+            7
+          ],
+          "finish": 3,
+          "officialFinish": 3,
+          "last3": 34.9,
+          "abnormality": "0"
+        },
+        "5": {
+          "corners": [
+            5,
+            4,
+            3,
+            3
+          ],
+          "finish": 10,
+          "officialFinish": 10,
+          "last3": 36.2,
+          "abnormality": "0"
+        },
+        "6": {
+          "corners": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "finish": 2,
+          "officialFinish": 2,
+          "last3": 35.6,
+          "abnormality": "0"
+        },
+        "7": {
+          "corners": [
+            3,
+            3,
+            3,
+            13
+          ],
+          "finish": 15,
+          "officialFinish": 15,
+          "last3": 45.4,
+          "abnormality": "0"
+        },
+        "8": {
+          "corners": [
+            8,
+            8,
+            9,
+            7
+          ],
+          "finish": 14,
+          "officialFinish": 14,
+          "last3": 37.9,
+          "abnormality": "0"
+        },
+        "9": {
+          "corners": [
+            8,
+            8,
+            9,
+            11
+          ],
+          "finish": 7,
+          "officialFinish": 7,
+          "last3": 35.0,
+          "abnormality": "0"
+        },
+        "10": {
+          "corners": [
+            15,
+            14,
+            14,
+            13
+          ],
+          "finish": 9,
+          "officialFinish": 9,
+          "last3": 35.1,
+          "abnormality": "0"
+        },
+        "11": {
+          "corners": [
+            6,
+            6,
+            6,
+            7
+          ],
+          "finish": 8,
+          "officialFinish": 8,
+          "last3": 35.4,
+          "abnormality": "0"
+        },
+        "12": {
+          "corners": [
+            11,
+            11,
+            11,
+            4
+          ],
+          "finish": 6,
+          "officialFinish": 6,
+          "last3": 35.2,
+          "abnormality": "0"
+        },
+        "13": {
+          "corners": [
+            2,
+            2,
+            2,
+            2
+          ],
+          "finish": 13,
+          "officialFinish": 13,
+          "last3": 38.2,
+          "abnormality": "0"
+        },
+        "14": {
+          "corners": [
+            13,
+            13,
+            12,
+            7
+          ],
+          "finish": 4,
+          "officialFinish": 4,
+          "last3": 34.8,
+          "abnormality": "0"
+        },
+        "15": {
+          "corners": [
+            8,
+            8,
+            6,
+            4
+          ],
+          "finish": 1,
+          "officialFinish": 1,
+          "last3": 34.9,
+          "abnormality": "0"
+        }
+      },
+      "corners": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "partialCorners": [],
+      "completeFinish": true,
+      "source": "mykeibadb.umagoto_race_joho (JV-Data)",
+      "raceDate": "20260405"
+    },
+    "2026032907010611": {
+      "horses": {
+        "1": {
+          "corners": [
+            null,
+            null,
+            4,
+            4
+          ],
+          "finish": 4,
+          "officialFinish": 4,
+          "last3": 33.2,
+          "abnormality": "0"
+        },
+        "2": {
+          "corners": [
+            null,
+            null,
+            10,
+            8
+          ],
+          "finish": 11,
+          "officialFinish": 11,
+          "last3": 33.7,
+          "abnormality": "0"
+        },
+        "3": {
+          "corners": [
+            null,
+            null,
+            8,
+            8
+          ],
+          "finish": 8,
+          "officialFinish": 8,
+          "last3": 33.5,
+          "abnormality": "0"
+        },
+        "4": {
+          "corners": [
+            null,
+            null,
+            14,
+            13
+          ],
+          "finish": 7,
+          "officialFinish": 7,
+          "last3": 33.0,
+          "abnormality": "0"
+        },
+        "5": {
+          "corners": [
+            null,
+            null,
+            16,
+            16
+          ],
+          "finish": 14,
+          "officialFinish": 14,
+          "last3": 33.2,
+          "abnormality": "0"
+        },
+        "6": {
+          "corners": [
+            null,
+            null,
+            13,
+            11
+          ],
+          "finish": 2,
+          "officialFinish": 2,
+          "last3": 32.5,
+          "abnormality": "0"
+        },
+        "7": {
+          "corners": [
+            null,
+            null,
+            4,
+            4
+          ],
+          "finish": 12,
+          "officialFinish": 12,
+          "last3": 33.9,
+          "abnormality": "0"
+        },
+        "8": {
+          "corners": [
+            null,
+            null,
+            4,
+            4
+          ],
+          "finish": 3,
+          "officialFinish": 3,
+          "last3": 33.2,
+          "abnormality": "0"
+        },
+        "9": {
+          "corners": [
+            null,
+            null,
+            10,
+            10
+          ],
+          "finish": 1,
+          "officialFinish": 1,
+          "last3": 32.4,
+          "abnormality": "0"
+        },
+        "10": {
+          "corners": [
+            null,
+            null,
+            16,
+            16
+          ],
+          "finish": 9,
+          "officialFinish": 9,
+          "last3": 32.8,
+          "abnormality": "0"
+        },
+        "11": {
+          "corners": [
+            null,
+            null,
+            18,
+            18
+          ],
+          "finish": 16,
+          "officialFinish": 16,
+          "last3": 33.5,
+          "abnormality": "0"
+        },
+        "12": {
+          "corners": [
+            null,
+            null,
+            2,
+            2
+          ],
+          "finish": 13,
+          "officialFinish": 13,
+          "last3": 34.5,
+          "abnormality": "0"
+        },
+        "13": {
+          "corners": [
+            null,
+            null,
+            14,
+            15
+          ],
+          "finish": 6,
+          "officialFinish": 6,
+          "last3": 32.7,
+          "abnormality": "0"
+        },
+        "14": {
+          "corners": [
+            null,
+            null,
+            7,
+            7
+          ],
+          "finish": 5,
+          "officialFinish": 5,
+          "last3": 33.4,
+          "abnormality": "0"
+        },
+        "15": {
+          "corners": [
+            null,
+            null,
+            1,
+            1
+          ],
+          "finish": 15,
+          "officialFinish": 15,
+          "last3": 35.4,
+          "abnormality": "0"
+        },
+        "16": {
+          "corners": [
+            null,
+            null,
+            8,
+            11
+          ],
+          "finish": 18,
+          "officialFinish": 18,
+          "last3": 34.8,
+          "abnormality": "0"
+        },
+        "17": {
+          "corners": [
+            null,
+            null,
+            12,
+            13
+          ],
+          "finish": 10,
+          "officialFinish": 10,
+          "last3": 33.2,
+          "abnormality": "0"
+        },
+        "18": {
+          "corners": [
+            null,
+            null,
+            2,
+            2
+          ],
+          "finish": 17,
+          "officialFinish": 17,
+          "last3": 35.4,
+          "abnormality": "0"
+        }
+      },
+      "corners": [
+        3,
+        4
+      ],
+      "partialCorners": [],
+      "completeFinish": true,
+      "source": "mykeibadb.umagoto_race_joho (JV-Data)",
+      "raceDate": "20260329"
+    },
+    "2026022205010811": {
+      "horses": {
+        "1": {
+          "corners": [
+            null,
+            null,
+            4,
+            4
+          ],
+          "finish": 5,
+          "officialFinish": 5,
+          "last3": 36.7,
+          "abnormality": "0"
+        },
+        "2": {
+          "corners": [
+            null,
+            null,
+            4,
+            5
+          ],
+          "finish": 16,
+          "officialFinish": 16,
+          "last3": 39.5,
+          "abnormality": "0"
+        },
+        "3": {
+          "corners": [
+            null,
+            null,
+            10,
+            9
+          ],
+          "finish": 4,
+          "officialFinish": 4,
+          "last3": 35.6,
+          "abnormality": "0"
+        },
+        "4": {
+          "corners": [
+            null,
+            null,
+            7,
+            7
+          ],
+          "finish": 10,
+          "officialFinish": 10,
+          "last3": 36.8,
+          "abnormality": "0"
+        },
+        "5": {
+          "corners": [
+            null,
+            null,
+            1,
+            1
+          ],
+          "finish": 9,
+          "officialFinish": 9,
+          "last3": 37.2,
+          "abnormality": "0"
+        },
+        "6": {
+          "corners": [
+            null,
+            null,
+            15,
+            15
+          ],
+          "finish": 8,
+          "officialFinish": 8,
+          "last3": 35.7,
+          "abnormality": "0"
+        },
+        "7": {
+          "corners": [
+            null,
+            null,
+            13,
+            13
+          ],
+          "finish": 14,
+          "officialFinish": 14,
+          "last3": 37.4,
+          "abnormality": "0"
+        },
+        "8": {
+          "corners": [
+            null,
+            null,
+            10,
+            9
+          ],
+          "finish": 13,
+          "officialFinish": 13,
+          "last3": 37.6,
+          "abnormality": "0"
+        },
+        "9": {
+          "corners": [
+            null,
+            null,
+            6,
+            5
+          ],
+          "finish": 3,
+          "officialFinish": 3,
+          "last3": 36.0,
+          "abnormality": "0"
+        },
+        "10": {
+          "corners": [
+            null,
+            null,
+            2,
+            2
+          ],
+          "finish": 11,
+          "officialFinish": 11,
+          "last3": 37.5,
+          "abnormality": "0"
+        },
+        "11": {
+          "corners": [
+            null,
+            null,
+            15,
+            15
+          ],
+          "finish": 12,
+          "officialFinish": 12,
+          "last3": 36.5,
+          "abnormality": "0"
+        },
+        "12": {
+          "corners": [
+            null,
+            null,
+            10,
+            12
+          ],
+          "finish": 1,
+          "officialFinish": 1,
+          "last3": 35.2,
+          "abnormality": "0"
+        },
+        "13": {
+          "corners": [
+            null,
+            null,
+            13,
+            13
+          ],
+          "finish": 7,
+          "officialFinish": 7,
+          "last3": 35.7,
+          "abnormality": "0"
+        },
+        "14": {
+          "corners": [
+            null,
+            null,
+            7,
+            7
+          ],
+          "finish": 2,
+          "officialFinish": 2,
+          "last3": 35.7,
+          "abnormality": "0"
+        },
+        "15": {
+          "corners": [
+            null,
+            null,
+            3,
+            2
+          ],
+          "finish": 6,
+          "officialFinish": 6,
+          "last3": 36.9,
+          "abnormality": "0"
+        },
+        "16": {
+          "corners": [
+            null,
+            null,
+            7,
+            9
+          ],
+          "finish": 15,
+          "officialFinish": 15,
+          "last3": 37.8,
+          "abnormality": "0"
+        }
+      },
+      "corners": [
+        3,
+        4
+      ],
+      "partialCorners": [],
+      "completeFinish": true,
+      "source": "mykeibadb.umagoto_race_joho (JV-Data)",
+      "raceDate": "20260222"
+    }
+  },
+  "note": "Observed corner positions and arrival order. Between-checkpoint motion, gaps and lanes are interpolated, not recorded tracking coordinates."
+}
