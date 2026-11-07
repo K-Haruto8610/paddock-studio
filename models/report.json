@@ -1,0 +1,59 @@
+{
+  "features": [
+    "distance",
+    "surface",
+    "venue",
+    "gate",
+    "weight",
+    "age",
+    "field",
+    "blinker",
+    "past_c1",
+    "past_c2",
+    "past_c3",
+    "past_c4",
+    "past_last3",
+    "starts",
+    "front_pressure"
+  ],
+  "trainingEnd": "2025-08-31",
+  "validation": "2025-09〜12",
+  "inferenceTrainingEnd": "2025-12-31",
+  "rows": 16187,
+  "races": 1216,
+  "excludedRows": 73301,
+  "metrics": {
+    "c1": {
+      "mae": 0.226570558129288,
+      "baselineMae": 0.22856727367660828,
+      "validationRows": 1571
+    },
+    "c2": {
+      "mae": 0.2283118951156738,
+      "baselineMae": 0.22970763035014488,
+      "validationRows": 1864
+    },
+    "c3": {
+      "mae": 0.2307709724925511,
+      "baselineMae": 0.23474177460833745,
+      "validationRows": 3730
+    },
+    "c4": {
+      "mae": 0.2342536874177042,
+      "baselineMae": 0.24287299486989317,
+      "validationRows": 3729
+    },
+    "last3": {
+      "mae": 0.9136780180549601,
+      "baselineMae": 1.2314832979851538,
+      "validationRows": 3772
+    }
+  },
+  "notes": [
+    "過去5走の馬柱を使用。オッズ・人気・払戻は特徴量に含めない。",
+    "位置取りは通過順位を頭数で正規化して学習。馬間距離・内外の進路は演出用の補間。",
+    "2025年9〜12月を時系列検証に使用。掲載する2026年の対象レース結果は学習に含めない。",
+    "欠損・文字化け・出走頭数の不一致を検出したレースは掲載対象外。"
+  ],
+  "publishedRaces": 10
+}

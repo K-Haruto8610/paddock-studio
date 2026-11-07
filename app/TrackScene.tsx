@@ -1,0 +1,46 @@
+'use client';
+import {useEffect,useRef,useState} from 'react';
+import * as T from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import type {Race,Horse} from './types';
+import {courseFor} from './courses';
+
+const coat:Record<string,string>={'01':'#b8773c','02':'#845330','03':'#926039','04':'#45332c','05':'#292b2c','06':'#202126','07':'#c7c9c4','08':'#b69a7f','09':'#958475','10':'#767b81','11':'#f1e8d9'};
+function label(text:string,width=512){const c=document.createElement('canvas');c.width=width;c.height=128;const x=c.getContext('2d')!;x.fillStyle='#fffaf0';x.beginPath();x.roundRect(4,12,width-8,100,22);x.fill();x.fillStyle='#263b34';x.font='bold 36px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText(text,width/2,64,width-25);const map=new T.CanvasTexture(c);map.colorSpace=T.SRGBColorSpace;const s=new T.Sprite(new T.SpriteMaterial({map,depthTest:false}));s.scale.set(width/128*1.8,1.8,1);s.renderOrder=5;return s;}
+function plush(h:Horse){const g=new T.Group();const brown=new T.MeshStandardMaterial({color:coat[h.coatCode]||'#999999',roughness:1}); const dark=new T.MeshStandardMaterial({color:'#302a29',roughness:1}); const white=new T.MeshStandardMaterial({color:'#eee9db',roughness:1}); const purple=new T.MeshStandardMaterial({color:'#7250a1',roughness:1});
+ const ball=(mat:T.Material,p:number[],s:number[])=>{const m=new T.Mesh(new T.SphereGeometry(1,16,12),mat);m.position.set(...p as [number,number,number]);m.scale.set(...s as [number,number,number]);m.castShadow=true;g.add(m);return m;};
+ ball(brown,[0,1.5,0],[1.25,.95,.75]);ball(brown,[.85,2.2,0],[.6,.95,.62]);ball(brown,[1.3,2.75,0],[.8,.78,.66]);ball(brown,[1.85,2.5,0],[.52,.42,.58]);
+ for(const z of [-.47,.47]){for(const x of [-.78,.73]){ball(brown,[x,.65,z],[.35,.65,.35]);ball(white,[x,.3,z],[.36,.23,.36]);ball(dark,[x,.15,z],[.37,.19,.38]);}ball(brown,[1.15,3.55,z*.8],[.23,.5,.22]);ball(dark,[1.65,2.9,z*1.34],[.12,.14,.08]);}
+ for(let i=0;i<7;i++)ball(dark,[.52+i*.12,2.35+i*.16,0],[.27,.26,.36]);for(let i=0;i<4;i++)ball(dark,[-1.3-i*.12,1.7-i*.22,0],[.35,.35,.27]);
+ ball(purple,[-.1,2.12,0],[.8,.3,.81]);
+ if(h.blinker){const blue=new T.MeshStandardMaterial({color:'#436b9f',roughness:1});ball(blue,[1.28,2.78,0],[.83,.79,.68]);for(const z of [-.69,.69]){ball(dark,[1.6,2.91,z],[.16,.18,.04]);}ball(brown,[1.96,2.5,0],[.46,.36,.53]);}
+ const plate=label(`${h.number}  ${h.name}`);plate.position.set(0,4.5,0);plate.scale.multiplyScalar(.65);g.add(plate);
+ const num=label(String(h.number),128);num.position.set(-.2,1.65,.87);num.scale.set(.95,.95,1);g.add(num);
+ return g;
+}
+export default function TrackScene({race,progress,selected,view,onSelect}:{race:Race;progress:number;selected:number|null;view:string;onSelect:(n:number)=>void}){
+ const host=useRef<HTMLDivElement>(null);const state=useRef({progress,selected,view});state.current={progress,selected,view};const select=useRef(onSelect);select.current=onSelect;const [error,setError]=useState('');
+ useEffect(()=>{const el=host.current!;let renderer:T.WebGLRenderer;try{renderer=new T.WebGLRenderer({antialias:true,alpha:true});}catch{setError('3D表示にはWebGL対応ブラウザーが必要です。馬柱と予想隊列は下に表示しています。');return;}
+ const scene=new T.Scene();scene.background=new T.Color('#e9eddf');scene.fog=new T.Fog('#e9eddf',170,350);renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;el.appendChild(renderer.domElement);
+ const camera=new T.PerspectiveCamera(42,1,.1,600);camera.position.set(15,91,116);const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,0,0);controls.enableDamping=true;controls.maxPolarAngle=Math.PI*.47;controls.minDistance=18;controls.maxDistance=220;
+ scene.add(new T.HemisphereLight('#fff6e4','#839c75',1.8));const sun=new T.DirectionalLight('#fff7e8',1.8);sun.position.set(-35,65,25);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);sun.shadow.camera.left=-85;sun.shadow.camera.right=85;sun.shadow.camera.top=65;sun.shadow.camera.bottom=-65;scene.add(sun);
+ const course=courseFor(race);const wide=course.lap/2083.1;const rx=48*wide,rz=24;
+ // Closed centerline derived from the course proportions; start chutes are not surveyed.
+ const curve=new T.CatmullRomCurve3(Array.from({length:32},(_,i)=>{const a=i/32*Math.PI*2;const x=Math.cos(a)*rx;const z=Math.sin(a)*rz;const hill=course.rise*.28*(.5+.5*Math.sin(a+(course.slug==='kyoto'?1.3:0)));return new T.Vector3(x,hill,z);}),true,'centripetal');
+ const base=new T.Mesh(new T.BoxGeometry(rx*2+28,2.2,rz*2+28),new T.MeshStandardMaterial({color:'#c5cfae',roughness:1}));base.position.y=-2;base.receiveShadow=true;scene.add(base);
+ function ribbon(offset:number,width:number,color:string){const positions:number[]=[],indices:number[]=[];for(let i=0;i<=256;i++){const u=i/256,p=curve.getPointAt(u),t=curve.getTangentAt(u),n=new T.Vector3(-t.z,0,t.x).normalize();for(const side of [-1,1]){const v=p.clone().addScaledVector(n,offset+side*width/2);positions.push(v.x,v.y,v.z);}if(i<256){const k=i*2;indices.push(k,k+1,k+2,k+1,k+3,k+2);}}const geo=new T.BufferGeometry();geo.setAttribute('position',new T.Float32BufferAttribute(positions,3));geo.setIndex(indices);geo.computeVertexNormals();const m=new T.Mesh(geo,new T.MeshStandardMaterial({color,side:T.DoubleSide,roughness:1}));m.receiveShadow=true;scene.add(m);}
+ ribbon(0,10,race.surface==='芝'?'#86b76b':'#cba578');ribbon(8,4,'#d4ba8e');
+ for(const side of [-5.5,5.5]){const points=[];for(let i=0;i<=128;i++){const p=curve.getPointAt(i/128),t=curve.getTangentAt(i/128);p.addScaledVector(new T.Vector3(-t.z,0,t.x).normalize(),side);p.y+=.7;points.push(p);if(i%3===0){const post=new T.Mesh(new T.CylinderGeometry(.08,.08,1.4,5),new T.MeshStandardMaterial({color:'#faf8eb'}));post.position.copy(p);post.position.y-=.5;scene.add(post);}}const rail=new T.Mesh(new T.TubeGeometry(new T.CatmullRomCurve3(points),256,.1,5,false),new T.MeshStandardMaterial({color:'#fbf9ec'}));scene.add(rail);}
+ const title=label(`${race.venue}  ${race.surface} ${race.distance}m`);title.position.set(0,2,-4);title.scale.set(22,5.5,1);scene.add(title);
+ const finish=label('GOAL',256);finish.position.copy(curve.getPointAt(.25));finish.position.y+=5;finish.scale.set(5,2.5,1);scene.add(finish);
+ const horses=race.horses.map(h=>{const g=plush(h);g.scale.setScalar(.75);g.userData.number=h.number;scene.add(g);return g;});
+ const ray=new T.Raycaster();const mouse=new T.Vector2();let down=[0,0];const pd=(e:PointerEvent)=>{down=[e.clientX,e.clientY];};const click=(e:PointerEvent)=>{if(Math.hypot(e.clientX-down[0],e.clientY-down[1])>5)return;const b=el.getBoundingClientRect();mouse.set((e.clientX-b.left)/b.width*2-1,-(e.clientY-b.top)/b.height*2+1);ray.setFromCamera(mouse,camera);const hit=ray.intersectObjects(horses,true)[0];if(hit){let o:T.Object3D=hit.object;while(o.parent&&!o.userData.number)o=o.parent;if(o.userData.number)select.current(o.userData.number);}};
+ renderer.domElement.addEventListener('pointerdown',pd);renderer.domElement.addEventListener('pointerup',click);
+ const resize=()=>{camera.aspect=el.clientWidth/el.clientHeight;camera.updateProjectionMatrix();renderer.setSize(el.clientWidth,el.clientHeight);};const observer=new ResizeObserver(resize);observer.observe(el);resize();let frame=0,lastView='';
+ function draw(){const {progress:p,selected,view}=state.current;if(view!==lastView){if(view==='top')camera.position.set(.01,145,0);else camera.position.set(15,91,116);controls.target.set(0,0,0);lastView=view;}
+ const stage=Math.min(3,p*4),idx=Math.floor(stage),mix=stage-idx;const order=race.horses.map((h,i)=>({i,v:h.positions[idx]*(1-mix)+h.positions[Math.min(3,idx+1)]*mix})).sort((a,b)=>a.v-b.v);const ranks=Array(race.horses.length);order.forEach((v,i)=>ranks[v.i]=i);
+ horses.forEach((g,i)=>{const h=race.horses[i];const rank=ranks[i];const dir=course.left?1:-1;const travel=p*(race.distance/course.lap);const start=.25-dir*(race.distance/course.lap);const gap=(p<.08?p/.08:1)*Math.floor(rank/3)*.013;const u=((start+dir*(travel-gap))%1+1)%1;const pt=curve.getPointAt(u),t=curve.getTangentAt(u).multiplyScalar(dir),n=new T.Vector3(-t.z,0,t.x).normalize();const lane=p<.08?(h.number/race.horses.length-.5)*8:(rank%3-1)*2.65;pt.addScaledVector(n,lane);g.position.copy(pt);g.rotation.y=-Math.atan2(t.z,t.x);g.scale.setScalar(selected===h.number?.94:.75);});
+ if(view==='pack'){const center=horses.reduce((v,g)=>v.add(g.position),new T.Vector3()).multiplyScalar(1/horses.length);controls.target.lerp(center,.12);camera.position.lerp(center.clone().add(new T.Vector3(12,22,30)),.10);} controls.update();renderer.render(scene,camera);frame=requestAnimationFrame(draw);}
+ draw();return()=>{cancelAnimationFrame(frame);observer.disconnect();controls.dispose();renderer.domElement.removeEventListener('pointerdown',pd);renderer.domElement.removeEventListener('pointerup',click);scene.traverse(o=>{if(o instanceof T.Mesh)o.geometry.dispose();if(o instanceof T.Mesh||o instanceof T.Sprite){for(const m of Array.isArray(o.material)?o.material:[o.material]){if('map' in m&&m.map)m.map.dispose();m.dispose();}}});renderer.dispose();renderer.domElement.remove();};
+ },[race]);return <div className="scene" ref={host} aria-label={`${race.name}の3D展開予想。ドラッグで回転、スクロールで拡大`}>{error&&<p className="scene-error">{error}</p>}</div>;
+}
