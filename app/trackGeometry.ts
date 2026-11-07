@@ -1,6 +1,6 @@
 import * as T from 'three';
 import type {Race} from './types';
-import {courseFor, checkpointDistances, lapFor, G1_COURSES, type CourseKind} from './courses';
+import {courseFor, lapFor, G1_COURSES, type CourseKind} from './courses';
 import {COURSE_DATA} from './courseData';
 
 // Official elevation differences are only 2-5m over ~2km: at true scale the
@@ -252,86 +252,12 @@ export function makeTrack(
     pixel: (x, y) => new T.Vector3((x - cx) * scale, 0, (y - cy) * scale),
   };
 }
-export type RaceRoute = {
-  sample: (travel: number, lane?: number) => TrackPoint;
-  start: T.Vector3;
-  chute: T.Vector3[];
-  phaseDistances: number[];
-};
-export function makeRoute(race: Race, track: TrackModel): RaceRoute {
-  // Standard starts are placed by official remaining distance along the inner rail.
-  const startDistance = track.lap - race.distance;
-  const standard = (travel: number, lane = 0) => track.sample(startDistance + travel, lane);
-  let chute: T.Vector3[] = [];
-  if (race.venueCode === '05' && race.surface === '芝' && race.distance === 2000) {
-    chute = [
-      [540, 231],
-      [540, 192],
-      [537, 165],
-      [526, 134],
-      [509, 109],
-      [487, 90],
-      [461, 78],
-      [429, 72],
-    ].map(([x, y]) => track.pixel(x, y));
-  }
-  if (race.venueCode === '05' && race.surface === '芝' && race.distance === 1800) {
-    chute = [
-      [530, 153],
-      [505, 131],
-      [481, 110],
-      [452, 91],
-      [422, 79],
-    ].map(([x, y]) => track.pixel(x, y));
-  }
-  if (race.venueCode === '05' && race.surface === 'ダート' && race.distance === 1600) {
-    // Turf start, then merge into the dirt back straight. Coordinates share the plan's turf scale.
-    const turf = makeTrack(race, 'turf');
-    chute = [
-      [470, 77],
-      [445, 82],
-      [421, 87],
-      [398, 88],
-    ].map(([x, y]) => turf.pixel(x, y));
-  }
-  let sample = standard;
-  if (chute.length) {
-    const last = chute.at(-1)!;
-    let best = 0,
-      error = Infinity;
-    for (let i = 0; i < 4096; i++) {
-      const p = track.sample((i / 4096) * track.lap).point;
-      const e = Math.hypot(p.x - last.x, p.z - last.z);
-      if (e < error) {
-        error = e;
-        best = (i / 4096) * track.lap;
-      }
-    }
-    chute[chute.length - 1] = track.sample(best).point;
-    const branch = new T.CatmullRomCurve3(chute, false, 'centripetal');
-    branch.arcLengthDivisions = 1024;
-    const branchRaceDistance = race.distance - (track.lap - best);
-    sample = (travel, lane = 0) => {
-      if (travel >= branchRaceDistance)
-        return track.sample(best + travel - branchRaceDistance, lane);
-      const u = T.MathUtils.clamp(travel / branchRaceDistance, 0, 1);
-      const point = branch.getPointAt(u),
-        tangent = branch.getTangentAt(u),
-        outward = new T.Vector3(-tangent.z, 0, tangent.x).normalize();
-      point.addScaledVector(outward, lane);
-      point.y = track.height(best);
-      return {point, tangent, outward};
-    };
-  }
-  // Last-lap checkpoints: no nonexistent 1/2 corners in Tokyo mile races.
-  const phaseDistances = checkpointDistances(race);
-  return {sample, start: sample(0).point, chute, phaseDistances};
-}
-
 // Ground surface that follows the drawn tracks. Every point stays a little below
 // the nearest track surface, so ribbons and horses are never buried by terrain.
-export function makeTerrain(tracks: TrackModel[]) {
+export function makeTerrain(tracks: TrackModel[], extras: T.Vector3[] = []) {
   const samples: {x: number; z: number; y: number}[] = [];
+  // Extra racing surfaces (chutes) that are not a full lap of a track.
+  for (const p of extras) samples.push({x: p.x, z: p.z, y: p.y});
   for (const t of tracks) {
     const step = Math.max(3, t.lap / 600);
     for (let d = 0; d < t.lap; d += step)

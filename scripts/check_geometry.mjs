@@ -3,13 +3,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
+import {G1_RACES} from './g1_races.mjs';
 const out=path.resolve('outputs/geometry-check');await fs.mkdir(out,{recursive:true});
-for(const name of ['courseData','courses','trackGeometry','raceLayout']){
+for(const name of ['courseData','courses','trackGeometry','raceRoutes','raceLayout']){
  const src=await fs.readFile(`app/${name}.ts`,'utf8');
  const js=ts.transpileModule(src,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.js'");
  await fs.writeFile(path.join(out,name+'.js'),js);
 }
-const {makeTrack,makeRoute,makeTerrain,TURF_HEIGHT,linearProfile,VERTICAL_EXAGGERATION}=await import(pathToFileURL(path.join(out,'trackGeometry.js')));
+const {makeTrack,makeTerrain,TURF_HEIGHT,linearProfile,VERTICAL_EXAGGERATION}=await import(pathToFileURL(path.join(out,'trackGeometry.js')));
+const {makeRoute,ROUTE_SPECS}=await import(pathToFileURL(path.join(out,'raceRoutes.js')));
 const {courseFor,G1_COURSES}=await import(pathToFileURL(path.join(out,'courses.js')));
 const {buildLayouts,sampleLayouts,HORSE_LENGTH,HORSE_WIDTH}=await import(pathToFileURL(path.join(out,'raceLayout.js')));
 const data=JSON.parse(await fs.readFile('public/data/forecasts.json','utf8'));
@@ -21,6 +23,12 @@ for(const base of [...new Map(data.races.map(r=>[r.venueCode,r])).values()]){
  if(G1_COURSES[base.venueCode].includes('outer'))races.push({...base,surface:'芝',trackCode:18,name:`${base.venue} turf outer`});
  if(G1_COURSES[base.venueCode].includes('dirt'))
  races.push({...base,surface:'ダート',trackCode:24,distance:1800,horses:base.horses.slice(0,16),name:`${base.venue} dirt`}); // JRA dirt fields are at most 16
+}
+const g1={};
+for(const [venueCode,surface,trackCode,distance,source,name] of G1_RACES){
+ const base=data.races.find(r=>r.venueCode===venueCode);
+ const race={...base,surface,trackCode,distance,name:`G1 ${base.venue} ${surface}${distance}m ${name}`,horses:base.horses.slice(0,surface==='ダート'?16:base.horses.length)};
+ g1[race.name]={source};races.push(race);
 }
 for(const race of races){
  const course=courseFor(race),track=makeTrack(race),route=makeRoute(race,track);
@@ -59,6 +67,25 @@ for(const race of races){
  // Smooth rails: the outer edge (lane = track width) must not zigzag. Digitizing
  // noise is magnified by the lane offset and showed up as jagged course edges.
  {let prevH=null,prevTurn=null,prevP=null;for(let d=0;d<=track.lap;d+=2){const q=track.sample(d,track.width).point;if(prevP){const len=Math.hypot(q.x-prevP.x,q.z-prevP.z);assert.ok(len>.5&&len<3.6,'Outer edge does not fold back');const h=Math.atan2(q.z-prevP.z,q.x-prevP.x);if(prevH!==null){let a=h-prevH;a=Math.atan2(Math.sin(a),Math.cos(a))*180/Math.PI;if(prevTurn!==null)assert.ok(Math.abs(a-prevTurn)<1.5,`Smooth outer edge at ${d}m`);prevTurn=a;}prevH=h;}prevP=q;}}
+ // GⅠ routes: official start (chute / pinned / mixed / main rail), continuity, exact finish, length.
+ if(g1[race.name]){
+  const {source}=g1[race.name],spec=ROUTE_SPECS[`${race.venueCode}:${course.kind}:${race.distance}`];
+  assert.equal(route.source,source,`Route source for ${race.name}`);
+  assert.ok(spec&&spec.plan&&spec.mark,'Start table entry with plan label and mark');
+  assert.ok(route.markError!==null&&route.markError<=Math.max(.02*track.lap,5),`Start within 2% of the lap of the plan mark (${route.markError?.toFixed(1)}m, ${(route.markError/track.lap*100).toFixed(2)}%)`);
+  if(source==='chute'){assert.ok(route.chute.length>=2,'Chute geometry');const mk=makeTrack(race,'turf').pixel(...spec.mark);assert.ok(Math.hypot(route.start.x-mk.x,route.start.z-mk.z)<.01,'Chute starts at the plan mark');}
+  if(source==='mixed'){const first=makeTrack(race,spec.first);const p=route.sample(0).point,q=first.sample(0).point;assert.ok(spec.first!==track.kind,'Mixed route changes course');
+   // starts on the first rail, finishes on the final one
+   let near=1e9;for(let d=0;d<first.lap;d+=1)near=Math.min(near,first.sample(d).point.distanceTo(p));assert.ok(near<.5,'Mixed route starts on the first course');assert.ok(q);}
+  const step=race.distance/2000;let len=0,prev=route.sample(0).point,prevH=prev.y,maxJump=0,maxDh=0;
+  for(let i=1;i<=2000;i++){const p=route.sample(i*step).point,jump=p.distanceTo(prev);len+=jump;maxJump=Math.max(maxJump,jump/step);maxDh=Math.max(maxDh,Math.abs(p.y-prevH)/step);prev=p;prevH=p.y;}
+  assert.ok(maxJump<2.5,`Route continuous at every join (max ${maxJump.toFixed(2)}x step)`);
+  assert.ok(maxDh<.4,`Route heights continuous (max slope ${maxDh.toFixed(3)})`);
+  assert.ok(Math.abs(len/race.distance-1)<.03,`Route length ${len.toFixed(0)}m within 3% of ${race.distance}m`);
+  assert.ok(route.sample(race.distance).point.distanceTo(track.sample(0).point)<.05,'Route ends exactly at the winning post');
+  assert.ok(Math.abs(route.sample(race.distance,10).point.distanceTo(route.sample(race.distance,0).point)-10)<1e-6,'Lanes in metres at the post');
+  console.log(`  GⅠ route ${source}: start error ${route.markError.toFixed(1)}m (${(route.markError/track.lap*100).toFixed(2)}% lap) length ${len.toFixed(0)}m max jump ${maxJump.toFixed(2)}x slope ${maxDh.toFixed(3)}`);
+ }
  // Terrain never covers the racing surface (horses were buried on Tokyo's slopes).
  const terrain=makeTerrain([track]);
  for(let i=0;i<120;i++){const d=i/120*track.lap;for(const lane of [1,track.width/2,track.width-1]){const p=track.sample(d,lane).point;assert.ok(terrain.heightAt(p.x,p.z)<p.y-.1,'Terrain stays below the track');}}

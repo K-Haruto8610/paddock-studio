@@ -1,6 +1,7 @@
 import * as T from 'three';
 import type {Race} from './types';
-import {makeTrack, makeTerrain, type TrackModel, type RaceRoute} from './trackGeometry';
+import {makeTrack, makeTerrain, type TrackModel} from './trackGeometry';
+import type {RaceRoute} from './raceRoutes';
 import {startLanes} from './raceLayout';
 import {plush, label} from './plushHorse';
 
@@ -118,8 +119,16 @@ export function addLights(scene: T.Scene) {
  * Ground follows the (exaggerated) relief of every track and stays below each surface.
  * Returns the terrain model (used to drape extra surfaces onto the ground).
  */
-export function addGround(scene: T.Scene, tracks: TrackModel[]): Terrain {
-  const terrain = makeTerrain(tracks);
+export function addGround(scene: T.Scene, tracks: TrackModel[], route?: RaceRoute): Terrain {
+  // The ground also stays below the race's chute (引込線), which is not part of any lap.
+  const chute: T.Vector3[] = [];
+  const surface = route?.chuteSurface;
+  if (surface && tracks[0]) {
+    for (let i = 0; i <= 48; i++)
+      for (const lane of [-4, 0, tracks[0].width / 2, tracks[0].width, tracks[0].width + 4])
+        chute.push(surface.sample(i / 48, lane).point);
+  }
+  const terrain = makeTerrain(tracks, chute);
   const box = new T.Box3()
     .setFromPoints(terrain.samples.map((s) => new T.Vector3(s.x, 0, s.z)))
     .expandByScalar(160);
@@ -178,18 +187,44 @@ const TOKYO_APRON_B = [
   [171, 361],
 ];
 
-/** Turf/dirt course surfaces, plus Tokyo's chutes and the dirt-start apron when relevant. */
+/** Strip along a chute (引込線) from its start to the main rail, over its own flat height. */
+function chuteRibbon(surface: NonNullable<RaceRoute['chuteSurface']>, width: number, color: string) {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const N = 96;
+  for (let i = 0; i <= N; i++) {
+    for (const lane of [0, width]) {
+      const p = surface.sample(i / N, lane).point;
+      positions.push(p.x, p.y + 0.02, p.z);
+    }
+    if (i < N) {
+      const k = i * 2;
+      indices.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
+    }
+  }
+  const geo = new T.BufferGeometry();
+  geo.setAttribute('position', new T.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  const m = mesh(geo, color, 2);
+  m.receiveShadow = true;
+  return m;
+}
+
+/** Turf/dirt course surfaces, the race's chute, plus Tokyo's chutes and the dirt-start apron. */
 export function addCourseSurfaces(
   scene: T.Scene,
   courses: CourseSet,
   terrain: Terrain,
   tokyo: boolean,
+  route?: RaceRoute,
 ) {
   const {turf, dirt, outer} = courses;
   // Outer course first (lowest priority), then the inner turf, then dirt on top.
   if (outer) scene.add(ribbon(outer, 0, outer.width, '#7faf66', 1));
   scene.add(ribbon(turf, 0, turf.width, '#7faf66', 2));
   if (dirt) scene.add(ribbon(dirt, 0, dirt.width, '#ceb28a', 3));
+  if (route?.chuteSurface) scene.add(chuteRibbon(route.chuteSurface, turf.width, '#7faf66'));
   if (tokyo && dirt) {
     const add = (points: number[][], color: string, lift: number) =>
       scene.add(drape(turf, terrain, points, color, lift));
