@@ -1,18 +1,28 @@
 import type {Race} from './types';
 export type Placement={gap:number;lane:number};
+// Horses are drawn ~1.7x life size (≈4m long, ≈1.5m wide) so they stay legible
+// against a true-scale course. All spacing below is in metres for that size.
+export const HORSE_LENGTH=4.0;
+export const HORSE_WIDTH=1.5;
+export const LANE_PITCH=2.0;
+export const laneSlots=(count:number)=>Array.from({length:count},(_,j)=>1.8+j*LANE_PITCH);
+export function startLanes(race:Race){
+ const width=race.surface==='ダート'?25:30,n=race.horses.length;
+ const pitch=Math.min(1.6,(width-4)/Math.max(1,n-1));
+ return race.horses.map((_,i)=>1.2+i*pitch);
+}
 export function buildLayouts(race:Race):Placement[][]{
- const pitch=(race.surface==='ダート'?21:30)/Math.max(1,race.horses.length-1);
- const starts=race.horses.map((h,i)=>({gap:0,lane:1.8+i*pitch}));
+ const starts=startLanes(race).map(lane=>({gap:0,lane}));
  const stages=[starts];
  for(let phase=0;phase<4;phase++){
   const order=race.horses.map((h,i)=>({h,i,score:h.positions[phase]})).sort((a,b)=>a.score-b.score||a.h.number-b.h.number);
   const min=order[0].score, result:Placement[]=Array(order.length),placed:Placement[]=[];
   for(const [rank,{h,i,score}] of order.entries()){
    // Distances are visualization assumptions: neither time gaps nor lateral lanes are observed in JV-Data.
-   const gap=(score-min)*110+rank*1.1;
-   const preferred=1.8+Math.min(5,h.gate-1)*1.4+(phase>=2&&h.positions[phase]<h.positions[0]?2:0);
-   const candidates=Array.from({length:9},(_,j)=>1.8+j*1.8).sort((a,b)=>Math.abs(a-preferred)-Math.abs(b-preferred));
-   const lane=candidates.find(l=>placed.every(p=>Math.abs(p.gap-gap)>=3.5||Math.abs(p.lane-l)>=1.7))??candidates.at(-1)!;
+   const gap=(score-min)*110+rank*1.8;
+   const preferred=1.8+Math.min(5,h.gate-1)*LANE_PITCH*.8+(phase>=2&&h.positions[phase]<h.positions[0]?LANE_PITCH:0);
+   const candidates=laneSlots(9).sort((a,b)=>Math.abs(a-preferred)-Math.abs(b-preferred));
+   const lane=candidates.find(l=>placed.every(p=>Math.abs(p.gap-gap)>=HORSE_LENGTH*1.3||Math.abs(p.lane-l)>=LANE_PITCH*.9))??candidates.at(-1)!;
    result[i]={gap,lane};placed.push(result[i]);
   }
   stages.push(result);
@@ -26,11 +36,12 @@ export function sampleLayouts(layouts:Placement[][],travel:number,knots:number[]
  const result=layouts[segment].map((a,i)=>({gap:a.gap+(layouts[segment+1][i].gap-a.gap)*smooth,lane:a.lane+(layouts[segment+1][i].lane-a.lane)*smooth}));
  // Keep silhouettes separate while passing. The elliptical clearance grows smoothly
  // as two horses draw level, rather than snapping the field into fixed columns.
- for(let pass=0;pass<32;pass++){
+ const reach=HORSE_LENGTH*1.25;
+ for(let pass=0;pass<40;pass++){
   for(let i=0;i<result.length;i++)for(let j=i+1;j<result.length;j++){
    const a=result[i],b=result[j],dx=Math.abs(a.gap-b.gap);
-   if(dx>=4)continue;
-   const clearance=1.4*Math.sqrt(1-(dx/4)**2),dy=b.lane-a.lane;
+   if(dx>=reach)continue;
+   const clearance=HORSE_WIDTH*Math.sqrt(1-(dx/reach)**2),dy=b.lane-a.lane;
    if(Math.abs(dy)<clearance){const shift=(clearance-Math.abs(dy)+.001)/2,sign=dy>=0?1:-1;a.lane-=shift*sign;b.lane+=shift*sign;}
   }
  }

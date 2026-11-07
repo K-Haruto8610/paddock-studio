@@ -1,6 +1,6 @@
 import type {Race,ReplayRace,PlaybackMode} from './types';
-import {checkpointDistances,courseFor} from './courses';
-import {buildLayouts,sampleLayouts,type Placement} from './raceLayout';
+import {checkpointDistances,cornerLabels,courseFor} from './courses';
+import {buildLayouts,sampleLayouts,laneSlots,HORSE_LENGTH,LANE_PITCH,type Placement} from './raceLayout';
 
 export type Checkpoint={label:string;distance:number;observed:boolean;ranks:(number|null)[];corner?:number};
 export type PlaybackPlan={layouts:Placement[][];knots:number[];checkpoints:Checkpoint[];mode:PlaybackMode;available:boolean};
@@ -8,12 +8,12 @@ export type PlaybackPlan={layouts:Placement[][];knots:number[];checkpoints:Check
 function observedLayout(race:Race,ranks:number[],previous?:Placement[]):Placement[]{
  const minimum=Math.min(...ranks),out:Placement[]=Array(ranks.length),placed:Placement[]=[];
  for(const {rank,i} of ranks.map((rank,i)=>({rank,i})).sort((a,b)=>a.rank-b.rank||a.i-b.i)){
-  const gap=(rank-minimum)*4.1;
+  const gap=(rank-minimum)*HORSE_LENGTH*1.3;
   // Lanes/gaps are illustrative; only ranks come from the recorded results.
   const advancing=previous&&gap<previous[i].gap;
-  const preferred=1.8+Math.min(4,race.horses[i].gate-1)*1.4+(advancing?2.8:0);
-  const lanes=Array.from({length:10},(_,i)=>1.8+i*1.8).sort((a,b)=>Math.abs(a-preferred)-Math.abs(b-preferred));
-  const lane=lanes.find(l=>placed.every(p=>Math.abs(p.gap-gap)>=3.5||Math.abs(p.lane-l)>=1.7))??lanes.at(-1)!;
+  const preferred=1.8+Math.min(4,race.horses[i].gate-1)*LANE_PITCH*.8+(advancing?LANE_PITCH*1.5:0);
+  const lanes=laneSlots(10).sort((a,b)=>Math.abs(a-preferred)-Math.abs(b-preferred));
+  const lane=lanes.find(l=>placed.every(p=>Math.abs(p.gap-gap)>=HORSE_LENGTH*1.3||Math.abs(p.lane-l)>=LANE_PITCH*.9))??lanes.at(-1)!;
   out[i]={gap,lane};placed.push(out[i]);
  }
  return out;
@@ -39,7 +39,7 @@ export function buildPlayback(race:Race,mode:PlaybackMode,replay?:ReplayRace):Pl
   if(checkpoints.at(-1)!.distance<race.distance){layouts.push(layouts.at(-1)!);checkpoints.push({label:'入線データなし',distance:race.distance,observed:false,ranks:race.horses.map(()=>null)});}
   return {mode,available:checkpoints.some(c=>c.observed),layouts,knots:checkpoints.map(c=>c.distance),checkpoints};
  }
- const checkpoints=[start,...[1,2,3,4].map(c=>({label:race.distance<=1800&&c<=2?(c===1?'序盤':'道中'):`${c}角`,distance:distances[c],observed:false,ranks:race.horses.map(h=>h.positions[c-1]*(race.horses.length-1)+1)}))];
+ const labels=cornerLabels(race),checkpoints=[start,...[1,2,3,4].map(c=>({label:labels[c-1],distance:distances[c],observed:false,ranks:race.horses.map(h=>h.positions[c-1]*(race.horses.length-1)+1)}))];
  // Existing last-3F prediction now affects the straight instead of freezing the field.
  // This is a relative-motion estimate, not an observed or separately trained finishing rank.
  const ratio=Math.min(1,courseFor(race).straight/600),best=Math.min(...race.horses.map(h=>h.last3));
