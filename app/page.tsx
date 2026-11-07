@@ -27,7 +27,7 @@ export default function Home() {
     [speed, setSpeed] = useState(1),
     [followKey, setFollowKey] = useState(0),
     [tab, setTab] = useState('horses'),
-    [mode, setMode] = useState<PlaybackMode>('replay');
+    [modeChoice, setMode] = useState<PlaybackMode>('replay');
   useEffect(() => {
     Promise.allSettled([
       readJson<Dataset>('/data/forecasts.json'),
@@ -67,7 +67,8 @@ export default function Home() {
   const race = data?.races.find((r) => r.id === raceId),
     horse = race?.horses.find((h) => h.number === selected),
     course = race ? courseFor(race) : null,
-    replay = replays?.races[raceId];
+    replay = replays?.races[raceId],
+    mode: PlaybackMode = race?.historical === false ? 'forecast' : modeChoice;
   const plan = useMemo(
     () => (race ? buildPlayback(race, mode, replay) : null),
     [race, mode, replay],
@@ -152,6 +153,15 @@ export default function Home() {
               </select>
             </label>
           </section>
+          {race.entries && (
+            <p className="notice" role="status">
+              出馬表：{race.entries.source}（{race.entries.fetchedAt.replace('T', ' ').slice(0, 16)}
+              取得）
+              {race.entries.scratched.length > 0 &&
+                `　取消：${race.entries.scratched.map((h) => `${h.number ?? ''}${h.name}`).join('、')}`}
+              ・発走前のため実績再生はありません。
+            </p>
+          )}
           <section className="mode-bar" aria-label="再生データの選択">
             <div className="mode-switch">
               <button

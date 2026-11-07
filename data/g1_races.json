@@ -1,0 +1,460 @@
+{
+ "version": 1,
+ "checkedAt": "2026-11-08",
+ "sources": [
+  "mykeiba race_shosai（GRADE_CODE=A）2023〜2026の施行実績",
+  "JRA公式 特別レース登録馬ページ（2026年エリザベス女王杯の条件）"
+ ],
+ "notes": [
+  "trackCodesはJV-Dataのトラックコード（11芝左 12芝左外 17芝右 18芝右外 23ダート左）。DBで観測した値を採用。",
+  "京都改修期間（2020年11月〜2023年3月）は京都GⅠが阪神等で施行された。2024年は阪神改修により宝塚記念・阪神JF・朝日杯FSが京都で施行された。venueOverridesに記録。",
+  "DBの2026年秋の一部レース名は文字化けしており検証対象外。"
+ ],
+ "venueOverrides": [
+  {
+   "id": "kikuka-sho",
+   "year": 2022,
+   "venueCode": "09",
+   "trackCodes": [
+    17
+   ]
+  },
+  {
+   "id": "takarazuka-kinen",
+   "year": 2024,
+   "venueCode": "08",
+   "trackCodes": [
+    18
+   ]
+  },
+  {
+   "id": "hanshin-juvenile-fillies",
+   "year": 2024,
+   "venueCode": "08",
+   "trackCodes": [
+    18
+   ]
+  },
+  {
+   "id": "asahi-hai-futurity",
+   "year": 2024,
+   "venueCode": "08",
+   "trackCodes": [
+    18
+   ]
+  }
+ ],
+ "races": [
+  {
+   "id": "february-stakes",
+   "name": "フェブラリーステークス",
+   "aliases": [
+    "フェブラリーS"
+   ],
+   "venueCode": "05",
+   "venue": "東京",
+   "surface": "ダート",
+   "distance": 1600,
+   "layout": "",
+   "trackCodes": [
+    23
+   ],
+   "month": 2,
+   "ageSex": "4歳以上",
+   "note": ""
+  },
+  {
+   "id": "takamatsunomiya-kinen",
+   "name": "高松宮記念",
+   "aliases": [],
+   "venueCode": "07",
+   "venue": "中京",
+   "surface": "芝",
+   "distance": 1200,
+   "layout": "",
+   "trackCodes": [
+    11
+   ],
+   "month": 3,
+   "ageSex": "4歳以上",
+   "note": ""
+  },
+  {
+   "id": "osaka-hai",
+   "name": "大阪杯",
+   "aliases": [],
+   "venueCode": "09",
+   "venue": "阪神",
+   "surface": "芝",
+   "distance": 2000,
+   "layout": "内",
+   "trackCodes": [
+    17
+   ],
+   "month": 4,
+   "ageSex": "4歳以上",
+   "note": ""
+  },
+  {
+   "id": "oka-sho",
+   "name": "桜花賞",
+   "aliases": [],
+   "venueCode": "09",
+   "venue": "阪神",
+   "surface": "芝",
+   "distance": 1600,
+   "layout": "外",
+   "trackCodes": [
+    18
+   ],
+   "month": 4,
+   "ageSex": "3歳牝馬",
+   "note": ""
+  },
+  {
+   "id": "satsuki-sho",
+   "name": "皐月賞",
+   "aliases": [],
+   "venueCode": "06",
+   "venue": "中山",
+   "surface": "芝",
+   "distance": 2000,
+   "layout": "内",
+   "trackCodes": [
+    17
+   ],
+   "month": 4,
+   "ageSex": "3歳",
+   "note": ""
+  },
+  {
+   "id": "tenno-sho-spring",
+   "name": "天皇賞（春）",
+   "aliases": [
+    "天皇賞春"
+   ],
+   "venueCode": "08",
+   "venue": "京都",
+   "surface": "芝",
+   "distance": 3200,
+   "layout": "外",
+   "trackCodes": [
+    18
+   ],
+   "month": 4,
+   "ageSex": "4歳以上",
+   "note": "JV-Dataでは18（芝右外）で記録。実走は外回りから内回りへ移る。"
+  },
+  {
+   "id": "nhk-mile-cup",
+   "name": "NHKマイルカップ",
+   "aliases": [
+    "NHKマイルC"
+   ],
+   "venueCode": "05",
+   "venue": "東京",
+   "surface": "芝",
+   "distance": 1600,
+   "layout": "",
+   "trackCodes": [
+    11,
+    12
+   ],
+   "month": 5,
+   "ageSex": "3歳",
+   "note": ""
+  },
+  {
+   "id": "victoria-mile",
+   "name": "ヴィクトリアマイル",
+   "aliases": [],
+   "venueCode": "05",
+   "venue": "東京",
+   "surface": "芝",
+   "distance": 1600,
+   "layout": "",
+   "trackCodes": [
+    11
+   ],
+   "month": 5,
+   "ageSex": "4歳以上牝馬",
+   "note": ""
+  },
+  {
+   "id": "oaks",
+   "name": "優駿牝馬",
+   "aliases": [
+    "オークス"
+   ],
+   "venueCode": "05",
+   "venue": "東京",
+   "surface": "芝",
+   "distance": 2400,
+   "layout": "",
+   "trackCodes": [
+    11
+   ],
+   "month": 5,
+   "ageSex": "3歳牝馬",
+   "note": "正式名は優駿牝馬（オークス）。"
+  },
+  {
+   "id": "tokyo-yushun",
+   "name": "東京優駿",
+   "aliases": [
+    "日本ダービー"
+   ],
+   "venueCode": "05",
+   "venue": "東京",
+   "surface": "芝",
+   "distance": 2400,
+   "layout": "",
+   "trackCodes": [
+    11
+   ],
+   "month": 5,
+   "ageSex": "3歳",
+   "note": "正式名は東京優駿（日本ダービー）。"
+  },
+  {
+   "id": "yasuda-kinen",
+   "name": "安田記念",
+   "aliases": [
+    "農林水産省賞典安田記念"
+   ],
+   "venueCode": "05",
+   "venue": "東京",
+   "surface": "芝",
+   "distance": 1600,
+   "layout": "",
+   "trackCodes": [
+    11
+   ],
+   "month": 6,
+   "ageSex": "3歳以上",
+   "note": ""
+  },
+  {
+   "id": "takarazuka-kinen",
+   "name": "宝塚記念",
+   "aliases": [],
+   "venueCode": "09",
+   "venue": "阪神",
+   "surface": "芝",
+   "distance": 2200,
+   "layout": "内",
+   "trackCodes": [
+    17
+   ],
+   "month": 6,
+   "ageSex": "3歳以上",
+   "note": "2024年は阪神の改修で京都芝2200外（18）で施行。"
+  },
+  {
+   "id": "sprinters-stakes",
+   "name": "スプリンターズステークス",
+   "aliases": [
+    "スプリンターズS"
+   ],
+   "venueCode": "06",
+   "venue": "中山",
+   "surface": "芝",
+   "distance": 1200,
+   "layout": "外",
+   "trackCodes": [
+    18
+   ],
+   "month": 9,
+   "ageSex": "3歳以上",
+   "note": "9月末〜10月初。"
+  },
+  {
+   "id": "shuka-sho",
+   "name": "秋華賞",
+   "aliases": [],
+   "venueCode": "08",
+   "venue": "京都",
+   "surface": "芝",
+   "distance": 2000,
+   "layout": "内",
+   "trackCodes": [
+    17
+   ],
+   "month": 10,
+   "ageSex": "3歳牝馬",
+   "note": ""
+  },
+  {
+   "id": "kikuka-sho",
+   "name": "菊花賞",
+   "aliases": [],
+   "venueCode": "08",
+   "venue": "京都",
+   "surface": "芝",
+   "distance": 3000,
+   "layout": "外",
+   "trackCodes": [
+    18
+   ],
+   "month": 10,
+   "ageSex": "3歳",
+   "note": "2022年は京都改修で阪神芝3000内（17）。"
+  },
+  {
+   "id": "tenno-sho-autumn",
+   "name": "天皇賞（秋）",
+   "aliases": [
+    "天皇賞秋"
+   ],
+   "venueCode": "05",
+   "venue": "東京",
+   "surface": "芝",
+   "distance": 2000,
+   "layout": "",
+   "trackCodes": [
+    11
+   ],
+   "month": 10,
+   "ageSex": "3歳以上",
+   "note": "10月末〜11月初。"
+  },
+  {
+   "id": "queen-elizabeth-ii-cup",
+   "name": "エリザベス女王杯",
+   "aliases": [],
+   "venueCode": "08",
+   "venue": "京都",
+   "surface": "芝",
+   "distance": 2200,
+   "layout": "外",
+   "trackCodes": [
+    18
+   ],
+   "month": 11,
+   "ageSex": "3歳以上牝馬",
+   "note": ""
+  },
+  {
+   "id": "mile-championship",
+   "name": "マイルチャンピオンシップ",
+   "aliases": [
+    "マイルCS"
+   ],
+   "venueCode": "08",
+   "venue": "京都",
+   "surface": "芝",
+   "distance": 1600,
+   "layout": "外",
+   "trackCodes": [
+    18
+   ],
+   "month": 11,
+   "ageSex": "3歳以上",
+   "note": ""
+  },
+  {
+   "id": "japan-cup",
+   "name": "ジャパンカップ",
+   "aliases": [],
+   "venueCode": "05",
+   "venue": "東京",
+   "surface": "芝",
+   "distance": 2400,
+   "layout": "",
+   "trackCodes": [
+    11
+   ],
+   "month": 11,
+   "ageSex": "3歳以上",
+   "note": ""
+  },
+  {
+   "id": "champions-cup",
+   "name": "チャンピオンズカップ",
+   "aliases": [
+    "チャンピオンズC"
+   ],
+   "venueCode": "07",
+   "venue": "中京",
+   "surface": "ダート",
+   "distance": 1800,
+   "layout": "",
+   "trackCodes": [
+    23
+   ],
+   "month": 12,
+   "ageSex": "3歳以上",
+   "note": ""
+  },
+  {
+   "id": "hanshin-juvenile-fillies",
+   "name": "阪神ジュベナイルフィリーズ",
+   "aliases": [
+    "阪神JF"
+   ],
+   "venueCode": "09",
+   "venue": "阪神",
+   "surface": "芝",
+   "distance": 1600,
+   "layout": "外",
+   "trackCodes": [
+    18
+   ],
+   "month": 12,
+   "ageSex": "2歳牝馬",
+   "note": "2024年は京都芝1600外で施行。"
+  },
+  {
+   "id": "asahi-hai-futurity",
+   "name": "朝日杯フューチュリティステークス",
+   "aliases": [
+    "朝日杯FS"
+   ],
+   "venueCode": "09",
+   "venue": "阪神",
+   "surface": "芝",
+   "distance": 1600,
+   "layout": "外",
+   "trackCodes": [
+    18
+   ],
+   "month": 12,
+   "ageSex": "2歳",
+   "note": "2024年は京都芝1600外で施行。"
+  },
+  {
+   "id": "arima-kinen",
+   "name": "有馬記念",
+   "aliases": [],
+   "venueCode": "06",
+   "venue": "中山",
+   "surface": "芝",
+   "distance": 2500,
+   "layout": "内",
+   "trackCodes": [
+    17
+   ],
+   "month": 12,
+   "ageSex": "3歳以上",
+   "note": "DBでは17（芝右）。外→内の指定はDB上に無く、内回りとして扱う。"
+  },
+  {
+   "id": "hopeful-stakes",
+   "name": "ホープフルステークス",
+   "aliases": [
+    "ホープフルS"
+   ],
+   "venueCode": "06",
+   "venue": "中山",
+   "surface": "芝",
+   "distance": 2000,
+   "layout": "内",
+   "trackCodes": [
+    17
+   ],
+   "month": 12,
+   "ageSex": "2歳",
+   "note": ""
+  }
+ ]
+}

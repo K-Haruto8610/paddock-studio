@@ -5,6 +5,9 @@ assert len(d['races'])>0
 assert not any(any(k in f.lower() for k in ['odds','ninki','chakujun']) for f in d['model']['features'])
 for r in d['races']:
     assert r['date']>'20251231'
+    if r['historical'] is False:
+        assert r['entries']['source'] and r['entries']['fetchedAt'] and r['entries']['status']=='declared'
+        assert not any(s['number'] in {h['number'] for h in r['horses']} for s in r['entries']['scratched'])
     assert r['venueCode'] in ['05','06','07','08','09']
     assert r['trackCode']<30
     assert len({h['number'] for h in r['horses']})==len(r['horses'])

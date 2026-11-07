@@ -18,6 +18,7 @@ def export():
     replays={}
     with c.cursor() as q:
         for race in forecasts['races']:
+            if race.get('historical') is False: continue  # upcoming race: no result exists
             q.execute('''SELECT UMABAN,BAMEI,CORNER1_JUNI,CORNER2_JUNI,CORNER3_JUNI,CORNER4_JUNI,
                 NYUSEN_JUNI,KAKUTEI_CHAKUJUN,KOHAN_3F,IJO_KUBUN_CODE FROM umagoto_race_joho WHERE RACE_CODE=%s''',(race['id'],))
             found={positive(row['UMABAN']):row for row in q.fetchall()}

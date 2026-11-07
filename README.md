@@ -19,7 +19,10 @@ JRA平地GⅠの展開を、馬柱を学習したLightGBMと3Dの馬で表示す
 ## 実行
 ```
 npm run dev
-python scripts/build_forecasts.py
+python scripts/validate_g1_master.py     # GⅠマスター(data/g1_races.json)とDBの照合
+python scripts/fetch_entries.py          # 直近2週間のGⅠ出馬表を data/entries/ に保存（--dry-run, --refresh）
+python scripts/check_entries.py          # 取消・馬具変更などの差分処理の自己検査
+python scripts/build_forecasts.py        # 過去GⅠ + 出馬表確定済みの発走前GⅠを出力
 python scripts/export_replays.py
 python scripts/digitize_jra_courses.py   # JRA図面の読取（references/jra → app/courseData.ts, public/courses）
 npx tsc --noEmit
@@ -30,14 +33,25 @@ KEIBA_SOURCE環境変数で既存mykeibaのパスを指定できる。認証情�
 モデルはmodels/、Web向け予想データはpublic/data/forecasts.json。
 
 ## 重要な未実装事項
-- 最新出馬表の自動取得・差分更新。既存DBの一部に文字化けや出走頭数不一致がある。
-- 当日の出走取消・馬具変更・枠順変更を反映する更新経路。
+- 既存DBの一部（2026年6月以降の一部レース）に文字化けや出走頭数不一致がある。該当レースは掲載対象外。
+- 出馬表はJRA公式の公開ページ（枠順確定後）が出るまで取得できない。登録段階（馬番・騎手なし）は保存のみで予想は出さない。
+  出走取消の実カード上の表記はまだ実物で確認できておらず、「取消」「除外」の文字列検出と変更情報・前回との差分で判定している。
 - 内柵設定（A〜Dコース）ごとの差分、東京以外の引込線（発走地点は本線上に置く）。内→外/外→内（トラックコード13/14/19/20）は最終周の経路で近似。
   全GⅠ開催場（東京・中山・京都・阪神・中京）を公式平面図・周長・高低断面図から立体化。東京は手動読取、他場は scripts/digitize_jra_courses.py による自動読取（references/jra/README.md）。図面読取誤差があるため測量座標ではない。
 - 観測点間の実際の連続座標・追い抜き位置・時刻。コーナー通過時刻の記録がないため地点間は滑らかに補間。
   モデル予想の直線は4角位置と予想上がり3Fによる相対前進量を補間する。別途学習した着順予測ではない。
-- 平地GⅠ全レースの現行コース・距離マスター、十分な過去走データの充足。
+- 十分な過去走データの充足（初出走・海外馬は履歴なしで予想）。
 - モデルの位置予測は回帰値で、表の「番手相当」は重複する。3Dでは予測値順で並べる。
+
+## GⅠマスターと出馬表
+- `data/g1_races.json` が現行平地GⅠ24競走の唯一の定義（名称・場・芝ダ・距離・内外・JVトラックコード・時期・年齢性別）。型付きローダーは `app/g1Races.ts`、Python側は `scripts/g1_master.py`。
+  `build_forecasts.py` はGRADE_CODE=Aかつマスターと名称・場・距離・トラックコードが一致するレースだけを掲載（不一致は警告して除外）。改修による開催場変更は `venueOverrides`（2022菊花賞=阪神、2024宝塚記念・阪神JF・朝日杯FS=京都）。
+- `fetch_entries.py` の取得元優先順: (a) mykeiba DBに発走前カードがあればそれ（SELECTのみ）、(b) JRA公式の公開ページ。
+  JRAは `accessT.html`（特別レース登録馬）で日程を把握し、`accessD.html`（出馬表の開催選択→開催日→全レース）で枠・馬番・馬名・性齢・斤量・騎手・ブリンカーを取得、`accessI.html`（開催お知らせ）の変更情報を保存する。
+  ログイン不要・汎用UA・2.5秒以上の間隔・生レスポンスを `outputs/jra_cache/` にキャッシュ（gitignore）。1回の実行で数リクエスト。オッズ・人気は読み取りも保存もしない。
+- `data/entries/<race_id>.json`: `status`（registered/declared）、`source`、`fetchedAt`、馬ごとの `status`（entered/scratched）、`changes`（取消・馬具・馬番/枠・騎手・斤量の変更履歴と時刻）、`notices`（JRAの変更情報原文）。取消は確定扱いで、登録リストで枠順確定カードを巻き戻さない。
+- `build_forecasts.py` は最新スナップショットの declared かつ発走日が今日以降のレースを `historical:false` として先頭に追加し、取消馬を除いた頭数で位置を再正規化。`entries`（取得元・時刻・取消・直近の変更）を付与。UIは出馬表の取得元と取消を表示し、実績再生は無効。
+- 運用: 木〜金の出馬表公開後と当日朝に `fetch_entries.py` → `build_forecasts.py`。`--today` で基準日を指定可。
 
 ## コース出典（確認 2026-11-08）
 - https://www.jra.go.jp/facilities/race/tokyo/course/index.html

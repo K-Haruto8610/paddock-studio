@@ -31,6 +31,24 @@ export type Race = {
   course: string;
   horses: Horse[];
   historical: boolean;
+  // Upcoming races only: where the declared field came from and race-day changes.
+  entries?: RaceEntries;
+};
+export type RaceEntries = {
+  source: string;
+  fetchedAt: string;
+  status: string;
+  scratched: {number: number | null; name: string; reason: string | null}[];
+  changes: {
+    at: string;
+    kind: string;
+    number?: number | null;
+    name?: string;
+    label?: string;
+    before?: unknown;
+    after?: unknown;
+    reason?: string | null;
+  }[];
 };
 export type Dataset = {
   generatedAt: string;
