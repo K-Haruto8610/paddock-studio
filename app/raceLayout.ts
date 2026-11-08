@@ -69,7 +69,9 @@ export function sampleLayouts(
   // Keep silhouettes separate while passing. The elliptical clearance grows smoothly
   // as two horses draw level, rather than snapping the field into fixed columns.
   const reach = HORSE_LENGTH * 1.25;
-  for (let pass = 0; pass < 40; pass++) {
+  // Repeat until no pair needs a push: a crowded field next to the rail can take more than a few passes.
+  for (let pass = 0, moved = true; moved && pass < 200; pass++) {
+    moved = false;
     for (let i = 0; i < result.length; i++)
       for (let j = i + 1; j < result.length; j++) {
         const a = result[i],
@@ -85,6 +87,7 @@ export function sampleLayouts(
             inward = Math.max(0, Math.min(need / 2, inner.lane - MIN_LANE));
           inner.lane -= inward;
           outer.lane += need - inward;
+          moved = true;
         }
       }
   }

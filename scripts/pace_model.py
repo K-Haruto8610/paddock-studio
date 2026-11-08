@@ -24,7 +24,7 @@ from build_forecasts import settings, number, clean, load_upcoming_entries  # no
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = 'paddock.pace-forecast/v1'
-VERSION = '1.2'
+VERSION = '1.3'
 # Representative lengths for each JRA separator (midpoints of the published bands).
 GAP_LENGTHS = {'': 0.6, ',': 1.5, '-': 3.5, '=': 6.5}
 SEP_ORDER = ['', ',', '-', '=']
@@ -73,7 +73,7 @@ def load_frame(today_s):
     c = pymysql.connect(**settings.pymysql_kwargs, cursorclass=pymysql.cursors.DictCursor)
     with c.cursor() as q:
         q.execute("""SELECT r.RACE_CODE,r.KAISAI_NEN,r.KAISAI_GAPPI,r.KEIBAJO_CODE,r.KYOSOMEI_HONDAI,
-          r.KYORI,r.TRACK_CODE,r.SHUSSO_TOSU,
+          r.KYORI,r.TRACK_CODE,r.SHUSSO_TOSU,r.ZENHAN_3F,r.GRADE_CODE,r.SHIBA_BABAJOTAI_CODE,r.DIRT_BABAJOTAI_CODE,
           r.CORNER1,r.KAKU_TSUKA_JUNI1,r.CORNER2,r.KAKU_TSUKA_JUNI2,r.CORNER3,r.KAKU_TSUKA_JUNI3,r.CORNER4,r.KAKU_TSUKA_JUNI4,
           u.UMABAN,u.WAKUBAN,u.KETTO_TOROKU_BANGO,u.BAMEI,u.BLINKER_SHIYO_KUBUN,u.BAREI,u.FUTAN_JURYO,
           u.CORNER1_JUNI,u.CORNER2_JUNI,u.CORNER3_JUNI,u.CORNER4_JUNI,u.KOHAN_3F,u.IJO_KUBUN_CODE
@@ -103,6 +103,12 @@ def load_frame(today_s):
     d['weight'] = d.FUTAN_JURYO / 10
     d['age'] = d.BAREI
     d['last3'] = (d.KOHAN_3F / 10).where(d.KOHAN_3F.between(280, 500))
+    # Race-level: early 3F of the leader (label for the pace model) and going (known before the off).
+    z3 = d.ZENHAN_3F.map(number)
+    d['early3'] = (z3 / 10).where(z3.between(300, 450))
+    going = np.where(d.surface == 1, d.DIRT_BABAJOTAI_CODE.map(number), d.SHIBA_BABAJOTAI_CODE.map(number))
+    d['going'] = pd.Series(going, index=d.index).where(lambda g: g.between(1, 4))
+    d['grade'] = d.GRADE_CODE.fillna('').str.strip()  # only to describe GI pace, never a model input
     return d, len(rows)
 
 
@@ -165,6 +171,12 @@ def add_race_relative(x, race_key):
     x['past_mall_rel'] = x.past_mall.groupby(x[race_key]).rank(pct=True)
     x['field_movers'] = x.past_up.lt(-.2).groupby(x[race_key]).transform('mean')
     x['early_wish'] = x.past_r1.fillna(x.past_r3).fillna(x.past_r4)
+    # Pace pressure: how many horses want the lead and how fast the races they ran usually started.
+    by_race = x.groupby(race_key)
+    x['n_front'] = by_race.early_wish.transform(lambda s: (s <= .2).sum())
+    x['n_leaders'] = by_race.past_led.transform(lambda s: (s >= .4).sum())
+    x['front3_wish'] = by_race.early_wish.transform(lambda s: s.nsmallest(3).mean())
+    x['front_pace_hist'] = by_race.past_pace.transform('mean')
     return x
 
 
@@ -195,11 +207,36 @@ def add_history_features(d):
     d['past_up'] = by_horse['mall'].transform(lambda s: s.shift().rolling(5, min_periods=1).min())
     d['past_down'] = by_horse['mall'].transform(lambda s: s.shift().rolling(5, min_periods=1).max())
     d['starts'] = by_horse.cumcount()
+    d['pace'] = d.early3 - course_norm(d)
+    first = d[[f'r{c}' for c in CORNERS]].bfill(axis=1).iloc[:, 0]
+    d['led'] = (first <= .15).astype(float).where(first.notna())
+    by_horse = d.groupby('KETTO_TOROKU_BANGO')
+    d['past_pace'] = by_horse.pace.transform(lambda s: s.shift().rolling(5, min_periods=1).mean())
+    d['past_led'] = by_horse.led.transform(lambda s: s.shift().rolling(5, min_periods=1).mean())
     return add_race_relative(d, 'RACE_CODE')
 
 
+PACE_NORM_END = '20250601'  # course norms from the earliest training window only: no later period leaks in
+
+
+def course_norm(d):
+    """Usual early 3F of the course (venue/track/distance, else surface/distance), from races before
+    PACE_NORM_END. pace = early 3F minus this: negative = the leaders went faster than usual."""
+    tr = d[d.date < PACE_NORM_END].drop_duplicates('RACE_CODE')
+    exact = tr.groupby(['venue', 'track', 'distance']).early3.median().to_dict()
+    loose = tr.groupby(['surface', 'distance']).early3.median().to_dict()
+    return pd.Series([exact.get((v, t, ds), loose.get((s, ds), np.nan))
+                      for v, t, ds, s in zip(d.venue, d.track, d.distance, d.surface)], index=d.index, dtype=float)
+
+
 SPREAD_Q = 0.8
-SPREAD_FEATURES = ['distance', 'surface', 'venue', 'track', 'field', 'front_pressure', 'outer_pressure', 'mean_past_g', 'mean_early']
+# Race pace (前半のペース): field composition that drives the early speed, and the going.
+PACE_FEATURES = ['distance', 'surface', 'venue', 'track', 'field', 'going', 'front_pressure', 'n_front', 'n_leaders',
+                 'front3_wish', 'front_pace_hist']
+SPREAD_FEATURES = ['distance', 'surface', 'venue', 'track', 'field', 'front_pressure', 'outer_pressure', 'mean_past_g', 'mean_early',
+                   'going', 'n_front', 'n_leaders', 'front3_wish', 'front_pace_hist', 'pace_pred']
+# Pace labels (seconds vs the course's usual early 3F); 'H' fast, 'S' slow. Bands are the training terciles.
+PACE_BANDS = (-0.35, 0.2)
 
 
 def lgbm(objective):
@@ -210,7 +247,9 @@ def lgbm(objective):
 def race_level(x, key, c):
     """One row per race: field composition and (when known) the observed spread at corner c."""
     g = x.groupby(key, sort=False)
-    out = g[['distance', 'surface', 'venue', 'track', 'field', 'front_pressure', 'outer_pressure']].first()
+    cols = ['distance', 'surface', 'venue', 'track', 'field', 'front_pressure', 'outer_pressure', 'going', 'n_front', 'n_leaders',
+            'front3_wish', 'front_pace_hist'] + [k for k in ('pace_pred', 'pace') if k in x]
+    out = g[cols].first()
     out['mean_past_g'] = g[f'past_g{c}'].mean()
     out['mean_early'] = g['past_r1'].mean()
     if f'g{c}' in x:
@@ -242,7 +281,8 @@ def reconstruct(rank_pred, gap_pred, spread, numbers):
 
 
 TRAFFIC = ['traffic_out', 'traffic_close']
-LAST3_FEATURES = FEATURES + TRAFFIC
+CLOSING_BASE = FEATURES + ['going']  # going (馬場状態) lowers the closing error (validation 0.951 -> 0.925 s)
+LAST3_FEATURES = CLOSING_BASE + TRAFFIC
 # Contention-layer parameters; tuned on Jun-Aug 2025 (see tune_contention). These are the defaults.
 DEFAULT_PARAMS = {'alpha': .5, 'delta': .08, 'width': 3, 'front': .35, 'hold': .06}
 PARAM_GRID = [{'alpha': a, 'delta': dl, 'width': w, 'front': f, 'hold': h}
@@ -266,10 +306,20 @@ def fit_models(d, end):
         models[t] = lgbm('l1' if t[0] == 'g' else 'l2').fit(d.loc[rows, FEATURES], d.loc[rows, t])
     rows = fit & d.last3.notna()
     # Traffic can only slow a horse down: monotone (+) in horses outside and a wall ahead.
-    closing_model = lgbm('l2').set_params(monotone_constraints=[0] * len(FEATURES) + [1] * len(TRAFFIC))
+    closing_model = lgbm('l2').set_params(monotone_constraints=[0] * len(CLOSING_BASE) + [1] * len(TRAFFIC))
     models['last3_traffic'] = closing_model.fit(d.loc[rows, LAST3_FEATURES], d.loc[rows, 'last3'])
+    # Pace model, and out-of-fold pace predictions for the spread models' training rows (so they learn
+    # from predictions as noisy as the ones they get before a race, not from the actual pace).
+    train = d[fit].copy()
+    races = race_level(train, 'RACE_CODE', 1).dropna(subset=['pace']).sort_values('date')
+    models['pace'] = pace_lgbm().fit(races[PACE_FEATURES], races['pace'])
+    oof = pd.Series(np.nan, index=races.index)
+    for part in np.array_split(races.index, 4):
+        rest = races.index.difference(part)
+        oof[part] = pace_lgbm().fit(races.loc[rest, PACE_FEATURES], races.loc[rest, 'pace']).predict(races.loc[part, PACE_FEATURES])
+    train['pace_pred'] = train.RACE_CODE.map(oof)
     for c in CORNERS:
-        races = race_level(d[fit], 'RACE_CODE', c).dropna(subset=['spread'])
+        races = race_level(train, 'RACE_CODE', c).dropna(subset=['spread'])
         models[f'spread{c}'] = lgbm('l1').fit(races[SPREAD_FEATURES], races['spread'])
     for c in MOVE_CORNERS:
         # Cumulative move since the first corner, learned directly (not chained corner to corner, which
@@ -278,6 +328,15 @@ def fit_models(d, end):
         rows = fit & d[f'cm{c}'].notna() & d[[f'r{k}' for k in CORNERS if k < c]].notna().any(axis=1)
         models[f'move{c}'] = move_lgbm().fit(d.loc[rows, MOVE_FEATURES], d.loc[rows, f'cm{c}'])
     return models
+
+
+def pace_lgbm():
+    return LGBMRegressor(n_estimators=200, max_depth=3, num_leaves=7, learning_rate=.03, min_child_samples=30, subsample=.8,
+                         subsample_freq=5, colsample_bytree=.8, reg_lambda=5, verbosity=-1, n_jobs=4, random_state=42)
+
+
+def pace_label(v, bands=PACE_BANDS):
+    return 'H' if v <= bands[0] else 'S' if v >= bands[1] else 'M'
 
 
 def move_lgbm():
@@ -380,14 +439,17 @@ def prepare_race(models, x, key, corners):
     for c in MOVE_CORNERS:
         if f'move{c}' in models:
             pred[f'move{c}'] = models[f'move{c}'].predict(xm[MOVE_FEATURES])
-    spreads = {c: float(models[f'spread{c}'].predict(race_level(x, key, c)[SPREAD_FEATURES])[0]) for c in CORNERS}
+    pace = float(models['pace'].predict(race_level(x, key, 1)[PACE_FEATURES])[0])
+    pred['pace'] = pace
+    xp = x.assign(pace_pred=pace)
+    spreads = {c: float(models[f'spread{c}'].predict(race_level(xp, key, c)[SPREAD_FEATURES])[0]) for c in CORNERS}
     return numbers, pred, spreads, x.early_rel.fillna(.5).to_numpy()
 
 
 def closing(models, x, form, corners):
     """Closing 3F with the traffic the formation leaves at the last corner, and with a clear run."""
     last = form[corners[-1]]
-    xt = x[FEATURES].copy()
+    xt = x[CLOSING_BASE].copy()
     xt['traffic_out'], xt['traffic_close'] = np.array(last['out'], float), np.array(last['close'], float)
     free = xt.copy()
     free['traffic_out'], free['traffic_close'] = 0.0, 0.0
@@ -523,6 +585,17 @@ def validate(d, P):
                          'rankError': rank_error(models, races, P), 'rankErrorWithoutMoves': rank_error(models, races, still),
                          'beta': P.get('beta', 0.0), 'k': P.get('k', 0.0)}
     print(metrics['_moves'], flush=True)
+    # Race pace: predicted vs actual early 3F against the course norm.
+    pp = np.array([pred['pace'] for x, corners, numbers, pred, *_ in races])
+    pa = np.array([x.pace.iloc[0] for x, *_ in races])
+    ok = ~np.isnan(pa)
+    const = float(np.median(d.loc[tr].drop_duplicates('RACE_CODE').pace.dropna()))
+    hit = np.mean([pace_label(a) == pace_label(b) for a, b in zip(pp[ok], pa[ok])])
+    metrics['_pace'] = {'corr': float(np.corrcoef(pp[ok], pa[ok])[0, 1]), 'mae': float(np.mean(np.abs(pp[ok] - pa[ok]))),
+                        'constantMae': float(np.mean(np.abs(const - pa[ok]))), 'labelHit': float(hit),
+                        'labelShare': {k: float(np.mean([pace_label(v) == k for v in pa[ok]])) for k in 'HMS'}, 'races': int(ok.sum()),
+                        'bands': list(PACE_BANDS)}
+    print(metrics['_pace'], flush=True)
     return metrics
 
 
@@ -537,7 +610,7 @@ def corner_sets(d):
     return lambda v, t, dist: list(exact.get((v, t, dist)) or loose.get((v, dist)) or (3, 4))
 
 
-def race_output(models, x, key, corners, P):
+def race_output(models, x, key, corners, P, gi_bands=PACE_BANDS):
     """One race: contention formation per corner, traffic-aware closing, finish estimate."""
     numbers, pred, spreads, early = prepare_race(models, x, key, corners)
     form = simulate(numbers, early, pred, spreads, corners, P)
@@ -561,7 +634,19 @@ def race_output(models, x, key, corners, P):
     lead = min(fin)
     for pos, i in enumerate(sorted(range(n), key=lambda i: (fin[i], numbers[i]))):
         horses[str(numbers[i])]['finish'] = {'rank': pos + 1, 'gap': round(fin[i] - lead, 2)}
-    return {'corners': corners, 'horses': horses}
+    # Race pace: predicted early 3F vs the course's usual, and the horses that usually want the lead.
+    wish = x.early_wish.to_numpy()
+    led = x.past_led.to_numpy()
+    front = [numbers[i] for i in np.argsort(np.nan_to_num(wish, nan=1.0)) if (wish[i] <= .2) or (led[i] >= .4)]
+    # The label ranks the prediction among GI races (terciles of the model's own predictions for past GI
+    # races): GIs start faster than the all-class course norm, and predictions shrink toward the mean.
+    # 'early' stays in seconds against the course norm.
+    pace = {'early': round(pred['pace'], 2), 'label': pace_label(pred['pace'], gi_bands),
+            'bands': [round(b, 2) for b in gi_bands], 'frontRunners': front}
+    return {'corners': corners, 'horses': horses, 'pace': pace}
+
+
+GOING = {'良': 1, '稍重': 2, '重': 3, '不良': 4}  # JV-Data 馬場状態コード
 
 
 def upcoming_rows(snap, d):
@@ -576,6 +661,9 @@ def upcoming_rows(snap, d):
                'field': len(active), 'blinker': np.nan if h['blinker'] is None else int(h['blinker']),
                'starts': int((hist.KETTO_TOROKU_BANGO == h['horseId']).sum()), 'race': snap['raceId'], 'UMABAN': h['number']}
         for t in TARGETS + MOVE_LABELS:
+            row['past_' + t] = float(past[t].mean()) if past[t].notna().any() else np.nan
+        row['going'] = GOING.get((snap.get('conditions') or {}).get('going'), np.nan)  # absent on fetched cards
+        for t in ('pace', 'led'):
             row['past_' + t] = float(past[t].mean()) if past[t].notna().any() else np.nan
         row['past_up'] = float(past.mall.min()) if past.mall.notna().any() else np.nan
         row['past_down'] = float(past.mall.max()) if past.mall.notna().any() else np.nan
@@ -598,6 +686,11 @@ def main():
     metrics = validate(d, params)
     models = fit_models(d, '20260101')
     sets = corner_sets(d)
+    gi_rows = d[(d.date < '20260101') & (d.grade == 'A')]
+    gi_pace = float(gi_rows.drop_duplicates('RACE_CODE').pace.median())
+    gi_pred = models['pace'].predict(race_level(gi_rows, 'RACE_CODE', 1)[PACE_FEATURES])
+    gi_bands = tuple(float(v) for v in np.quantile(gi_pred, [1 / 3, 2 / 3]))
+    print(f'GI races: actual pace {gi_pace:+.2f} s vs course norm; predicted terciles {gi_bands} ({len(gi_pred)} races)', flush=True)
     published = json.loads(Path(args.forecasts).read_text(encoding='utf-8'))['races']
     upcoming = {s['raceId']: s for s in load_upcoming_entries(args.entries_dir, today_s)}
     out_races = {}
@@ -617,7 +710,7 @@ def main():
             continue
         corners = sets(int(x.venue.iloc[0]), int(x.track.iloc[0]), int(x.distance.iloc[0]))
         key = 'RACE_CODE' if 'RACE_CODE' in x else 'race'
-        out_races[race['id']] = race_output(models, x, key, corners, params)
+        out_races[race['id']] = race_output(models, x, key, corners, params, gi_bands)
         print(race['name'], 'corners', corners)
     (ROOT / 'models' / 'pace').mkdir(parents=True, exist_ok=True)
     for t, m in models.items():
@@ -625,10 +718,11 @@ def main():
     model = {'name': 'Paddock展開予想モデル', 'version': VERSION, 'trainingEnd': '2025-12-31', 'validation': '2025-09〜12',
              'rows': int(len(d)), 'excludedRows': int(raw - len(d)), 'features': FEATURES, 'closingFeatures': LAST3_FEATURES,
              'moveFeatures': MOVE_FEATURES, 'contention': params, 'summary': metrics.pop('_summary'),
-             'moves': metrics.pop('_moves'), 'metrics': metrics,
+             'moves': metrics.pop('_moves'), 'pace': {**metrics.pop('_pace'), 'giPace': gi_pace, 'giBands': list(gi_bands)}, 'paceFeatures': PACE_FEATURES, 'metrics': metrics,
              'notes': ['各角の順位・先頭からの馬身差・併走群内の内外位置と上がり3Fを個別に学習（LightGBM）。',
                        '馬身差は「順位モデルの並び × 馬ごとの差モデルの形 × レース単位の隊列の長さモデル」で再構成。',
                        'ポジション争い：各馬の希望位置（順位モデル）と前の角の位置から押し出しの強さを決め、同じ列に並べる頭数を制限。列が埋まると先行型は外を回り、それ以外は後ろで控える（位置を失う）。',
+                       '前半のペース：出走馬の先行型の頭数・過去に逃げた割合・その馬たちが走ったレースの前半の速さ・馬場状態から、前半3Fがコースの標準より何秒速いかを予想（H/M/S）。隊列の長さモデルに使う（予想値で学習）。上がりモデルには馬場状態を入れる。',
                        '道中の位置変化：最初の角からの累積移動量を角ごとに学習（過去走の移動・最大の上げ幅・出走馬中の動く馬の割合・角の数）。2角以降は「最初の角の位置＋予想移動量」と希望位置を混ぜて並べ直す。強さは2025年6〜8月で、順位誤差の悪化を0.2%以内に抑える範囲で移動の相関が最大になる値を選ぶ。',
                        '仕掛け遅れ：上がり3Fモデルは最終角の渋滞（外に並ぶ頭数・1馬身未満で前が壁）を特徴量に学習し、予想時はポジション争いで決まった隊列の渋滞を入れる。前が開いた場合との差を仕掛け遅れ（秒）として出す。',
                        '馬身差と内外はJRAの通過順表記から復元。記号の幅（,=1〜2馬身, -=2〜5, ==5以上）は中央値で近似。',

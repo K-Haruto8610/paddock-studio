@@ -26,6 +26,16 @@ const horse = z.object({
 const race = z.object({
   corners: z.array(z.number().int().min(1).max(4)).min(1),
   horses: z.record(z.string().regex(/^\d{1,2}$/), horse),
+  // Optional race pace (前半のペース): early 3F vs the course's usual (s, negative = faster),
+  // H/M/S among comparable races (bands), and the horses that usually want the lead.
+  pace: z
+    .object({
+      early: z.number().min(-10).max(10),
+      label: z.enum(['H', 'M', 'S']),
+      bands: z.array(z.number()).length(2).optional(),
+      frontRunners: z.array(z.number().int()).optional(),
+    })
+    .optional(),
 });
 export const paceForecastSchema = z.object({
   schema: z.literal(PACE_SCHEMA),
@@ -61,6 +71,11 @@ export const paceForecastSchema = z.object({
         })
         .passthrough()
         .optional(),
+      // Optional: validation of the race-pace model.
+      pace: z
+        .object({corr: z.number(), labelHit: z.number(), mae: z.number().optional(), constantMae: z.number().optional()})
+        .passthrough()
+        .optional(),
     })
     .passthrough(),
   races: z.record(z.string(), race),
@@ -73,6 +88,7 @@ export type RacePace = {
   model: string;
   corners: number[];
   horses: PaceHorse[];
+  racePace?: z.infer<typeof race>['pace'];
 };
 
 export function parsePaceForecast(
@@ -105,7 +121,8 @@ export function paceForRace(
     (n) => !race.horses.some((h) => String(h.number) === n),
   );
   if (extra.length) return {pace: null, reason: `出走していない馬番 ${extra.join(',')} が含まれます`};
-  return {pace: {model: file.model.name, corners, horses}};
+  return {pace: {model: file.model.name, corners, horses, racePace: entry.pace}};
 }
 
+export const PACE_LABELS = {H: 'ハイペース', M: '平均ペース', S: 'スローペース'} as const;
 export const laneLabel = (lane: number) => (lane < 0.5 ? '内' : lane < 1.5 ? '中' : '外');

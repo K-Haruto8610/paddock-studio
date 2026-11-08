@@ -1,6 +1,6 @@
 import type {Race, Horse, ReplayRace, PlaybackMode} from './types';
 import type {PlaybackPlan} from './playback';
-import {laneLabel, type RacePace} from './paceForecast';
+import {laneLabel, PACE_LABELS, type RacePace} from './paceForecast';
 export default function PlaybackNotes({
   race,
   horse,
@@ -144,6 +144,27 @@ export default function PlaybackNotes({
         </>
       ) : (
         <>
+          {paced?.racePace && (
+            <div className="note-card" data-testid="pace-card">
+              <span>RACE PACE</span>
+              <h4>予想ペース：{PACE_LABELS[paced.racePace.label]}（GⅠ比）</h4>
+              <p>
+                前半3Fはコースの標準より{Math.abs(paced.racePace.early).toFixed(1)}秒
+                {paced.racePace.early < 0 ? '速い' : '遅い'}予想。
+                {paced.racePace.frontRunners && paced.racePace.frontRunners.length > 0 && (
+                  <>
+                    <br />
+                    先行したい馬（{paced.racePace.frontRunners.length}頭）：
+                    {paced.racePace.frontRunners
+                      .map((n) => race.horses.find((h) => h.number === n))
+                      .filter((h) => h)
+                      .map((h) => `${h!.number} ${h!.name}`)
+                      .join('、')}
+                  </>
+                )}
+              </p>
+            </div>
+          )}
           <div className="note-card">
             <span>EARLY POSITION</span>
             <h4>前方をうかがう馬</h4>

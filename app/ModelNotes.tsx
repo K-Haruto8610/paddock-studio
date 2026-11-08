@@ -122,6 +122,14 @@ export default function ModelNotes({data, pace}: {data: Dataset; pace?: PaceFore
               </tbody>
             </table>
           )}
+          {pace.model.pace && (
+            <p className="caption" data-testid="pace-validation">
+              前半ペース予想（検証）：実際との相関 {pace.model.pace.corr.toFixed(2)}、ハイ/平均/スローの的中{' '}
+              {pct(pace.model.pace.labelHit)}（3等分なので偶然なら約33%）。平均誤差{' '}
+              {pace.model.pace.mae?.toFixed(2) ?? '—'}秒（常に平均と予想した場合{' '}
+              {pace.model.pace.constantMae?.toFixed(2) ?? '—'}秒）。画面のラベルは過去のGⅠとの比較。
+            </p>
+          )}
           {pace.model.moves && (
             <p className="caption">
               「大きく」は出走頭数の4分の1以上。過去5走の移動の平均だけを使った場合の相関は
