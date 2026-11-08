@@ -1,11 +1,13 @@
 import type {Race, Horse, ReplayRace, PlaybackMode} from './types';
 import type {PlaybackPlan} from './playback';
+import {laneLabel, type RacePace} from './paceForecast';
 export default function PlaybackNotes({
   race,
   horse,
   replay,
   mode,
   plan,
+  pace,
   onClear,
 }: {
   race: Race;
@@ -13,8 +15,11 @@ export default function PlaybackNotes({
   replay?: ReplayRace;
   mode: PlaybackMode;
   plan: PlaybackPlan;
+  pace?: RacePace | null;
   onClear: () => void;
 }) {
+  const paced = mode !== 'replay' && pace ? pace : null,
+    paceHorse = horse && paced ? paced.horses[race.horses.indexOf(horse)] : undefined;
   const actual = mode === 'replay',
     record = horse ? replay?.horses[String(horse.number)] : undefined;
   const progressing =
@@ -79,22 +84,38 @@ export default function PlaybackNotes({
           <h4>{actual ? '通過順位 → 入線順位' : '予想位置の変化'}</h4>
           <div className="mini-flow result-flow">
             {plan.checkpoints.slice(1).map((c, i) => {
-              const rank = c.ranks[race.horses.indexOf(horse)];
+              const rank = c.ranks[race.horses.indexOf(horse)],
+                at = paceHorse?.positions.find((p) => p.corner === c.corner);
               return (
                 <div key={i}>
                   <span>{c.label}</span>
                   <strong>
-                    {rank === null ? '—' : actual ? rank : Math.round(rank)}
-                    <small>{actual ? '番手' : '番手相当'}</small>
+                    {rank === null ? '—' : actual || paced ? rank : Math.round(rank)}
+                    <small>{actual || paced ? '番手' : '番手相当'}</small>
                   </strong>
+                  {at && (
+                    <small className="pace-detail">
+                      {at.gap.toFixed(1)}馬身 · {laneLabel(at.lane)}
+                      {at.held ? ' · 控え' : ''}
+                      {at.boxed ? ' · 包まれ' : ''}
+                    </small>
+                  )}
                 </div>
               );
             })}
           </div>
           <p className="aside-note">
             {actual ? '実際の上がり3F' : '予想上がり3F'}{' '}
-            <b>{(actual ? record?.last3 : horse.last3)?.toFixed(1) ?? '—'}秒</b>
+            <b>
+              {(actual ? record?.last3 : (paceHorse?.last3 ?? horse.last3))?.toFixed(1) ?? '—'}秒
+            </b>
           </p>
+          {paceHorse && (paceHorse.kickDelay ?? 0) > 0.05 && (
+            <p className="aside-note">
+              最終角で外に馬・前が壁になり仕掛けが遅れる予想：+{paceHorse.kickDelay!.toFixed(2)}秒
+              （前が開けば{paceHorse.last3Free?.toFixed(1) ?? '—'}秒）
+            </p>
+          )}
           {actual && record?.finish !== record?.officialFinish && (
             <p className="aside-note">
               入線順位と確定着順が異なります。確定着順：{record?.officialFinish ?? '—'}位
@@ -127,15 +148,64 @@ export default function PlaybackNotes({
             <span>EARLY POSITION</span>
             <h4>前方をうかがう馬</h4>
             <p>
-              {[...race.horses]
-                .sort((a, b) => a.positions[0] - b.positions[0])
+              {race.horses
+                .map((h, i) => ({
+                  h,
+                  early: paced ? paced.horses[i].positions[0].rank : h.positions[0],
+                }))
+                .sort((a, b) => a.early - b.early)
+                .map(({h}) => h)
                 .slice(0, 3)
                 .map((h) => `${h.number} ${h.name}`)
                 .join('、')}
             </p>
           </div>
+          {paced && (
+            <div className="note-card" data-testid="contention-card">
+              <span>POSITION BATTLE</span>
+              <h4>位置を獲られて控える馬</h4>
+              <p>
+                {race.horses
+                  .map((h, i) => {
+                    const p = paced.horses[i].positions.find((v) => v.held);
+                    return {h, p};
+                  })
+                  .filter((v) => v.p)
+                  .sort((a, b) => a.p!.corner - b.p!.corner || a.p!.rank - b.p!.rank)
+                  .slice(0, 4)
+                  .map(({h, p}) => `${h.number} ${h.name}（${p!.corner}角 希望${p!.wantRank ?? '—'}→${p!.rank}番手）`)
+                  .join('、') || '該当なし'}
+              </p>
+              <h4>仕掛けが遅れる馬</h4>
+              <p>
+                {race.horses
+                  .map((h, i) => ({h, delay: paced.horses[i].kickDelay ?? 0}))
+                  .filter((v) => v.delay > 0.05)
+                  .sort((a, b) => b.delay - a.delay)
+                  .slice(0, 4)
+                  .map(({h, delay}) => `${h.number} ${h.name}（+${delay.toFixed(2)}秒）`)
+                  .join('、') || '該当なし'}
+              </p>
+            </div>
+          )}
+          {paced && (
+            <div className="note-card">
+              <span>WIDE TRIP</span>
+              <h4>外を回りそうな馬（最終角）</h4>
+              <p>
+                {race.horses
+                  .map((h, i) => ({h, lane: paced.horses[i].positions.at(-1)!.lane}))
+                  .sort((a, b) => b.lane - a.lane)
+                  .slice(0, 3)
+                  .map(({h, lane}) => `${h.number} ${h.name}（${laneLabel(lane)}）`)
+                  .join('、')}
+              </p>
+            </div>
+          )}
           <p className="aside-note">
-            直線は4角予想と予想上がり3Fから相対的な前進量を補間します。入線順位の実績は使用しません。
+            {paced
+              ? '各角の順位・先頭からの馬身差・内外は展開予想モデルの値。直線は予想上がり3Fから推定します。'
+              : '直線は4角予想と予想上がり3Fから相対的な前進量を補間します。入線順位の実績は使用しません。'}
           </p>
         </>
       )}

@@ -9,6 +9,7 @@ import {courseFor} from './courses';
 import {VERTICAL_EXAGGERATION, availableKinds} from './trackGeometry';
 import {buildPlayback, playbackFrame} from './playback';
 import type {Dataset, Replays, PlaybackMode} from './types';
+import {parsePaceForecast, paceForRace, type PaceForecast} from './paceForecast';
 
 async function readJson<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -31,12 +32,23 @@ export default function Home() {
     [speed, setSpeed] = useState(1),
     [followKey, setFollowKey] = useState(0),
     [tab, setTab] = useState('horses'),
-    [modeChoice, setMode] = useState<PlaybackMode>('replay');
+    [modeChoice, setMode] = useState<PlaybackMode>('replay'),
+    // Race-flow model output: bundled file, optionally replaced by a file the user imports.
+    [bundledPace, setBundledPace] = useState<PaceForecast | null>(null),
+    [importedPace, setImportedPace] = useState<{file: PaceForecast; name: string} | null>(null),
+    [paceMessage, setPaceMessage] = useState(''),
+    [useLegacy, setUseLegacy] = useState(false);
   useEffect(() => {
     Promise.allSettled([
       readJson<Dataset>('/data/forecasts.json'),
       readJson<Replays>('/data/replays.json'),
-    ]).then(([f, r]) => {
+      readJson<unknown>('/data/pace_forecasts.json'),
+    ]).then(([f, r, p]) => {
+      if (p.status === 'fulfilled') {
+        const parsed = parsePaceForecast(p.value);
+        if (parsed.ok) setBundledPace(parsed.data);
+        else setPaceMessage(`同梱の展開予想を読み込めません（${parsed.error}）`);
+      }
       if (f.status === 'fulfilled') {
         setData(f.value);
         setRaceId(f.value.races[0]?.id || '');
@@ -73,10 +85,30 @@ export default function Home() {
     course = race ? courseFor(race) : null,
     replay = replays?.races[raceId],
     mode: PlaybackMode = race?.historical === false ? 'forecast' : modeChoice;
-  const plan = useMemo(
-    () => (race ? buildPlayback(race, mode, replay) : null),
-    [race, mode, replay],
+  const paceFile = importedPace?.file ?? bundledPace;
+  const paceMatch = useMemo(
+    () => (race ? paceForRace(paceFile, race) : {pace: null}),
+    [race, paceFile],
   );
+  const pace = useLegacy ? null : paceMatch.pace;
+  const plan = useMemo(
+    () => (race ? buildPlayback(race, mode, replay, pace) : null),
+    [race, mode, replay, pace],
+  );
+  const importPace = async (file: File) => {
+    try {
+      const parsed = parsePaceForecast(JSON.parse(await file.text()));
+      if (!parsed.ok) return setPaceMessage(`${file.name} は取り込めません：${parsed.error}`);
+      setImportedPace({file: parsed.data, name: file.name});
+      setUseLegacy(false);
+      setMode('forecast');
+      setPaceMessage(
+        `${file.name}（${parsed.data.model.name}）を取り込みました：${Object.keys(parsed.data.races).length}レース`,
+      );
+    } catch (e) {
+      setPaceMessage(`${file.name} はJSONとして読めません（${String(e)}）`);
+    }
+  };
   const frame = useMemo(
     () => (race && plan ? playbackFrame(race, plan, progress) : null),
     [race, plan, progress],
@@ -117,8 +149,14 @@ export default function Home() {
           <p className="lead">実際の通過順位とモデル予想を、小さな競馬場で見比べる。</p>
         </div>
         <div className="version">
-          ● {actual ? '実績再生' : '展開モデル v0.1'}
-          <small>{actual ? '通過順位・入線順位を反映' : '結果を使わないモデル予想'}</small>
+          ● {actual ? '実績再生' : pace ? `展開予想 ${pace.model}` : '展開モデル v0.1'}
+          <small>
+            {actual
+              ? '通過順位・入線順位を反映'
+              : pace
+                ? '途中順位・前後・内外・上がりを取り込み'
+                : '結果を使わないモデル予想'}
+          </small>
         </div>
       </div>
       {err && (
@@ -191,9 +229,62 @@ export default function Home() {
             <p>
               {actual
                 ? '各コーナーと入線順位は実データ。その間の動きは補間。'
-                : '馬柱を学習した予想。実際の通過順位・入線順位は使用しません。'}
+                : pace
+                  ? `展開予想モデル（${pace.model}）の途中順位・前後の馬身差・内外・上がりで再生。実績は使用しません。`
+                  : '馬柱を学習した予想。実際の通過順位・入線順位は使用しません。'}
             </p>
+            {!actual && (
+              <div className="pace-source" data-testid="pace-source">
+                <label>
+                  予想データ
+                  <select
+                    aria-label="予想データ"
+                    value={useLegacy || !paceMatch.pace ? 'legacy' : 'pace'}
+                    onChange={(e) => setUseLegacy(e.target.value === 'legacy')}
+                  >
+                    <option value="pace" disabled={!paceMatch.pace}>
+                      展開予想モデル{importedPace ? '（取り込み）' : ''}
+                    </option>
+                    <option value="legacy">通過順位モデル（旧）</option>
+                  </select>
+                </label>
+                <label className="file-button">
+                  展開予想JSONを取り込む
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    aria-label="展開予想JSONを取り込む"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) importPace(f);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+                {importedPace && (
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      setImportedPace(null);
+                      setPaceMessage('取り込んだ展開予想を外し、同梱データに戻しました');
+                    }}
+                  >
+                    取り込みを解除
+                  </button>
+                )}
+              </div>
+            )}
           </section>
+          {!actual && (paceMessage || paceMatch.reason || (paceFile && !paceMatch.pace)) && (
+            <p className="notice" role="status">
+              {paceMessage}
+              {paceMatch.reason
+                ? `${paceMessage ? '　' : ''}このレースの展開予想は使えません：${paceMatch.reason}。旧モデルで表示しています。`
+                : paceFile && !paceMatch.pace
+                  ? `${paceMessage ? '　' : ''}このレースは展開予想データに含まれていないため旧モデルで表示しています。`
+                  : ''}
+            </p>
+          )}
           {actual && replayError && (
             <p role="alert" className="notice">
               {replayError}
@@ -380,6 +471,7 @@ export default function Home() {
               replay={replay}
               mode={mode}
               plan={plan}
+              pace={pace}
               onClear={() => setSelected(null)}
             />
           </div>
@@ -398,10 +490,11 @@ export default function Home() {
                 horse={horse}
                 replay={replay}
                 mode={mode}
+                pace={pace}
                 onSelect={setSelected}
               />
             ) : (
-              <ModelNotes data={data} />
+              <ModelNotes data={data} pace={paceFile} />
             )}
           </section>
         </>

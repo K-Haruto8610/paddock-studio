@@ -5,6 +5,8 @@ export type Placement = {gap: number; lane: number};
 export const HORSE_LENGTH = 4.0;
 export const HORSE_WIDTH = 1.5;
 export const LANE_PITCH = 2.0;
+/** Closest a horse's centre gets to the inside rail (metres). */
+export const MIN_LANE = 0.9;
 export const laneSlots = (count: number) =>
   Array.from({length: count}, (_, j) => 1.8 + j * LANE_PITCH);
 export function startLanes(race: Race) {
@@ -77,10 +79,12 @@ export function sampleLayouts(
         const clearance = HORSE_WIDTH * Math.sqrt(1 - (dx / reach) ** 2),
           dy = b.lane - a.lane;
         if (Math.abs(dy) < clearance) {
-          const shift = (clearance - Math.abs(dy) + 0.001) / 2,
-            sign = dy >= 0 ? 1 : -1;
-          a.lane -= shift * sign;
-          b.lane += shift * sign;
+          // Split the push, but the inner horse stops at the rail and the outer one takes the rest.
+          const need = clearance - Math.abs(dy) + 0.001,
+            [inner, outer] = dy >= 0 ? [a, b] : [b, a],
+            inward = Math.max(0, Math.min(need / 2, inner.lane - MIN_LANE));
+          inner.lane -= inward;
+          outer.lane += need - inward;
         }
       }
   }

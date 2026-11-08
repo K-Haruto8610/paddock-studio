@@ -1,4 +1,5 @@
 import type {Race, ReplayRace, PlaybackMode} from './types';
+import type {RacePace} from './paceForecast';
 import {checkpointDistances, cornerLabels, courseFor} from './courses';
 import {
   buildLayouts,
@@ -22,7 +23,120 @@ export type PlaybackPlan = {
   checkpoints: Checkpoint[];
   mode: PlaybackMode;
   available: boolean;
+  /** Forecast only: 'pace' = imported race-flow model, 'legacy' = per-corner rank model. */
+  source?: 'pace' | 'legacy';
 };
+
+type PaceSpot = {gap: number; lane: number; rank: number};
+
+/** Imported gaps (lengths) and lanes (slots from the inside) placed on the track in metres.
+ * Order follows the imported rank; lanes are the model's; a horse is only pushed back when it
+ * would sit on another silhouette. */
+function paceLayout(spots: PaceSpot[]): Placement[] {
+  const out: Placement[] = Array(spots.length),
+    placed: Placement[] = [];
+  const order = spots
+    .map((v, i) => ({i, v}))
+    .sort((a, b) => a.v.rank - b.v.rank || a.v.gap - b.v.gap || a.i - b.i);
+  let last = 0;
+  for (const {i, v} of order) {
+    const lane = 1.8 + v.lane * LANE_PITCH;
+    let gap = Math.max(v.gap * HORSE_LENGTH * 1.3, last);
+    for (const p of placed)
+      if (Math.abs(p.lane - lane) < LANE_PITCH * 0.9 && gap - p.gap < HORSE_LENGTH * 1.05)
+        gap = p.gap + HORSE_LENGTH * 1.05;
+    // Strictly behind the horse ranked ahead, so the 3D order always matches the imported ranks.
+    gap = Math.max(gap, last + 0.05 * (placed.length > 0 ? 1 : 0));
+    last = gap;
+    out[i] = {gap, lane};
+    placed.push(out[i]);
+  }
+  return out;
+}
+
+function paceForecastPlan(
+  race: Race,
+  pace: RacePace,
+  start: Checkpoint,
+  startLayout: Placement[],
+): PlaybackPlan {
+  const distances = checkpointDistances(race),
+    checkpoints = [start],
+    layouts = [startLayout];
+  pace.corners.forEach((corner, k) => {
+    layouts.push(paceLayout(pace.horses.map((h) => h.positions[k])));
+    checkpoints.push({
+      label: `${corner}角`,
+      distance: distances[corner],
+      observed: false,
+      ranks: pace.horses.map((h) => h.positions[k].rank),
+      corner,
+    });
+  });
+  // Finish: the model's own estimate when given, else last corner + closing 3F difference (1 s = 5 lengths).
+  const best = Math.min(...pace.horses.map((h) => h.last3));
+  const finish = pace.horses.map(
+    (h) => h.finish ?? {rank: 0, gap: h.positions.at(-1)!.gap + (h.last3 - best) * 5},
+  );
+  const lead = Math.min(...finish.map((f) => f.gap)),
+    ranks = Array<number>(race.horses.length);
+  finish
+    .map((f, i) => ({f, i}))
+    .sort((a, b) => (a.f.rank && b.f.rank ? a.f.rank - b.f.rank : a.f.gap - b.f.gap) || a.i - b.i)
+    .forEach((v, k) => (ranks[v.i] = k + 1));
+  // A horse shut in at the last corner has to find room before it can kick: it is drawn angling out.
+  const finalLane = (h: RacePace['horses'][number]) =>
+    h.positions.at(-1)!.lane + ((h.kickDelay ?? 0) > 0.05 ? 1 : 0);
+  // 仕掛け遅れ: half-way up the straight, free horses have made half their ground; a delayed horse
+  // has made less (none at 0.3 s or more), then finishes late.
+  if (pace.horses.some((h) => (h.kickDelay ?? 0) > 0.05)) {
+    const last = pace.horses.map((h) => h.positions.at(-1)!.gap);
+    const mid = pace.horses.map((h, i) => {
+      const share = 0.5 * Math.max(0, 1 - (h.kickDelay ?? 0) / 0.3);
+      return last[i] + (finish[i].gap - lead - last[i]) * share;
+    });
+    const midLead = Math.min(...mid),
+      midRanks = Array<number>(race.horses.length);
+    mid
+      .map((g, i) => ({g, i}))
+      .sort((a, b) => a.g - b.g || pace.horses[a.i].positions.at(-1)!.rank - pace.horses[b.i].positions.at(-1)!.rank)
+      .forEach((v, k) => (midRanks[v.i] = k + 1));
+    const approach = checkpoints.at(-1)!.distance;
+    layouts.push(
+      paceLayout(
+        pace.horses.map((h, i) => ({
+          gap: mid[i] - midLead,
+          lane: (h.positions.at(-1)!.lane + finalLane(h)) / 2,
+          rank: midRanks[i],
+        })),
+      ),
+    );
+    checkpoints.push({
+      label: '直線',
+      distance: approach + (race.distance - approach) * 0.5,
+      observed: false,
+      ranks: midRanks,
+    });
+  }
+  layouts.push(
+    paceLayout(
+      pace.horses.map((h, i) => ({
+        gap: finish[i].gap - lead,
+        lane: finalLane(h),
+        rank: ranks[i],
+      })),
+    ),
+  );
+  checkpoints.push({label: 'ゴール推定', distance: race.distance, observed: false, ranks});
+  return {
+    mode: 'forecast',
+    source: 'pace',
+    available: true,
+    layouts,
+    knots: checkpoints.map((c) => c.distance),
+    checkpoints,
+  };
+}
 
 function observedLayout(race: Race, ranks: number[], previous?: Placement[]): Placement[] {
   const minimum = Math.min(...ranks),
@@ -52,7 +166,12 @@ function observedLayout(race: Race, ranks: number[], previous?: Placement[]): Pl
   return out;
 }
 
-export function buildPlayback(race: Race, mode: PlaybackMode, replay?: ReplayRace): PlaybackPlan {
+export function buildPlayback(
+  race: Race,
+  mode: PlaybackMode,
+  replay?: ReplayRace,
+  pace?: RacePace | null,
+): PlaybackPlan {
   const forecast = buildLayouts(race),
     distances = checkpointDistances(race);
   const start: Checkpoint = {
@@ -111,6 +230,7 @@ export function buildPlayback(race: Race, mode: PlaybackMode, replay?: ReplayRac
       checkpoints,
     };
   }
+  if (pace) return paceForecastPlan(race, pace, start, forecast[0]);
   const labels = cornerLabels(race),
     checkpoints = [
       start,
@@ -134,6 +254,7 @@ export function buildPlayback(race: Race, mode: PlaybackMode, replay?: ReplayRac
   checkpoints.push({label: 'ゴール推定', distance: race.distance, observed: false, ranks});
   return {
     mode,
+    source: 'legacy',
     available: true,
     layouts: [...forecast, finish],
     knots: [...distances, race.distance],

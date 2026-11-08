@@ -1,5 +1,18 @@
 import type {Dataset} from './types';
-export default function ModelNotes({data}: {data: Dataset}) {
+import type {PaceForecast} from './paceForecast';
+function paceLabel(k: string) {
+  const c = k.replace(/[^0-9]/g, '');
+  if (k === 'last3') return '上がり3F（秒）';
+  if (k.startsWith('spread')) return `${c}角 隊列の長さ（馬身）`;
+  if (k.startsWith('r')) return `${c}角 順位（0〜1）`;
+  if (k.startsWith('g')) return `${c}角 先頭からの差（馬身）`;
+  if (k.startsWith('l')) return `${c}角 内外（併走位置）`;
+  return k;
+}
+export default function ModelNotes({data, pace}: {data: Dataset; pace?: PaceForecast | null}) {
+  const hasIndependent = Object.values(pace?.model.metrics ?? {}).some(
+    (v) => v.independentMae !== undefined,
+  );
   return (
     <div className="model-panel">
       <div>
@@ -43,6 +56,38 @@ export default function ModelNotes({data}: {data: Dataset}) {
           0〜1は先頭〜最後方の相対位置。回収率・的中率は評価対象にしていません。
         </p>
       </div>
+      {pace && (
+        <div>
+          <h4>展開予想モデル：{pace.model.name}</h4>
+          {(pace.model.notes ?? []).map((n) => (
+            <p key={n} className="caption">
+              {n}
+            </p>
+          ))}
+          {pace.model.metrics && (
+            <table data-testid="pace-metrics">
+              <thead>
+                <tr>
+                  <th>対象（検証 {pace.model.validation ?? '—'}）</th>
+                  <th>モデル</th>
+                  {hasIndependent && <th>ポジション争いなし</th>}
+                  <th>過去平均</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(pace.model.metrics).map(([k, v]) => (
+                  <tr key={k}>
+                    <td>{paceLabel(k)}</td>
+                    <td>{v.mae.toFixed(3)}</td>
+                    {hasIndependent && <td>{v.independentMae?.toFixed(3) ?? '—'}</td>}
+                    <td>{v.baselineMae.toFixed(3)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   );
 }
