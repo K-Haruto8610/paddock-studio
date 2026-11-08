@@ -188,6 +188,37 @@ export default function PlaybackNotes({
               </p>
             </div>
           )}
+          {paced && paced.horses[0].positions.length > 1 && (
+            <div className="note-card" data-testid="move-card">
+              <span>MID-RACE MOVE</span>
+              <h4>道中で位置を上げそうな馬</h4>
+              <p>
+                {race.horses
+                  .map((h, i) => {
+                    const ps = paced.horses[i].positions;
+                    return {h, ps, gain: ps[0].rank - ps.at(-1)!.rank};
+                  })
+                  .filter((v) => v.gain >= 2)
+                  .sort((a, b) => b.gain - a.gain)
+                  .slice(0, 3)
+                  .map(({h, ps}) => `${h.number} ${h.name}（${ps.map((p) => p.rank).join('→')}番手）`)
+                  .join('、') || '該当なし'}
+              </p>
+              <h4>道中で位置を下げそうな馬</h4>
+              <p>
+                {race.horses
+                  .map((h, i) => {
+                    const ps = paced.horses[i].positions;
+                    return {h, ps, loss: ps.at(-1)!.rank - ps[0].rank};
+                  })
+                  .filter((v) => v.loss >= 2)
+                  .sort((a, b) => b.loss - a.loss)
+                  .slice(0, 3)
+                  .map(({h, ps}) => `${h.number} ${h.name}（${ps.map((p) => p.rank).join('→')}番手）`)
+                  .join('、') || '該当なし'}
+              </p>
+            </div>
+          )}
           {paced && (
             <div className="note-card">
               <span>WIDE TRIP</span>

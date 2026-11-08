@@ -24,7 +24,7 @@ from build_forecasts import settings, number, clean, load_upcoming_entries  # no
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = 'paddock.pace-forecast/v1'
-VERSION = '1.1'
+VERSION = '1.2'
 # Representative lengths for each JRA separator (midpoints of the published bands).
 GAP_LENGTHS = {'': 0.6, ',': 1.5, '-': 3.5, '=': 6.5}
 SEP_ORDER = ['', ',', '-', '=']
@@ -146,6 +146,10 @@ BASE = ['distance', 'surface', 'venue', 'track', 'gate', 'weight', 'age', 'field
 PAST = ['past_' + t for t in TARGETS]
 RACE_REL = ['early_rel', 'late_rel', 'front_pressure', 'outer_pressure']
 FEATURES = BASE + PAST + ['starts'] + RACE_REL
+# Move models (道中の位置変化): the horse's past moves, the field's movers, the course's corner count.
+MOVE_FEATURES = FEATURES + ['past_m2', 'past_m3', 'past_m4', 'past_mall', 'past_up', 'past_down', 'past_mall_rel',
+                            'field_movers', 'n_corners', 'early_wish']
+MOVE_CORNERS = (2, 3, 4)
 
 
 def add_race_relative(x, race_key):
@@ -156,14 +160,41 @@ def add_race_relative(x, race_key):
     x['late_rel'] = x.past_last3.groupby(x[race_key]).rank(pct=True)
     x['front_pressure'] = x.past_r4.lt(.3).groupby(x[race_key]).transform('mean')
     x['outer_pressure'] = g.past_l4.transform('mean')
+    # Mid-race movement: how this horse usually moves compared with today's field, and how many
+    # habitual movers (gained a quarter of the field in a past race) are in the race.
+    x['past_mall_rel'] = x.past_mall.groupby(x[race_key]).rank(pct=True)
+    x['field_movers'] = x.past_up.lt(-.2).groupby(x[race_key]).transform('mean')
+    x['early_wish'] = x.past_r1.fillna(x.past_r3).fillna(x.past_r4)
     return x
 
 
+MOVE_LABELS = ['m2', 'm3', 'm4', 'mall']
+
+
+def add_move_labels(d):
+    """m{c}: change of normalised rank since the previous observed corner; mall: first to last corner;
+    cm{c}: cumulative change since the first observed corner (the move models' targets)."""
+    ranks = d[[f'r{c}' for c in CORNERS]]
+    last_seen = pd.Series(np.nan, index=d.index)
+    for c in CORNERS:
+        d[f'm{c}'] = d[f'r{c}'] - last_seen
+        last_seen = d[f'r{c}'].where(d[f'r{c}'].notna(), last_seen)
+    first = ranks.bfill(axis=1).iloc[:, 0]
+    d['mall'] = ranks.ffill(axis=1).iloc[:, -1] - first
+    for c in CORNERS:
+        d[f'cm{c}'] = d[f'r{c}'] - first
+    d['n_corners'] = ranks.notna().sum(axis=1)
+    return d
+
+
 def add_history_features(d):
-    d = d.sort_values(['date', 'RACE_CODE', 'UMABAN']).reset_index(drop=True)
-    for t in TARGETS:
-        d['past_' + t] = d.groupby('KETTO_TOROKU_BANGO')[t].transform(lambda s: s.shift().rolling(5, min_periods=1).mean())
-    d['starts'] = d.groupby('KETTO_TOROKU_BANGO').cumcount()
+    d = add_move_labels(d.sort_values(['date', 'RACE_CODE', 'UMABAN']).reset_index(drop=True))
+    by_horse = d.groupby('KETTO_TOROKU_BANGO')
+    for t in TARGETS + MOVE_LABELS:
+        d['past_' + t] = by_horse[t].transform(lambda s: s.shift().rolling(5, min_periods=1).mean())
+    d['past_up'] = by_horse['mall'].transform(lambda s: s.shift().rolling(5, min_periods=1).min())
+    d['past_down'] = by_horse['mall'].transform(lambda s: s.shift().rolling(5, min_periods=1).max())
+    d['starts'] = by_horse.cumcount()
     return add_race_relative(d, 'RACE_CODE')
 
 
@@ -240,7 +271,18 @@ def fit_models(d, end):
     for c in CORNERS:
         races = race_level(d[fit], 'RACE_CODE', c).dropna(subset=['spread'])
         models[f'spread{c}'] = lgbm('l1').fit(races[SPREAD_FEATURES], races['spread'])
+    for c in MOVE_CORNERS:
+        # Cumulative move since the first corner, learned directly (not chained corner to corner, which
+        # compounds the error of the simulated previous position). Small, regularised trees: the signal
+        # is weak and the target heavy-tailed.
+        rows = fit & d[f'cm{c}'].notna() & d[[f'r{k}' for k in CORNERS if k < c]].notna().any(axis=1)
+        models[f'move{c}'] = move_lgbm().fit(d.loc[rows, MOVE_FEATURES], d.loc[rows, f'cm{c}'])
     return models
+
+
+def move_lgbm():
+    return LGBMRegressor(n_estimators=200, max_depth=4, num_leaves=15, learning_rate=.03, min_child_samples=60, subsample=.8,
+                         subsample_freq=5, colsample_bytree=.8, reg_lambda=5, verbosity=-1, n_jobs=4, random_state=42)
 
 
 def independent(numbers, pred, spreads, corners):
@@ -262,13 +304,25 @@ def simulate(numbers, early, pred, spreads, corners, P):
     When the row is full, a front-running type (early speed in the top 'front' share of the field) goes
     wide to keep its spot; any other horse tucks in behind (控える) and loses the position it wanted.
     Traffic at each corner (horses outside, wall under one length ahead) is kept for the closing model.
+
+    With the move models on (P['k'] > 0), a later corner's pressure is instead
+    (1 - beta) * wish + beta * (first-corner position + k * predicted move since the first corner):
+    the move is relative to the field (centred), so horses that usually go forward down the back
+    straight pass the ones that drop back, rather than every horse being pulled to where it was.
     """
-    n, form, prev, prev_lane = len(numbers), {}, None, None
+    n, form, prev, prev_lane, base = len(numbers), {}, None, None, None
     width = int(P['width'])
+    move_k, move_beta = P.get('k', 0.0), P.get('beta', 0.0)  # not `k`: the loop below reuses that name
     for c in corners:
         want = np.asarray(pred[f'r{c}'], float)
         lane_want = np.asarray(pred[f'l{c}'], float)
-        prio = want if prev is None else (1 - P['alpha']) * want + P['alpha'] * prev
+        if prev is None:
+            prio = want
+        elif move_k > 0 and f'move{c}' in pred:
+            move = np.asarray(pred[f'move{c}'], float)
+            prio = (1 - move_beta) * want + move_beta * (base + move_k * (move - move.mean()))
+        else:
+            prio = (1 - P['alpha']) * want + P['alpha'] * prev
         side = lane_want if prev_lane is None else .5 * prev_lane + .5 * lane_want
         order = sorted(range(n), key=lambda i: (prio[i], numbers[i]))
         want_rank = [0] * n
@@ -314,12 +368,18 @@ def simulate(numbers, early, pred, spreads, corners, P):
                    'close': [float(row_of[i] > 0 and row_gap[row_of[i]] - row_gap[row_of[i] - 1] < 1.0) for i in range(n)],
                    'want': want_rank}
         prev, prev_lane = (np.array(rank) - 1) / max(1, n - 1), np.array(lane, float)
+        if base is None:
+            base = prev
     return form
 
 
-def prepare_race(models, x, key):
+def prepare_race(models, x, key, corners):
     numbers = [int(v) for v in x.UMABAN]
     pred = {t: models[t].predict(x[FEATURES]) for t in TARGETS}
+    xm = x.assign(n_corners=len(corners))  # the course's corner count, as in the training label
+    for c in MOVE_CORNERS:
+        if f'move{c}' in models:
+            pred[f'move{c}'] = models[f'move{c}'].predict(xm[MOVE_FEATURES])
     spreads = {c: float(models[f'spread{c}'].predict(race_level(x, key, c)[SPREAD_FEATURES])[0]) for c in CORNERS}
     return numbers, pred, spreads, x.early_rel.fillna(.5).to_numpy()
 
@@ -341,8 +401,55 @@ def evaluation_races(models, d, start, end):
         corners = [c for c in CORNERS if x[f'r{c}'].notna().all() and x[f'g{c}'].notna().all() and x[f'l{c}'].notna().all()]
         if len(corners) < 2:
             continue
-        out.append((x, corners, *prepare_race(models, x, 'RACE_CODE')))
+        out.append((x, corners, *prepare_race(models, x, 'RACE_CODE', corners)))
     return out
+
+
+BIG_MOVE = .25  # a quarter of the field between the first and the last corner
+
+
+def move_metrics(races, P):
+    """How well the formation reproduces mid-race moves (first to last predicted corner).
+    corr: correlation of predicted and actual change of normalised rank; upHit / downHit: share of horses
+    that actually gained / lost a quarter of the field and were predicted to move that way (>5%);
+    falseBig: share of all horses predicted to move 15%+ that actually moved under 10%."""
+    mp, ma = [], []
+    for x, corners, numbers, pred, spreads, early in races:
+        form, n = simulate(numbers, early, pred, spreads, corners, P), len(numbers)
+        a, b = corners[0], corners[-1]
+        mp.extend((np.array(form[b]['rank']) - np.array(form[a]['rank'])) / (n - 1))
+        ma.extend(x[f'r{b}'].to_numpy() - x[f'r{a}'].to_numpy())
+    mp, ma = np.array(mp), np.array(ma)
+    up, down = ma <= -BIG_MOVE, ma >= BIG_MOVE
+    return {'corr': float(np.corrcoef(mp, ma)[0, 1]), 'upHit': float(np.mean(mp[up] < -.05)), 'downHit': float(np.mean(mp[down] > .05)),
+            'falseBig': float(np.mean((np.abs(mp) > .15) & (np.abs(ma) < .1))), 'predictedMove': float(np.mean(np.abs(mp))),
+            'actualMove': float(np.mean(np.abs(ma))), 'upRows': int(up.sum()), 'downRows': int(down.sum())}
+
+
+MOVE_GRID = [{'beta': b, 'k': k} for b in (.7, 1.0) for k in (1, 1.5, 2, 3)]
+MOVE_RANK_TOLERANCE = 1.002  # the move layer may cost at most 0.2% of the mean rank error
+
+
+def rank_error(models, races, P):
+    s = score(models, races, P)
+    return float(np.mean([v for k, v in s.items() if k[0] == 'r']))
+
+
+def tune_moves(d, P):
+    """Strength of the move layer, chosen on Jun-Aug 2025 like the contention parameters: the largest
+    correlation with actual moves among settings whose mean rank error stays within the tolerance of the
+    formation without moves. Rank error alone always prefers no movement (it rewards shrinking)."""
+    models = fit_models(d, '20250601')
+    races = evaluation_races(models, d, '20250601', '20250831')
+    limit = rank_error(models, races, P) * MOVE_RANK_TOLERANCE
+    best, best_corr = {**P, 'beta': 0.0, 'k': 0.0}, move_metrics(races, P)['corr']
+    for M in MOVE_GRID:
+        Q = {**P, **M}
+        corr = move_metrics(races, Q)['corr']
+        if rank_error(models, races, Q) <= limit and corr > best_corr:
+            best, best_corr = Q, corr
+    print(f'move layer tuned: beta={best["beta"]} k={best["k"]} (move corr {best_corr:.3f})', flush=True)
+    return best
 
 
 def score(models, races, P):
@@ -404,6 +511,18 @@ def validate(d, P):
     metrics['_summary'] = {'races': len(races), 'meanKickDelay': float(np.mean(np.maximum(delays, 0))),
                            'delayedShare': float(np.mean(np.array(delays) > .05)), 'heldShareFirstCorner': float(np.mean(held))}
     print(metrics['_summary'], flush=True)
+    # Mid-race moves with and without the move layer, and the past-5-run mean move as a reference.
+    still = {**P, 'k': 0.0}
+    past, actual = [], []
+    for x, corners, *_ in races:
+        a, b = corners[0], corners[-1]
+        past.extend((x[f'past_r{b}'] - x[f'past_r{a}']).fillna(0))
+        actual.extend(x[f'r{b}'] - x[f'r{a}'])
+    metrics['_moves'] = {'model': move_metrics(races, P), 'withoutMoves': move_metrics(races, still),
+                         'pastMeanCorr': float(np.corrcoef(past, actual)[0, 1]),
+                         'rankError': rank_error(models, races, P), 'rankErrorWithoutMoves': rank_error(models, races, still),
+                         'beta': P.get('beta', 0.0), 'k': P.get('k', 0.0)}
+    print(metrics['_moves'], flush=True)
     return metrics
 
 
@@ -420,7 +539,7 @@ def corner_sets(d):
 
 def race_output(models, x, key, corners, P):
     """One race: contention formation per corner, traffic-aware closing, finish estimate."""
-    numbers, pred, spreads, early = prepare_race(models, x, key)
+    numbers, pred, spreads, early = prepare_race(models, x, key, corners)
     form = simulate(numbers, early, pred, spreads, corners, P)
     last3, free = closing(models, x, form, corners)
     n = len(numbers)
@@ -456,8 +575,10 @@ def upcoming_rows(snap, d):
                'track': int(race['trackCode']), 'gate': h['number'] / len(active), 'weight': h['weight'], 'age': h['age'],
                'field': len(active), 'blinker': np.nan if h['blinker'] is None else int(h['blinker']),
                'starts': int((hist.KETTO_TOROKU_BANGO == h['horseId']).sum()), 'race': snap['raceId'], 'UMABAN': h['number']}
-        for t in TARGETS:
+        for t in TARGETS + MOVE_LABELS:
             row['past_' + t] = float(past[t].mean()) if past[t].notna().any() else np.nan
+        row['past_up'] = float(past.mall.min()) if past.mall.notna().any() else np.nan
+        row['past_down'] = float(past.mall.max()) if past.mall.notna().any() else np.nan
         rows.append(row)
     return add_race_relative(pd.DataFrame(rows), 'race')
 
@@ -473,7 +594,7 @@ def main():
     d, raw = load_frame(today_s)
     d = add_traffic(add_history_features(add_labels(d)))
     print(d[TARGETS].notna().sum().to_string(), flush=True)
-    params = tune_contention(d)
+    params = tune_moves(d, tune_contention(d))
     metrics = validate(d, params)
     models = fit_models(d, '20260101')
     sets = corner_sets(d)
@@ -503,10 +624,12 @@ def main():
         m.booster_.save_model(str(ROOT / 'models' / 'pace' / f'{t}.txt'))
     model = {'name': 'Paddock展開予想モデル', 'version': VERSION, 'trainingEnd': '2025-12-31', 'validation': '2025-09〜12',
              'rows': int(len(d)), 'excludedRows': int(raw - len(d)), 'features': FEATURES, 'closingFeatures': LAST3_FEATURES,
-             'contention': params, 'summary': metrics.pop('_summary'), 'metrics': metrics,
+             'moveFeatures': MOVE_FEATURES, 'contention': params, 'summary': metrics.pop('_summary'),
+             'moves': metrics.pop('_moves'), 'metrics': metrics,
              'notes': ['各角の順位・先頭からの馬身差・併走群内の内外位置と上がり3Fを個別に学習（LightGBM）。',
                        '馬身差は「順位モデルの並び × 馬ごとの差モデルの形 × レース単位の隊列の長さモデル」で再構成。',
                        'ポジション争い：各馬の希望位置（順位モデル）と前の角の位置から押し出しの強さを決め、同じ列に並べる頭数を制限。列が埋まると先行型は外を回り、それ以外は後ろで控える（位置を失う）。',
+                       '道中の位置変化：最初の角からの累積移動量を角ごとに学習（過去走の移動・最大の上げ幅・出走馬中の動く馬の割合・角の数）。2角以降は「最初の角の位置＋予想移動量」と希望位置を混ぜて並べ直す。強さは2025年6〜8月で、順位誤差の悪化を0.2%以内に抑える範囲で移動の相関が最大になる値を選ぶ。',
                        '仕掛け遅れ：上がり3Fモデルは最終角の渋滞（外に並ぶ頭数・1馬身未満で前が壁）を特徴量に学習し、予想時はポジション争いで決まった隊列の渋滞を入れる。前が開いた場合との差を仕掛け遅れ（秒）として出す。',
                        '馬身差と内外はJRAの通過順表記から復元。記号の幅（,=1〜2馬身, -=2〜5, ==5以上）は中央値で近似。',
                        '内外は併走群の内からの位置（0=最内または単独）。ラチからの距離ではない。',

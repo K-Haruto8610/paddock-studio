@@ -9,6 +9,7 @@ function paceLabel(k: string) {
   if (k.startsWith('l')) return `${c}角 内外（併走位置）`;
   return k;
 }
+const pct = (v: number) => `${Math.round(v * 100)}%`;
 export default function ModelNotes({data, pace}: {data: Dataset; pace?: PaceForecast | null}) {
   const hasIndependent = Object.values(pace?.model.metrics ?? {}).some(
     (v) => v.independentMae !== undefined,
@@ -85,6 +86,47 @@ export default function ModelNotes({data, pace}: {data: Dataset; pace?: PaceFore
                 ))}
               </tbody>
             </table>
+          )}
+          {pace.model.moves && (
+            <table data-testid="pace-moves">
+              <thead>
+                <tr>
+                  <th>道中の位置変化（最初→最後の角）</th>
+                  <th>モデル</th>
+                  {pace.model.moves.withoutMoves && <th>移動モデルなし</th>}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>実際の移動との相関</td>
+                  <td>{pace.model.moves.model.corr.toFixed(3)}</td>
+                  {pace.model.moves.withoutMoves && <td>{pace.model.moves.withoutMoves.corr.toFixed(3)}</td>}
+                </tr>
+                <tr>
+                  <td>大きく上げた馬の方向的中</td>
+                  <td>{pct(pace.model.moves.model.upHit)}</td>
+                  {pace.model.moves.withoutMoves && <td>{pct(pace.model.moves.withoutMoves.upHit)}</td>}
+                </tr>
+                <tr>
+                  <td>大きく下げた馬の方向的中</td>
+                  <td>{pct(pace.model.moves.model.downHit)}</td>
+                  {pace.model.moves.withoutMoves && <td>{pct(pace.model.moves.withoutMoves.downHit)}</td>}
+                </tr>
+                {pace.model.moves.rankError !== undefined && (
+                  <tr>
+                    <td>順位誤差（全角平均, 0〜1）</td>
+                    <td>{pace.model.moves.rankError.toFixed(4)}</td>
+                    {pace.model.moves.withoutMoves && <td>{pace.model.moves.rankErrorWithoutMoves?.toFixed(4) ?? '—'}</td>}
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+          {pace.model.moves && (
+            <p className="caption">
+              「大きく」は出走頭数の4分の1以上。過去5走の移動の平均だけを使った場合の相関は
+              {pace.model.moves.pastMeanCorr?.toFixed(3) ?? '—'}。動きを出すと順位誤差は少し増えます。
+            </p>
           )}
         </div>
       )}

@@ -48,6 +48,19 @@ export const paceForecastSchema = z.object({
         )
         .optional(),
       notes: z.array(z.string()).optional(),
+      // Optional: how well the formation reproduces mid-race moves (first to last corner).
+      moves: z
+        .object({
+          model: z.object({corr: z.number(), upHit: z.number(), downHit: z.number(), falseBig: z.number().optional()}),
+          withoutMoves: z
+            .object({corr: z.number(), upHit: z.number(), downHit: z.number(), falseBig: z.number().optional()})
+            .optional(),
+          pastMeanCorr: z.number().optional(),
+          rankError: z.number().optional(),
+          rankErrorWithoutMoves: z.number().optional(),
+        })
+        .passthrough()
+        .optional(),
     })
     .passthrough(),
   races: z.record(z.string(), race),
