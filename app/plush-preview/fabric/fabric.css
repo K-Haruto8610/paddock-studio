@@ -1,0 +1,21 @@
+.fabric-editor { max-width: 1600px; margin: auto; padding: 24px; }
+.fabric-editor h1 { margin: 20px 0 10px; }
+.fabric-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 16px 0; position: sticky; top: 0; z-index: 2; background: #f7f8f1; padding: 8px 0; }
+.fabric-editor button, .fabric-editor select { border: 1px solid #d4d8cd; border-radius: 8px; padding: 8px 10px; background: #fffdf8; cursor: pointer; font: inherit; }
+.fabric-editor button[aria-pressed=true] { background: #345b4b; color: white; }
+.fabric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.fabric-card { background: #fffdf8; border: 1px solid #dddcd3; border-radius: 16px; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.fabric-card.is-chosen { border-color: #345b4b; box-shadow: 0 0 0 2px #345b4b; }
+.fabric-canvas { height: 300px; border-radius: 12px; overflow: hidden; touch-action: none; }
+.fabric-parts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.fabric-parts label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #6b7469; }
+.fabric-parts select { width: 100%; padding: 6px 8px; color: #222; }
+.fabric-result { margin-top: 20px; background: #fffdf8; border: 1px solid #dddcd3; border-radius: 16px; padding: 16px; }
+.fabric-result textarea { display: block; width: 100%; box-sizing: border-box; font-size: 12px; margin: 8px 0; }
+.fabric-result [role=status] { margin-left: 10px; color: #345b4b; }
+@media (max-width: 1100px) { .fabric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .fabric-editor { padding: 14px; }
+  .fabric-grid { grid-template-columns: 1fr; }
+  .fabric-canvas { height: 240px; }
+}

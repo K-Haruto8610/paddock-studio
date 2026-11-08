@@ -15,6 +15,10 @@ async function readJson<T>(url: string): Promise<T> {
   if (!r.ok) throw Error('データの読み込みに失敗しました');
   return r.json() as Promise<T>;
 }
+
+/** A whole race plays in this many milliseconds at 1x speed. */
+const PLAYBACK_MS = 65000;
+
 export default function Home() {
   const [data, setData] = useState<Dataset | null>(null),
     [replays, setReplays] = useState<Replays | null>(null),
@@ -52,7 +56,7 @@ export default function Home() {
       const dt = Math.min(now - last, 100);
       last = now;
       setProgress((p) => {
-        const next = p + (dt / 65000) * speed;
+        const next = p + (dt / PLAYBACK_MS) * speed;
         if (next >= 1) {
           setPlaying(false);
           return 1;
@@ -202,6 +206,7 @@ export default function Home() {
                   race={race}
                   plan={plan}
                   progress={progress}
+                  rate={playing ? speed / PLAYBACK_MS : 0}
                   selected={selected}
                   followKey={followKey}
                   onSelect={setSelected}

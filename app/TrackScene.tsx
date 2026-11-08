@@ -8,6 +8,7 @@ import {makeRoute, type RaceRoute} from './raceRoutes';
 import {sampleLayouts} from './raceLayout';
 import type {PlaybackPlan} from './playback';
 import {createPackCamera} from './packCamera';
+import {posePlush} from './plushHorse';
 import {
   addCourseSurfaces,
   addGround,
@@ -19,8 +20,9 @@ import {
   buildCourseSet,
   disposeScene,
 } from './sceneBuilders';
+const Z_AXIS = new T.Vector3(0, 0, 1);
 
-type LiveState = {progress: number; selected: number | null; followKey: number};
+type LiveState = {progress: number; rate: number; selected: number | null; followKey: number};
 
 // WebGL support is a property of the browser, not of the race: check it once, without
 // touching React state from inside the scene effect.
@@ -47,6 +49,7 @@ function placeHorses(
   placements: {gap: number; lane: number}[],
   travel: number,
   selected: number | null,
+  reducedMotion: boolean,
 ) {
   ring.visible = selected !== null;
   horses.forEach((g, i) => {
@@ -62,6 +65,10 @@ function placeHorses(
     );
     g.position.copy(here.point);
     g.rotation.set(0, -Math.atan2(here.tangent.z, here.tangent.x), pitch);
+    // The number floats straight above the horse: undo the slope pitch so it does not sway.
+    const number = g.getObjectByName('numberplate')!;
+    number.position.set(0, 4.4, 0).applyAxisAngle(Z_AXIS, -pitch);
+    posePlush(g, at, reducedMotion);
     g.getObjectByName('nameplate')!.visible = selected === race.horses[i].number;
     if (selected === race.horses[i].number) {
       ring.position.copy(g.position);
@@ -74,6 +81,7 @@ export default function TrackScene({
   race,
   plan,
   progress,
+  rate = 0,
   selected,
   followKey,
   onSelect,
@@ -81,16 +89,18 @@ export default function TrackScene({
   race: Race;
   plan: PlaybackPlan;
   progress: number;
+  /** Progress per millisecond while playing (0 when paused). The scene advances on its own frame clock. */
+  rate?: number;
   selected: number | null;
   followKey: number;
   onSelect: (n: number) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   // The animation loop lives outside React's render cycle: it reads the latest props from refs.
-  const state = useRef<LiveState>({progress, selected, followKey});
+  const state = useRef<LiveState>({progress, rate, selected, followKey});
   const select = useRef(onSelect);
   useEffect(() => {
-    state.current = {progress, selected, followKey};
+    state.current = {progress, rate, selected, followKey};
     select.current = onSelect;
   });
   const webgl = useSyncExternalStore(subscribeNever, hasWebGL, () => true);
@@ -129,7 +139,10 @@ export default function TrackScene({
     const terrain = addGround(scene, courses.tracks, route);
     addCourseSurfaces(scene, courses, terrain, tokyo, route);
     addRails(scene, track, courses.turf);
-    addMarkers(scene, race, track, route);
+    const gate = addMarkers(scene, race, track, route);
+    const gateBox = new T.Box3().setFromObject(gate);
+    const frustum = new T.Frustum();
+    const view = new T.Matrix4();
 
     // Horses and click-to-select.
     const {layouts, knots} = plan;
@@ -169,22 +182,50 @@ export default function TrackScene({
     resize();
 
     const packCamera = createPackCamera(camera, controls, renderer.domElement);
+    const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
     let frame = 0;
     let lastTime = performance.now();
+    let shown = state.current.progress;
     function draw(now = performance.now()) {
       const dt = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
-      const {progress: p, selected, followKey} = state.current;
+      const {progress: target, rate, selected, followKey} = state.current;
+      // React state updates on its own clock, so its steps don't line up with this frame's time.
+      // Advance by this frame's own time and only ease towards the React value, so motion stays even.
+      // A seek (a large difference) jumps straight there.
+      if (rate > 0 && Math.abs(target - shown) < 0.01) {
+        shown = Math.min(1, shown + rate * dt * 1000);
+        shown += (target - shown) * (1 - Math.exp(-dt * 0.5));
+      } else {
+        shown = target;
+      }
+      const p = shown;
       const travel = p * race.distance;
       const placements = sampleLayouts(layouts, travel, knots);
-      placeHorses(horses, race, route, ring, placements, travel, selected);
+      placeHorses(horses, race, route, ring, placements, travel, selected, motionPreference.matches);
 
       const packCenter = new T.Box3()
         .setFromPoints(horses.map((g) => g.position))
         .getCenter(new T.Vector3());
-      const fieldSpan = Math.max(...placements.map((v) => v.gap)) + 8;
-      const heading = route.sample(Math.max(0, travel - fieldSpan / 2));
-      packCamera.update({dt, progress: p, followKey, packCenter, fieldSpan, heading});
+      const gaps = placements.map((v) => v.gap);
+      const leaderAt = travel - Math.min(...gaps);
+      const meanLane = placements.reduce((sum, v) => sum + v.lane, 0) / placements.length;
+      packCamera.update({
+        dt,
+        progress: p,
+        followKey,
+        spread: Math.max(...gaps) - Math.min(...gaps),
+        behindLeader: (metres) => route.sample(Math.max(0, leaderAt - metres), meanLane),
+      });
+      // The starting gate goes once the race is under way and the camera has left it behind.
+      if (travel < 1) gate.visible = true;
+      else if (gate.visible) {
+        camera.updateMatrixWorld();
+        frustum.setFromProjectionMatrix(
+          view.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
+        );
+        if (!frustum.intersectsBox(gateBox)) gate.visible = false;
+      }
       sun.target.position.copy(packCenter);
       sun.position.copy(packCenter).add(new T.Vector3(-200, 500, 180));
       controls.update();

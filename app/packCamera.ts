@@ -2,10 +2,16 @@ import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import type {TrackPoint} from './trackGeometry';
 
+/** Where the leading horse sits by default: this fraction of the way from the screen centre to the edge. */
+const LEADER_AT_EDGE = 0.72;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 3;
+
 /**
- * The camera always frames the pack. Dragging takes manual control until the
- * "back to the pack" button bumps followKey.
- * Wheel zoom keeps following (it scales the pack distance); only a drag hands over control.
+ * The camera follows the race so the leader is always on screen: a compact field is centred,
+ * a strung-out field is framed from the leader backwards with the leader near the screen edge.
+ * The wheel zooms towards the cursor while following. Dragging takes manual control until the
+ * "follow the pack" button bumps followKey (which also resets zoom and the cursor offset).
  */
 export function createPackCamera(
   camera: T.PerspectiveCamera,
@@ -18,6 +24,12 @@ export function createPackCamera(
   let zoom = 1;
   let dragging = false;
   let lastProgress = Number.NaN;
+  // Cursor-zoom offset of the target from the automatic frame, along the course (tangent, outward).
+  const offset = new T.Vector2();
+  // Last automatic frame and target, used to turn a wheel step into an offset.
+  let frame: TrackPoint | null = null;
+  const desired = new T.Vector3();
+  const ray = new T.Raycaster();
 
   const onControlStart = () => {
     if (dragging) following = false;
@@ -29,43 +41,76 @@ export function createPackCamera(
     dragging = false;
   };
   const onWheel = (e: WheelEvent) => {
-    if (!following) return;
+    if (!following || !frame) return;
     e.preventDefault();
-    zoom = T.MathUtils.clamp(zoom * Math.exp(e.deltaY * 0.001), 0.35, 3);
+    const next = T.MathUtils.clamp(zoom * Math.exp(e.deltaY * 0.001), MIN_ZOOM, MAX_ZOOM);
+    const r = next / zoom;
+    zoom = next;
+    // Scaling the whole view about the point under the cursor keeps that point still on screen.
+    const b = canvas.getBoundingClientRect();
+    ray.setFromCamera(
+      new T.Vector2(((e.clientX - b.left) / b.width) * 2 - 1, -((e.clientY - b.top) / b.height) * 2 + 1),
+      camera,
+    );
+    const ground = new T.Plane(new T.Vector3(0, 1, 0), -desired.y);
+    const cursor = ray.ray.intersectPlane(ground, new T.Vector3());
+    if (!cursor) return;
+    const moved = cursor.clone().add(desired.clone().sub(cursor).multiplyScalar(r));
+    const auto = desired.clone().sub(fromOffset(frame));
+    const shift = moved.sub(auto);
+    offset.set(shift.dot(frame.tangent), shift.dot(frame.outward));
   };
+  const fromOffset = (f: TrackPoint) =>
+    f.tangent.clone().multiplyScalar(offset.x).addScaledVector(f.outward, offset.y);
   controls.addEventListener('start', onControlStart);
   canvas.addEventListener('pointerdown', onDown);
   window.addEventListener('pointerup', onUp);
   canvas.addEventListener('wheel', onWheel, {passive: false});
+  controls.zoomToCursor = true;
 
   return {
-    /** Moves the camera towards the pack for this frame (or leaves it alone when dragged away). */
+    /** Moves the camera towards its frame for this frame (or leaves it alone when dragged away). */
     update(opts: {
       dt: number;
       progress: number;
       followKey: number;
-      packCenter: T.Vector3;
-      fieldSpan: number;
-      heading: TrackPoint;
+      /** Length of the field from leader to last horse, in metres. */
+      spread: number;
+      /** A course point this many metres behind the leader, on the field's mean lane. */
+      behindLeader: (metres: number) => TrackPoint;
     }) {
-      const {dt, progress, followKey, packCenter, fieldSpan, heading} = opts;
+      const {dt, progress, followKey, spread, behindLeader} = opts;
       if (followKey !== lastFollowKey) {
         following = true;
         lastFollowKey = followKey;
+        zoom = 1;
+        offset.set(0, 0);
       }
       if (Number.isNaN(lastProgress)) lastProgress = progress;
       controls.enableZoom = !following;
-      const closeDistance = Math.max(30, fieldSpan / (Math.max(camera.aspect, 0.7) * 0.8)) * zoom;
-      const packOffset = heading.outward
+      const aspect = Math.max(camera.aspect, 0.7);
+      // Fit the field, but never pull back so far that the horses become specks.
+      const fitted = T.MathUtils.clamp((spread + 12) / (aspect * 0.8), 30, 90);
+      const distance = fitted * zoom;
+      // The frame is measured unzoomed, so zooming only scales the view about the cursor.
+      const halfWidth = fitted * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * aspect;
+      const back = Math.min(spread / 2, halfWidth * LEADER_AT_EDGE);
+      frame = behindLeader(back);
+      // Back at full width, let a cursor offset drift home so the leader cannot be lost.
+      if (zoom >= 0.999) offset.multiplyScalar(Math.exp(-dt * 1.5));
+      const maxOffset = halfWidth * 1.2;
+      if (offset.length() > maxOffset) offset.setLength(maxOffset);
+      desired.copy(frame.point).add(fromOffset(frame));
+      const packOffset = frame.outward
         .clone()
-        .multiplyScalar(closeDistance)
-        .addScaledVector(heading.tangent, closeDistance * 0.12);
-      packOffset.y = closeDistance * 0.62;
+        .multiplyScalar(distance)
+        .addScaledVector(frame.tangent, distance * 0.12);
+      packOffset.y = distance * 0.62;
       if (following) {
         const alpha = first || Math.abs(progress - lastProgress) > 0.03 ? 1 : 1 - Math.exp(-dt * 6);
         first = false;
-        controls.target.lerp(packCenter, alpha);
-        camera.position.lerp(packCenter.clone().add(packOffset), alpha);
+        controls.target.lerp(desired, alpha);
+        camera.position.lerp(desired.clone().add(packOffset), alpha);
       }
       lastProgress = progress;
     },

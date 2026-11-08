@@ -1,0 +1,11 @@
+.bridle-general { display: block; margin-bottom: 16px; }
+.bridle-general textarea, .bridle-notes textarea { width: 100%; box-sizing: border-box; margin-top: 6px; font: inherit; font-size: 14px; border: 1px solid #d4d8cd; border-radius: 8px; padding: 6px 8px; }
+.bridle-notes { list-style: none; padding: 0; margin: 0 0 16px; display: grid; gap: 10px; max-height: 52vh; overflow: auto; }
+.bridle-notes li { border-left: 4px solid; padding: 6px 0 6px 10px; }
+.bridle-note-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.bridle-note-head > span:nth-child(2) { flex: 1; }
+.bridle-note-head button { padding: 4px 8px !important; font-size: 12px !important; }
+.bridle-badge { color: #fff; border-radius: 50%; width: 22px; height: 22px; display: inline-grid; place-items: center; font-weight: bold; font-size: 12px; flex: none; }
+.bridle-modes { display: inline-flex; gap: 4px; }
+.bridle-canvas.mode-pen, .bridle-canvas.mode-pin { cursor: crosshair; touch-action: none; }
+.plush-editor button:disabled { opacity: 0.45; cursor: default; }

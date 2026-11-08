@@ -244,7 +244,7 @@ export function addRails(scene: T.Scene, track: TrackModel, turf: TrackModel) {
   if (track !== turf) scene.add(rail(turf, turf.width));
 }
 
-/** Finish line, GOAL/START labels, remaining-distance boards and the starting gate stalls. */
+/** Finish line, GOAL/START labels, remaining-distance boards and the starting gate stalls (returned). */
 export function addMarkers(scene: T.Scene, race: Race, track: TrackModel, route: RaceRoute) {
   const mark = (text: string, at: T.Vector3, w: number) => {
     const s = label(text, 256);
@@ -267,7 +267,7 @@ export function addMarkers(scene: T.Scene, race: Race, track: TrackModel, route:
     mark(`${remaining}m`, track.sample(track.lap - remaining, track.width + 6).point, 11);
   }
   mark(`START ${race.distance}m`, route.sample(0, track.width + 9).point, 24);
-  addGates(scene, race, route);
+  return addGates(scene, race, route);
 }
 
 /** Gate stalls between the starting lanes. */
@@ -286,12 +286,14 @@ function addGates(scene: T.Scene, race: Race, route: RaceRoute) {
     gate.rotation.y = -Math.atan2(p.tangent.z, p.tangent.x);
     gateGroup.add(gate);
   }
+  gateGroup.name = 'starting-gate';
   scene.add(gateGroup);
+  return gateGroup;
 }
 
 export function addHorses(scene: T.Scene, race: Race) {
   return race.horses.map((h) => {
-    const g = plush(h);
+    const g = plush(h, {bridle: true});
     g.scale.setScalar(HORSE_SCALE);
     g.rotation.order = 'YZX';
     g.userData.number = h.number;
@@ -316,13 +318,21 @@ export function addSelectionRing(scene: T.Scene) {
 
 /** Releases every geometry, texture and material in the scene. */
 export function disposeScene(scene: T.Scene) {
+  const geometries = new Set<T.BufferGeometry>();
+  const materials = new Set<T.Material>();
+  const textures = new Set<T.Texture>();
   scene.traverse((o) => {
-    if (o instanceof T.Mesh) o.geometry.dispose();
+    if (o instanceof T.Mesh) geometries.add(o.geometry);
     if (o instanceof T.Mesh || o instanceof T.Sprite) {
       for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
-        if ('map' in m && m.map) m.map.dispose();
-        m.dispose();
+        materials.add(m);
+        for (const value of Object.values(m)) {
+          if (value instanceof T.Texture) textures.add(value);
+        }
       }
     }
   });
+  textures.forEach((t) => t.dispose());
+  materials.forEach((m) => m.dispose());
+  geometries.forEach((g) => g.dispose());
 }
