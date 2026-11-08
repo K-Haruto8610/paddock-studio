@@ -37,23 +37,28 @@ export const ROUTE_SPECS: Record<string, RouteSpec> = {
   // ---- 東京 (plan.gif 568x386). Main-rail starts have no chute.
   '05:turf:1600': {plan: '芝 1,600m (2コーナー奥の本線上)', mark: [434, 66]},
   '05:turf:2400': {plan: '芝 2,400m (正面スタンド前の本線上)', mark: [213, 272]},
+  // Tokyo chutes, re-read from plan.gif (2026-11-08). Each list is lane 0, the inner
+  // rail of the pocket (lanes spread outward = right of the running direction); it
+  // starts at the plan's start bar and runs to where the pocket meets the main rail.
   '05:turf:2000': {
     plan: '芝 2,000m (右端の引込線、右上へ延び向正面へ合流)',
-    mark: [540, 231],
+    mark: [534, 236],
     surface: 'polygons',
-    chute: [[540, 231], [540, 192], [537, 165], [526, 134], [509, 109], [487, 90], [461, 78], [429, 72]], // prettier-ignore
+    chute: [[534, 236], [533, 190], [532, 150], [526, 134], [505, 111], [483, 90], [458, 81], [428, 80]], // prettier-ignore
   },
   '05:turf:1800': {
-    plan: '芝 1,800m (右側の引込線)',
-    mark: [530, 153],
+    plan: '芝 1,800m (右側の引込線、3コーナー手前で本線へ合流)',
+    mark: [523, 155],
     surface: 'polygons',
-    chute: [[530, 153], [505, 131], [481, 110], [452, 91], [422, 79]],
+    chute: [[523, 155], [505, 140], [480, 120], [458, 101]],
   },
+  // The start bar sits on the turf pocket beyond the 2コーナー; the two dashed lines
+  // either side of the label (y≈71 and y≈85) bound the starting stalls.
   '05:dirt:1600': {
-    plan: 'ダ 1,600m (向正面の芝引込線から本線へ)',
-    mark: [470, 77],
+    plan: 'ダ 1,600m (2コーナー奥の芝引込線から本線へ)',
+    mark: [487, 85],
     surface: 'polygons',
-    chute: [[470, 77], [445, 82], [421, 87], [398, 88]],
+    chute: [[487, 85], [462, 86], [437, 87], [414, 88]],
   },
   // ---- 中山 (572x438, 右回り)
   '06:turf:2000': {plan: '芝 2,000m(内) (スタンド前、4コーナー出口側)', mark: [433, 309]},
