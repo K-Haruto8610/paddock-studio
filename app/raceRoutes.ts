@@ -2,7 +2,7 @@ import * as T from 'three';
 import type {Race} from './types';
 import type {Pixel} from './courseData';
 import {courseFor, checkpointDistances, type CourseKind} from './courses';
-import {makeTrack, drawingFor, type TrackModel, type TrackPoint} from './trackGeometry';
+import {makeTrack, drawingFor, availableKinds, type TrackModel, type TrackPoint} from './trackGeometry';
 
 /**
  * Official starting points of the JRA flat GⅠ races, in the pixel space of each
@@ -96,8 +96,10 @@ export type RaceRoute = {
   spec?: RouteSpec;
   /** Metres between the route's start and the plan's start mark (null without a mark). */
   markError: number | null;
-  /** Pocket path for drawing (null when the surface comes from plan polygons or there is no chute). */
+  /** Pocket path (null without a chute): keeps the ground below it and opens the outer rail. */
   chuteSurface: {length: number; sample: (u: number, lane?: number) => TrackPoint} | null;
+  /** Draw the pocket as a ribbon (false when the surface comes from plan polygons). */
+  drawChute: boolean;
 };
 
 const mod = (v: number, n: number) => ((v % n) + n) % n;
@@ -177,6 +179,7 @@ export function makeRoute(race: Race, track: TrackModel): RaceRoute {
     spec,
     markError,
     chuteSurface,
+    drawChute: !!chuteSurface && spec?.surface !== 'polygons',
   });
 
   // 引込線: a pocket from the plan mark onto the main rail.
@@ -190,14 +193,40 @@ export function makeRoute(race: Race, track: TrackModel): RaceRoute {
     const length = branch.getLength(),
       // Whole laps run after the join: rail length from the join to the post, plus extra laps.
       laps = Math.max(1, Math.round((D - length + join.distance) / lap)),
-      allotted = D - (laps * lap - join.distance),
-      height = track.height(join.distance);
+      allotted = D - (laps * lap - join.distance);
+    // The pocket takes the height of the courses it runs on or beside, weighted by
+    // how close each one's centre is, so it meets every surface it overlaps
+    // without a step (Hanshin's 2,200m pocket lies under the outer course's 4コーナー).
+    const courses = availableKinds(race).map((k) => (k === track.kind ? track : makeTrack(race, k)));
+    const heights: number[] = [];
+    for (let i = 0; i <= 64; i++) {
+      // Centre of the pocket (the branch itself is its lane 0).
+      const t = branch.getTangentAt(i / 64),
+        p = branch
+          .getPointAt(i / 64)
+          .addScaledVector(new T.Vector3(-t.z, 0, t.x).normalize(), (side * track.width) / 2);
+      let num = 0,
+        den = 0;
+      for (const c of courses) {
+        const near = nearestOnTrack(c, p),
+          centre = Math.max(0, Math.abs(near.gap - c.width / 2)),
+          w = 1 / (centre + 1) ** 4;
+        num += w * c.height(near.distance);
+        den += w;
+      }
+      heights.push(num / den);
+    }
+    const height = (u: number) => {
+      const f = T.MathUtils.clamp(u, 0, 1) * 64,
+        i = Math.min(63, Math.floor(f));
+      return T.MathUtils.lerp(heights[i], heights[i + 1], f - i);
+    };
     const chutePoint = (u: number, lane = 0): TrackPoint => {
       const point = branch.getPointAt(u),
         tangent = branch.getTangentAt(u),
         outward = new T.Vector3(-tangent.z, 0, tangent.x).normalize().multiplyScalar(side);
       point.addScaledVector(outward, lane);
-      point.y = height;
+      point.y = height(u);
       return {point, tangent, outward};
     };
     const sample = (travel: number, lane = 0) =>
@@ -209,7 +238,7 @@ export function makeRoute(race: Race, track: TrackModel): RaceRoute {
       'chute',
       0,
       pts,
-      spec.surface === 'polygons' ? null : {length, sample: chutePoint},
+      {length, sample: chutePoint},
     );
   }
 

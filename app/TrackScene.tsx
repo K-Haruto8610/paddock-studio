@@ -138,7 +138,7 @@ export default function TrackScene({
     const courses = buildCourseSet(race, track, availableKinds(race));
     const terrain = addGround(scene, courses.tracks, route);
     addCourseSurfaces(scene, courses, terrain, tokyo, route);
-    addRails(scene, track, courses.turf);
+    addRails(scene, track, courses.turf, route, race.distance);
     const gate = addMarkers(scene, race, track, route);
     const gateBox = new T.Box3().setFromObject(gate);
     const frustum = new T.Frustum();

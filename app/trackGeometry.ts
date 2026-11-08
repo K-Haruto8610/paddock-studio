@@ -197,9 +197,9 @@ export function makeTrack(
   const points = drawing?.profiles[kind] ?? drawing?.profiles.turf;
   let profile = (remaining: number) => (points ? linearProfile(points, remaining) : 0);
   if (kind === 'outer' && drawing?.rails.outer) {
-    // Where the outer course runs on the inner course's rail it takes the inner
-    // course's heights, blending smoothly to its own section graph as it bulges
-    // away. Two graphs read independently never agree exactly; without this the
+    // Where the outer course runs on (or overlaps) the inner course it takes the
+    // inner course's heights, blending smoothly to its own section graph as it
+    // bulges away. Two graphs read independently never agree exactly; without this the
     // shared stretch showed a ledge between the two ribbons.
     const inner = makeTrack(race, 'turf'),
       innerPts: {x: number; z: number; d: number}[] = [];
@@ -219,7 +219,9 @@ export function makeTrack(
           best = q;
         }
       }
-      const w = T.MathUtils.smoothstep(Math.sqrt(e), 1.5, 10),
+      // The two strips overlap until the rails are a course width apart; keep the
+      // shared heights until the outer course is clear of the lanes horses use.
+      const w = T.MathUtils.smoothstep(Math.sqrt(e), 18, 34),
         own = points ? linearProfile(points, lap - d) : 0;
       table.push([lap - d, T.MathUtils.lerp(inner.profile(inner.lap - best.d), own, w)]);
     }

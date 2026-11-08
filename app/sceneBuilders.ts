@@ -49,31 +49,100 @@ function ribbon(track: TrackModel, inner: number, outer: number, color: string, 
   return m;
 }
 
-/** White rail: a tube along the lane plus a post every ~8m. */
-function rail(track: TrackModel, lane: number) {
-  const group = new T.Group();
+/** Runs of rail points along a lane (one closed loop when nothing is open). */
+function railRuns(track: TrackModel, lane: number, open?: (p: T.Vector3) => boolean) {
+  const N = 600;
   const points: T.Vector3[] = [];
-  for (let i = 0; i <= 600; i++) {
-    const p = track.sample((i / 600) * track.lap, lane).point;
-    p.y += 1.1;
+  const kept: boolean[] = [];
+  for (let i = 0; i < N; i++) {
+    const p = track.sample((i / N) * track.lap, lane).point;
+    kept.push(!open?.(p));
     points.push(p);
   }
-  group.add(
-    mesh(new T.TubeGeometry(new T.CatmullRomCurve3(points, true), 1200, 0.1, 5, true), '#f2f1de'),
-  );
+  const firstGap = kept.indexOf(false);
+  if (firstGap < 0) return {closed: true, runs: [points]};
+  // Walk the loop from the first gap, collecting each run of kept points.
+  const runs: T.Vector3[][] = [];
+  let run: T.Vector3[] = [];
+  for (let k = 1; k <= N; k++) {
+    const i = (firstGap + k) % N;
+    if (kept[i]) run.push(points[i]);
+    if ((!kept[i] || k === N) && run.length > 1) runs.push(run);
+    if (!kept[i]) run = [];
+  }
+  return {closed: false, runs};
+}
+
+/** White rail: a tube along the lane plus a post every ~8m, left open where `open(p)` is true. */
+function rail(track: TrackModel, lane: number, open?: (p: T.Vector3) => boolean) {
+  const group = new T.Group();
+  const {closed, runs} = railRuns(track, lane, open);
+  for (const run of runs) {
+    const pts = run.map((p) => p.clone().setY(p.y + 1.1));
+    group.add(
+      mesh(
+        new T.TubeGeometry(new T.CatmullRomCurve3(pts, closed), pts.length * 2, 0.1, 5, closed),
+        '#f2f1de',
+      ),
+    );
+  }
   const postGeo = new T.CylinderGeometry(0.075, 0.075, 1.2, 5);
   const postMat = new T.MeshStandardMaterial({color: '#eaeedc'});
   const count = Math.ceil(track.lap / 8);
   const posts = new T.InstancedMesh(postGeo, postMat, count);
   const dummy = new T.Object3D();
+  let used = 0;
   for (let i = 0; i < count; i++) {
-    dummy.position.copy(track.sample((i / count) * track.lap, lane).point);
+    const p = track.sample((i / count) * track.lap, lane).point;
+    if (open?.(p)) continue;
+    dummy.position.copy(p);
     dummy.position.y += 0.55;
     dummy.updateMatrix();
-    posts.setMatrixAt(i, dummy.matrix);
+    posts.setMatrixAt(used++, dummy.matrix);
   }
+  posts.count = used;
   group.add(posts);
   return group;
+}
+
+/**
+ * True for rail points inside the race's running strip: across its chute (引込線),
+ * and wherever its route runs over another course's rail (outer course crossing
+ * the inner course's outer rail, 外→内 races). The race's own rails stay closed.
+ */
+function onRoute(route: RaceRoute | undefined, width: number, distance: number) {
+  if (!route) return undefined;
+  const centre: T.Vector3[] = [];
+  for (let t = 0; t <= distance; t += 2) centre.push(route.sample(t, width / 2).point);
+  const chute: T.Vector3[] = [];
+  const surface = route.chuteSurface;
+  if (surface) for (let i = 0; i <= 200; i++) chute.push(surface.sample(i / 200, width / 2).point);
+  const inside = (width / 2 - 1.5) ** 2,
+    reach = (width / 2 + 1.5) ** 2;
+  const near = (pts: T.Vector3[], p: T.Vector3, r: number) =>
+    pts.some((c) => (c.x - p.x) ** 2 + (c.z - p.z) ** 2 < r);
+  // The chute's own reach applies to outer rails only: its lane 0 meets the inner rail.
+  return {
+    inner: (p: T.Vector3) => near(centre, p, inside),
+    outer: (p: T.Vector3) => near(chute, p, reach) || near(centre, p, inside),
+  };
+}
+
+/** The rails drawn for a race: its course's two rails, plus the turf outer rail on another course. */
+function railSpecs(
+  track: TrackModel,
+  turf: TrackModel,
+  route?: RaceRoute,
+  distance = 0,
+) {
+  // Rails open where the race's own strip runs across them.
+  const open = onRoute(route, track.width, distance);
+  const specs: {track: TrackModel; lane: number; open?: (p: T.Vector3) => boolean}[] = [
+    {track, lane: 0, open: open?.inner},
+    {track, lane: track.width, open: open?.outer},
+  ];
+  if (track !== turf) specs.push({track: turf, lane: turf.width, open: open?.outer});
+  return specs;
 }
 
 export type CourseSet = {
@@ -224,7 +293,8 @@ export function addCourseSurfaces(
   if (outer) scene.add(ribbon(outer, 0, outer.width, '#7faf66', 1));
   scene.add(ribbon(turf, 0, turf.width, '#7faf66', 2));
   if (dirt) scene.add(ribbon(dirt, 0, dirt.width, '#ceb28a', 3));
-  if (route?.chuteSurface) scene.add(chuteRibbon(route.chuteSurface, turf.width, '#7faf66'));
+  if (route?.chuteSurface && route.drawChute)
+    scene.add(chuteRibbon(route.chuteSurface, turf.width, '#7faf66'));
   if (tokyo && dirt) {
     const add = (points: number[][], color: string, lift: number) =>
       scene.add(drape(turf, terrain, points, color, lift));
@@ -238,10 +308,14 @@ export function addCourseSurfaces(
 }
 
 /** Rails of the course this race is run on (plus the turf rail when racing on another surface). */
-export function addRails(scene: T.Scene, track: TrackModel, turf: TrackModel) {
-  scene.add(rail(track, 0));
-  scene.add(rail(track, track.width));
-  if (track !== turf) scene.add(rail(turf, turf.width));
+export function addRails(
+  scene: T.Scene,
+  track: TrackModel,
+  turf: TrackModel,
+  route?: RaceRoute,
+  distance = 0,
+) {
+  for (const r of railSpecs(track, turf, route, distance)) scene.add(rail(r.track, r.lane, r.open));
 }
 
 /** Finish line, GOAL/START labels, remaining-distance boards and the starting gate stalls (returned). */
