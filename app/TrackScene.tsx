@@ -5,7 +5,8 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import type {Race} from './types';
 import {makeTrack, availableKinds} from './trackGeometry';
 import {makeRoute, type RaceRoute} from './raceRoutes';
-import {sampleLayouts} from './raceLayout';
+import {interpolateLayouts, separateLayouts, type Placement} from './raceLayout';
+import {clampPlacement} from './manualEdit';
 import type {PlaybackPlan} from './playback';
 import {createPackCamera} from './packCamera';
 import {posePlush} from './plushHorse';
@@ -22,7 +23,15 @@ import {
 } from './sceneBuilders';
 const Z_AXIS = new T.Vector3(0, 0, 1);
 
-type LiveState = {progress: number; rate: number; selected: number | null; followKey: number};
+type LiveState = {
+  progress: number;
+  rate: number;
+  selected: number | null;
+  followKey: number;
+  plan: PlaybackPlan;
+  /** Manual edit mode: distance of the edit point the race is paused on (null elsewhere). */
+  editAt: number | null;
+};
 
 // WebGL support is a property of the browser, not of the race: check it once, without
 // touching React state from inside the scene effect.
@@ -85,6 +94,8 @@ export default function TrackScene({
   selected,
   followKey,
   onSelect,
+  editAt = null,
+  onEdit,
 }: {
   race: Race;
   plan: PlaybackPlan;
@@ -94,14 +105,19 @@ export default function TrackScene({
   selected: number | null;
   followKey: number;
   onSelect: (n: number) => void;
+  editAt?: number | null;
+  /** Called when a dragged horse is let go at an edit point: its new place in plan units. */
+  onEdit?: (index: number, placement: Placement) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   // The animation loop lives outside React's render cycle: it reads the latest props from refs.
-  const state = useRef<LiveState>({progress, rate, selected, followKey});
+  const state = useRef<LiveState>({progress, rate, selected, followKey, plan, editAt});
   const select = useRef(onSelect);
+  const edit = useRef(onEdit);
   useEffect(() => {
-    state.current = {progress, rate, selected, followKey};
+    state.current = {progress, rate, selected, followKey, plan, editAt};
     select.current = onSelect;
+    edit.current = onEdit;
   });
   const webgl = useSyncExternalStore(subscribeNever, hasWebGL, () => true);
 
@@ -144,33 +160,100 @@ export default function TrackScene({
     const frustum = new T.Frustum();
     const view = new T.Matrix4();
 
-    // Horses and click-to-select.
-    const {layouts, knots} = plan;
+    // Horses and click-to-select; in edit mode, drag a horse to move it.
     const horses = addHorses(scene, race);
     const ring = addSelectionRing(scene);
     const ray = new T.Raycaster();
     const mouse = new T.Vector2();
     let down = [0, 0];
-    const onPointerDown = (e: PointerEvent) => {
-      down = [e.clientX, e.clientY];
-    };
-    const onPointerUp = (e: PointerEvent) => {
-      if (Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
+    const aim = (e: PointerEvent) => {
       const b = el.getBoundingClientRect();
       mouse.set(
         ((e.clientX - b.left) / b.width) * 2 - 1,
         -((e.clientY - b.top) / b.height) * 2 + 1,
       );
       ray.setFromCamera(mouse, camera);
-      const hit = ray.intersectObjects(horses, true)[0];
-      if (hit) {
-        let o: T.Object3D = hit.object;
-        while (o.parent && !o.userData.number) o = o.parent;
-        if (o.userData.number) select.current(o.userData.number);
-      }
     };
-    renderer.domElement.addEventListener('pointerdown', onPointerDown);
-    renderer.domElement.addEventListener('pointerup', onPointerUp);
+    const horseAt = (e: PointerEvent) => {
+      aim(e);
+      const hit = ray.intersectObjects(horses, true)[0];
+      if (!hit) return null;
+      let o: T.Object3D = hit.object;
+      while (o.parent && !o.userData.number) o = o.parent;
+      return (o.userData.number as number | undefined) ?? null;
+    };
+    // A drag moves one horse on a level plane through it: along the course changes its gap,
+    // across the course changes its lane.
+    let drag: {
+      index: number;
+      start: Placement;
+      from: T.Vector3;
+      plane: T.Plane;
+      tangent: T.Vector3;
+      outward: T.Vector3;
+      now: Placement;
+      pointer: number;
+    } | null = null;
+    const hitPlane = (plane: T.Plane) => ray.ray.intersectPlane(plane, new T.Vector3());
+    const onPointerDown = (e: PointerEvent) => {
+      down = [e.clientX, e.clientY];
+      const {editAt, plan: live} = state.current;
+      if (editAt === null || !edit.current || e.button !== 0) return;
+      const number = horseAt(e);
+      if (number === null) return;
+      const k = live.knots.findIndex((d) => Math.abs(d - editAt) < 0.05);
+      const index = race.horses.findIndex((h) => h.number === number);
+      if (k < 0 || index < 0) return;
+      const start = live.layouts[k][index];
+      const at = Math.max(0, editAt - start.gap);
+      const here = route.sample(at, start.lane);
+      const outward = route.sample(at, start.lane + 1).point.clone().sub(here.point).setY(0);
+      const tangent = here.tangent.clone().setY(0).normalize();
+      const plane = new T.Plane(new T.Vector3(0, 1, 0), -horses[index].position.y);
+      const from = hitPlane(plane);
+      if (!from) return;
+      // Take the pointer before OrbitControls sees it, so the camera stays put while dragging.
+      controls.enabled = false;
+      e.stopPropagation();
+      el.setPointerCapture(e.pointerId);
+      drag = {index, start, from, plane, tangent, outward, now: start, pointer: e.pointerId};
+      select.current(number);
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (!drag || e.pointerId !== drag.pointer) return;
+      aim(e);
+      const p = hitPlane(drag.plane);
+      if (!p) return;
+      const d = p.sub(drag.from);
+      const per = drag.outward.lengthSq() || 1;
+      drag.now = clampPlacement({
+        gap: drag.start.gap - d.dot(drag.tangent),
+        lane: drag.start.lane + d.dot(drag.outward) / per,
+      });
+    };
+    const endDrag = (e: PointerEvent) => {
+      if (!drag || e.pointerId !== drag.pointer) return false;
+      if (drag.now !== drag.start) edit.current?.(drag.index, drag.now);
+      drag = null;
+      controls.enabled = true;
+      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+      return true;
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      if (endDrag(e)) return;
+      if (Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
+      const number = horseAt(e);
+      if (number !== null) select.current(number);
+    };
+    const onPointerCancel = (e: PointerEvent) => {
+      if (drag && e.pointerId === drag.pointer) drag.now = drag.start;
+      endDrag(e);
+    };
+    // Capture phase on the host runs before OrbitControls' own listener on the canvas.
+    el.addEventListener('pointerdown', onPointerDown, true);
+    el.addEventListener('pointermove', onPointerMove);
+    el.addEventListener('pointerup', onPointerUp);
+    el.addEventListener('pointercancel', onPointerCancel);
 
     const resize = () => {
       camera.aspect = el.clientWidth / el.clientHeight;
@@ -189,7 +272,7 @@ export default function TrackScene({
     function draw(now = performance.now()) {
       const dt = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
-      const {progress: target, rate, selected, followKey} = state.current;
+      const {progress: target, rate, selected, followKey, plan: live} = state.current;
       // React state updates on its own clock, so its steps don't line up with this frame's time.
       // Advance by this frame's own time and only ease towards the React value, so motion stays even.
       // A seek (a large difference) jumps straight there.
@@ -201,7 +284,9 @@ export default function TrackScene({
       }
       const p = shown;
       const travel = p * race.distance;
-      const placements = sampleLayouts(layouts, travel, knots);
+      const raw = interpolateLayouts(live.layouts, travel, live.knots);
+      if (drag) raw[drag.index] = drag.now;
+      const placements = separateLayouts(raw);
       placeHorses(horses, race, route, ring, placements, travel, selected, motionPreference.matches);
 
       const packCenter = new T.Box3()
@@ -239,13 +324,16 @@ export default function TrackScene({
       observer.disconnect();
       packCamera.dispose();
       controls.dispose();
-      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
-      renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      el.removeEventListener('pointerdown', onPointerDown, true);
+      el.removeEventListener('pointermove', onPointerMove);
+      el.removeEventListener('pointerup', onPointerUp);
+      el.removeEventListener('pointercancel', onPointerCancel);
       disposeScene(scene);
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [race, plan, webgl]);
+    // The plan is read live from state, so a hand edit does not rebuild the scene or move the camera.
+  }, [race, webgl]);
 
   return (
     <div

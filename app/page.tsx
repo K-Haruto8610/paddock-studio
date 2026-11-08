@@ -10,6 +10,16 @@ import {VERTICAL_EXAGGERATION, availableKinds} from './trackGeometry';
 import {buildPlayback, playbackFrame} from './playback';
 import type {Dataset, Replays, PlaybackMode} from './types';
 import {parsePaceForecast, paceForRace, type PaceForecast} from './paceForecast';
+import EditPanel from './EditPanel';
+import {
+  applyEdits,
+  editPoints,
+  loadEdits,
+  saveEdits,
+  clampPlacement,
+  type RaceEdits,
+} from './manualEdit';
+import type {Placement} from './raceLayout';
 
 async function readJson<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -37,7 +47,13 @@ export default function Home() {
     [bundledPace, setBundledPace] = useState<PaceForecast | null>(null),
     [importedPace, setImportedPace] = useState<{file: PaceForecast; name: string} | null>(null),
     [paceMessage, setPaceMessage] = useState(''),
-    [useLegacy, setUseLegacy] = useState(false);
+    [useLegacy, setUseLegacy] = useState(false),
+    // Manual edit mode: the forecast with hand-placed horses at four moments of the race.
+    [editing, setEditing] = useState(false),
+    // Read on the client only; nothing edited is rendered until edit mode is switched on.
+    [allEdits, setAllEdits] = useState<Record<string, RaceEdits>>(() =>
+      typeof window === 'undefined' ? {} : loadEdits(),
+    );
   useEffect(() => {
     Promise.allSettled([
       readJson<Dataset>('/data/forecasts.json'),
@@ -85,17 +101,26 @@ export default function Home() {
     course = race ? courseFor(race) : null,
     replay = replays?.races[raceId],
     // A race forecast from its entry card has no replay until a result is added (data/results).
-    mode: PlaybackMode = race?.historical === false && !replay ? 'forecast' : modeChoice;
+    mode: PlaybackMode =
+      editing || (race?.historical === false && !replay) ? 'forecast' : modeChoice;
   const paceFile = importedPace?.file ?? bundledPace;
   const paceMatch = useMemo(
     () => (race ? paceForRace(paceFile, race) : {pace: null}),
     [race, paceFile],
   );
   const pace = useLegacy ? null : paceMatch.pace;
-  const plan = useMemo(
-    () => (race ? buildPlayback(race, mode, replay, pace) : null),
-    [race, mode, replay, pace],
-  );
+  const raceEdits = allEdits[raceId];
+  const plan = useMemo(() => {
+    if (!race) return null;
+    const base = buildPlayback(race, mode, replay, pace);
+    return editing ? applyEdits(race, base, raceEdits ?? {}) : base;
+  }, [race, mode, replay, pace, editing, raceEdits]);
+  const updateEdits = (change: (e: RaceEdits) => RaceEdits) =>
+    setAllEdits((all) => {
+      const next = {...all, [raceId]: change(all[raceId] ?? {})};
+      saveEdits(next);
+      return next;
+    });
   const importPace = async (file: File) => {
     try {
       const parsed = parsePaceForecast(JSON.parse(await file.text()));
@@ -128,6 +153,20 @@ export default function Home() {
       setPlaying(false);
       setProgress(p);
     };
+  // The edit point the race is paused on, if any: horses can be dragged only there.
+  const editPoint = editing && !playing ? frame?.exact?.edit : undefined;
+  const editKnot = editPoint ? plan!.knots.indexOf(frame!.exact!.distance) : -1;
+  const moveHorse = (index: number, placement: Placement) => {
+    if (!race || !editPoint) return;
+    const number = String(race.horses[index].number);
+    updateEdits((e) => ({...e, [editPoint]: {...e[editPoint], [number]: clampPlacement(placement)}}));
+  };
+  const startEditing = () => {
+    if (!race) return;
+    setEditing(true);
+    setPlaying(false);
+    setProgress(editPoints(race)[0].distance / race.distance);
+  };
   return (
     <main>
       <header>
@@ -214,23 +253,30 @@ export default function Home() {
                 disabled={!replay}
                 onClick={() => {
                   setMode('replay');
+                  setEditing(false);
                   setPlaying(false);
                 }}
               >
                 実績再生
               </button>
               <button
-                aria-pressed={!actual}
+                aria-pressed={!actual && !editing}
                 onClick={() => {
                   setMode('forecast');
+                  setEditing(false);
                   setPlaying(false);
                 }}
               >
                 モデル予想
               </button>
+              <button aria-pressed={editing} onClick={startEditing}>
+                手動エディット
+              </button>
             </div>
             <p>
-              {actual
+              {editing
+                ? '予想をもとに、序盤・中盤・4角・最終直線の4地点で馬を手で動かせます。編集は自動保存されます。'
+                : actual
                 ? '各コーナーと入線順位は実データ。その間の動きは補間。'
                 : pace
                   ? `展開予想モデル（${pace.model}）の途中順位・前後の馬身差・内外・上がりで再生。実績は使用しません。`
@@ -304,16 +350,20 @@ export default function Home() {
                   selected={selected}
                   followKey={followKey}
                   onSelect={setSelected}
+                  editAt={editPoint ? frame.exact!.distance : null}
+                  onEdit={moveHorse}
                 />
                 <div className="scene-top">
                   <span
                     className={`scene-status ${actual ? 'recorded-status' : ''}`}
                     data-testid="playback-status"
                   >
-                    ● {actual ? '実績' : '予想'} · {frame.label}
+                    ● {editing ? 'エディット' : actual ? '実績' : '予想'} · {frame.label}
                     {actual && frame.exact?.observed
                       ? '（記録地点）'
-                      : progress > 0
+                      : editPoint
+                        ? '（ドラッグで移動）'
+                        : progress > 0
                         ? '（補間）'
                         : ''}
                   </span>
@@ -322,7 +372,11 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="scene-bottom">
-                  <span>ドラッグで回転 · スクロールで拡大 · 馬を選択</span>
+                  <span>
+                    {editPoint
+                      ? '馬をドラッグ：前後＝進行方向 · 左右＝内外 · 背景ドラッグで回転'
+                      : 'ドラッグで回転 · スクロールで拡大 · 馬を選択'}
+                  </span>
                   <span>
                     JRA公式図面ベース · 馬は約1.7倍 · 高低差は{VERTICAL_EXAGGERATION}倍で表示
                   </span>
@@ -348,7 +402,7 @@ export default function Home() {
                     <span className="profile-done" style={{width: `${progress * 100}%`}} />
                     {plan.checkpoints.map((c) => (
                       <span
-                        key={c.label}
+                        key={`${c.label}-${c.distance}`}
                         className="profile-tick"
                         style={{left: `${(c.distance / race.distance) * 100}%`}}
                       />
@@ -367,11 +421,15 @@ export default function Home() {
                   <div className="phases">
                     {plan.checkpoints.map((c) => (
                       <button
-                        key={c.label}
+                        key={`${c.label}-${c.distance}`}
                         aria-label={`${c.label}へ移動`}
                         onClick={() => seek(c.distance / race.distance)}
                         style={{left: `${(c.distance / race.distance) * 100}%`}}
-                        className={frame.exact === c ? 'checkpoint-active' : ''}
+                        className={[
+                          frame.exact === c ? 'checkpoint-active' : '',
+                          c.edit ? 'checkpoint-edit' : '',
+                          c.edited ? 'checkpoint-edited' : '',
+                        ].join(' ')}
                       >
                         {c.label}
                       </button>
@@ -388,6 +446,28 @@ export default function Home() {
                   <option value="2">2×</option>
                 </select>
               </div>
+              {editing && (
+                <EditPanel
+                  race={race}
+                  plan={plan}
+                  edits={raceEdits ?? {}}
+                  active={editPoint}
+                  layout={editKnot >= 0 ? plan.layouts[editKnot] : null}
+                  selected={selected}
+                  onSeek={(d) => seek(d / race.distance)}
+                  onMove={moveHorse}
+                  onReset={(key, number) =>
+                    updateEdits((e) => {
+                      if (!key) return {};
+                      if (number === undefined) return {...e, [key]: undefined};
+                      const rest = {...e[key]};
+                      delete rest[String(number)];
+                      return {...e, [key]: rest};
+                    })
+                  }
+                  onExit={() => setEditing(false)}
+                />
+              )}
               <div className="live-order-panel">
                 <div className="live-order-heading">
                   <b>

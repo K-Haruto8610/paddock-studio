@@ -1,5 +1,6 @@
 import type {Race, ReplayRace, PlaybackMode} from './types';
 import type {RacePace} from './paceForecast';
+import type {EditKey} from './manualEdit';
 import {checkpointDistances, cornerLabels, courseFor} from './courses';
 import {
   buildLayouts,
@@ -16,6 +17,9 @@ export type Checkpoint = {
   observed: boolean;
   ranks: (number | null)[];
   corner?: number;
+  /** Manual edit mode: which hand-editable moment this checkpoint is, and whether it was changed. */
+  edit?: EditKey;
+  edited?: boolean;
 };
 export type PlaybackPlan = {
   layouts: Placement[][];
@@ -25,6 +29,8 @@ export type PlaybackPlan = {
   available: boolean;
   /** Forecast only: 'pace' = imported race-flow model, 'legacy' = per-corner rank model. */
   source?: 'pace' | 'legacy';
+  /** True when the plan carries the manual edit points. */
+  edited?: boolean;
 };
 
 type PaceSpot = {gap: number; lane: number; rank: number};

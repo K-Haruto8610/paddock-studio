@@ -50,7 +50,8 @@ export function buildLayouts(race: Race): Placement[][] {
   }
   return stages;
 }
-export function sampleLayouts(
+/** Plan placements at this travel distance, eased between checkpoints, before any separation. */
+export function interpolateLayouts(
   layouts: Placement[][],
   travel: number,
   knots: number[],
@@ -62,10 +63,20 @@ export function sampleLayouts(
     Math.min(1, (travel - knots[segment]) / (knots[segment + 1] - knots[segment])),
   );
   const smooth = t * t * (3 - 2 * t);
-  const result = layouts[segment].map((a, i) => ({
+  return layouts[segment].map((a, i) => ({
     gap: a.gap + (layouts[segment + 1][i].gap - a.gap) * smooth,
     lane: a.lane + (layouts[segment + 1][i].lane - a.lane) * smooth,
   }));
+}
+export function sampleLayouts(
+  layouts: Placement[][],
+  travel: number,
+  knots: number[],
+): Placement[] {
+  return separateLayouts(interpolateLayouts(layouts, travel, knots));
+}
+/** Pushes overlapping silhouettes apart sideways (mutates and returns the placements). */
+export function separateLayouts(result: Placement[]): Placement[] {
   // Keep silhouettes separate while passing. The elliptical clearance grows smoothly
   // as two horses draw level, rather than snapping the field into fixed columns.
   const reach = HORSE_LENGTH * 1.25;

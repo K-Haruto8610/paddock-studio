@@ -308,3 +308,146 @@
   background: #f6e7d4;
   color: #8a5520;
 }
+
+/* Manual edit mode */
+.phases .checkpoint-edit {
+  color: #8a5a1f;
+}
+.phases .checkpoint-edited::after {
+  content: '●';
+  font-size: 7px;
+  margin-left: 2px;
+  vertical-align: top;
+}
+.edit-panel {
+  border: 1px solid #e3cfa9;
+  border-radius: 6px;
+  padding: 13px 16px;
+  margin-top: 12px;
+  background: #fffaf0;
+  display: grid;
+  gap: 10px;
+}
+.edit-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.edit-head b {
+  font-size: 13px;
+  color: #6f4a17;
+}
+.edit-head small {
+  font-size: 11px;
+  color: #8a7a5e;
+}
+.edit-panel .text-button {
+  margin: 0;
+  font-size: 11px;
+}
+.edit-head .text-button {
+  margin-left: auto;
+}
+.edit-points {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.edit-points button {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 8px 6px;
+  border: 1px solid #e3cfa9;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5d4520;
+}
+.edit-points button small {
+  font-size: 10px;
+  font-weight: 400;
+  color: #9a8a6c;
+}
+.edit-points button[aria-pressed='true'] {
+  background: #8a5a1f;
+  border-color: #8a5a1f;
+  color: #fff;
+}
+.edit-points button[aria-pressed='true'] small {
+  color: #f3e3c6;
+}
+.edit-points em {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: #c4572d;
+  color: #fff;
+  font-size: 10px;
+  font-style: normal;
+  line-height: 18px;
+}
+.edit-hint {
+  margin: 0;
+  font-size: 11px;
+  color: #8a7a5e;
+}
+.edit-horse {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.edit-badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid #0002;
+}
+.edit-name {
+  display: grid;
+  font-size: 13px;
+  font-weight: 600;
+}
+.edit-name small {
+  font-size: 10px;
+  font-weight: 400;
+  color: #8a7a5e;
+}
+.edit-nudge {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.edit-nudge button {
+  padding: 6px 9px;
+  font-size: 11px;
+  border: 1px solid #e3cfa9;
+  border-radius: 4px;
+  background: #fff;
+}
+.edit-nudge button:hover,
+.edit-points button:hover:not([aria-pressed='true']) {
+  background: #f8ecd6;
+}
+.edit-reset {
+  display: flex;
+  gap: 14px;
+}
+.edit-reset:empty {
+  display: none;
+}
+@media (max-width: 760px) {
+  .edit-points {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
