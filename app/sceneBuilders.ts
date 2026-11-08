@@ -261,13 +261,62 @@ export function addMarkers(scene: T.Scene, race: Race, track: TrackModel, route:
   finishLine.position.copy(track.sample(0, track.width / 2).point);
   finishLine.position.y += 0.1;
   scene.add(finishLine);
-  mark('GOAL', track.sample(0, track.width + 8).point, 16);
+  scene.add(goalPost(track));
+  mark('GOAL',track.sample(0, track.width + 8).point, 16);
   // Remaining-distance boards along the last lap, sized to be readable from the pack camera.
   for (let remaining = 200; remaining < track.lap; remaining += 200) {
     mark(`${remaining}m`, track.sample(track.lap - remaining, track.width + 6).point, 11);
   }
   mark(`START ${race.distance}m`, route.sample(0, track.width + 9).point, 24);
   return addGates(scene, race, route);
+}
+
+/** Round red-and-white board face, with the finish line drawn down its middle. */
+function goalBoardTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#c8202a';
+  g.beginPath();
+  g.arc(128, 128, 128, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = '#fffdf4';
+  g.beginPath();
+  g.arc(128, 128, 104, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = '#c8202a';
+  g.fillRect(120, 24, 16, 208);
+  const tex = new T.CanvasTexture(c);
+  tex.colorSpace = T.SRGBColorSpace;
+  return tex;
+}
+
+/** ゴール板: a pole just inside the inner rail at the finish, its round board facing across the course. */
+function goalPost(track: TrackModel) {
+  const at = track.sample(0, -1.4);
+  const group = new T.Group();
+  group.position.copy(at.point);
+  group.rotation.y = -Math.atan2(at.tangent.z, at.tangent.x);
+  group.scale.setScalar(1.6); // drawn at the same exaggeration as the horses
+  const pole = mesh(new T.CylinderGeometry(0.12, 0.16, 5.2, 10), '#f4f3ea');
+  pole.position.y = 2.6;
+  pole.castShadow = true;
+  group.add(pole);
+  const base = mesh(new T.CylinderGeometry(0.45, 0.55, 0.3, 12), '#8d938a');
+  base.position.y = 0.15;
+  group.add(base);
+  const board = new T.Mesh(
+    new T.CircleGeometry(1.0, 40),
+    new T.MeshStandardMaterial({map: goalBoardTexture(), roughness: 0.7, side: T.DoubleSide}),
+  );
+  board.position.y = 5.3;
+  board.castShadow = true;
+  group.add(board);
+  const rim = mesh(new T.TorusGeometry(1.0, 0.06, 6, 40), '#e8e6da');
+  rim.position.y = 5.3;
+  group.add(rim);
+  group.name = 'goal-post';
+  return group;
 }
 
 /** Gate stalls between the starting lanes. */
