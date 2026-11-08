@@ -25,12 +25,18 @@ def number(x):
 def clean(s):
     return bool(s and not re.search(r'[?@�]', str(s)) and re.search(r'[ぁ-ヿ一-龥]', str(s)))
 
+RESULTS_DIR = ROOT / 'data' / 'results'
+
+
 def load_upcoming_entries(entries_dir, today_s):
-    """Latest snapshots of declared fields for GI races that have not been run yet."""
+    """Latest snapshots of declared fields for GI races that have not been run yet, plus run races whose
+    result is only in data/results (DB rows unusable): their pre-race forecast is kept for comparison.
+    Features always use starts strictly before the race date, never the result file."""
     out = []
     for p in sorted(Path(entries_dir).glob('*.json')):
         s = json.loads(p.read_text(encoding='utf-8'))
-        if s.get('status') == 'declared' and s['race']['date'] >= today_s:
+        kept = (RESULTS_DIR / f"{s.get('raceId')}.json").exists()
+        if s.get('status') == 'declared' and (s['race']['date'] >= today_s or kept):
             out.append(s)
     return sorted(out, key=lambda s: s['race']['date'])
 

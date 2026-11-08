@@ -12,7 +12,7 @@ for(const name of ['courseData','courses','raceLayout','playback']){
 const {buildPlayback,playbackFrame}=await import(pathToFileURL(path.join(out,'playback.js')));
 const {HORSE_LENGTH,HORSE_WIDTH}=await import(pathToFileURL(path.join(out,'raceLayout.js')));
 const data=JSON.parse(await fs.readFile('public/data/forecasts.json','utf8')),results=JSON.parse(await fs.readFile('public/data/replays.json','utf8'));
-for(const race of data.races.filter(r=>r.historical!==false)){
+for(const race of data.races.filter(r=>r.historical!==false||results.races[r.id])){
  const replay=results.races[race.id],plan=buildPlayback(race,'replay',replay);
  assert.ok(plan.available);
  assert.deepEqual(plan.checkpoints.filter(c=>c.corner).map(c=>c.corner),replay.corners,'Omit nonexistent corners');

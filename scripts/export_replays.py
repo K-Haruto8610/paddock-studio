@@ -43,6 +43,18 @@ def export():
             if race==forecasts['races'][0]:
                 for h in race['horses'][:5]:print(h['number'],h['name'],horses[str(h['number'])])
     c.close()
+    # Results entered by hand (data/results/<race id>.json) for races whose DB rows are unusable.
+    for race in forecasts['races']:
+        p=ROOT/'data/results'/f"{race['id']}.json"
+        if race['id'] in replays or not p.exists(): continue
+        manual=json.loads(p.read_text(encoding='utf-8'))
+        if sorted(manual['horses'],key=int)!=sorted((str(h['number']) for h in race['horses']),key=int):
+            raise ValueError('Manual result field mismatch: '+race['id'])
+        horses=manual['horses']
+        available=[i+1 for i in range(4) if all(h['corners'][i] is not None for h in horses.values())]
+        replays[race['id']]={'horses':horses,'corners':available,'partialCorners':[],
+            'completeFinish':all(h['finish'] is not None for h in horses.values()),'source':manual['source'],'raceDate':manual['raceDate']}
+        print(f"{race['name']}: manual result, corners={available}")
     output={'generatedAt':datetime.now(timezone.utc).isoformat(),'races':replays,
         'note':'Observed corner positions and arrival order. Between-checkpoint motion, gaps and lanes are interpolated, not recorded tracking coordinates.'}
     (ROOT/'public/data/replays.json').write_text(json.dumps(output,ensure_ascii=False,indent=2),encoding='utf-8')

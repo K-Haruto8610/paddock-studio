@@ -84,7 +84,8 @@ export default function Home() {
     horse = race?.horses.find((h) => h.number === selected),
     course = race ? courseFor(race) : null,
     replay = replays?.races[raceId],
-    mode: PlaybackMode = race?.historical === false ? 'forecast' : modeChoice;
+    // A race forecast from its entry card has no replay until a result is added (data/results).
+    mode: PlaybackMode = race?.historical === false && !replay ? 'forecast' : modeChoice;
   const paceFile = importedPace?.file ?? bundledPace;
   const paceMatch = useMemo(
     () => (race ? paceForRace(paceFile, race) : {pace: null}),
@@ -201,7 +202,9 @@ export default function Home() {
               取得）
               {race.entries.scratched.length > 0 &&
                 `　取消：${race.entries.scratched.map((h) => `${h.number ?? ''}${h.name}`).join('、')}`}
-              ・発走前のため実績再生はありません。
+              {replay
+                ? `・予想は出馬表と発走前のデータのみで作成。実績：${replay.source}`
+                : '・発走前のため実績再生はありません。'}
             </p>
           )}
           <section className="mode-bar" aria-label="再生データの選択">
