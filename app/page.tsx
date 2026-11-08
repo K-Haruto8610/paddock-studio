@@ -13,7 +13,6 @@ import {parsePaceForecast, paceForRace, type PaceForecast} from './paceForecast'
 import EditPanel from './EditPanel';
 import {
   applyEdits,
-  editPoints,
   loadEdits,
   saveEdits,
   clampPlacement,
@@ -37,7 +36,7 @@ export default function Home() {
     [replayError, setReplayError] = useState('');
   const [raceId, setRaceId] = useState(''),
     [selected, setSelected] = useState<number | null>(null),
-    [progress, setProgress] = useState(0.26),
+    [progress, setProgress] = useState(0),
     [playing, setPlaying] = useState(false),
     [speed, setSpeed] = useState(1),
     [followKey, setFollowKey] = useState(0),
@@ -165,7 +164,7 @@ export default function Home() {
     if (!race) return;
     setEditing(true);
     setPlaying(false);
-    setProgress(editPoints(race)[0].distance / race.distance);
+    setProgress(0);
   };
   return (
     <main>
@@ -224,7 +223,7 @@ export default function Home() {
                 onChange={(e) => {
                   setRaceId(e.target.value);
                   setSelected(null);
-                  seek(0.26);
+                  seek(0);
                 }}
               >
                 {data.races.map((r) => (
@@ -254,7 +253,7 @@ export default function Home() {
                 onClick={() => {
                   setMode('replay');
                   setEditing(false);
-                  setPlaying(false);
+                  seek(0);
                 }}
               >
                 実績再生
@@ -264,7 +263,7 @@ export default function Home() {
                 onClick={() => {
                   setMode('forecast');
                   setEditing(false);
-                  setPlaying(false);
+                  seek(0);
                 }}
               >
                 モデル予想
