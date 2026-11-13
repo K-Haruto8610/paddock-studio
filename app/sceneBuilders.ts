@@ -4,6 +4,16 @@ import {makeTrack, makeTerrain, type TrackModel} from './trackGeometry';
 import type {RaceRoute} from './raceRoutes';
 import {startLanes} from './raceLayout';
 import {plush, label} from './plushHorse';
+import {addGoalBoard} from './goalBoard';
+import {
+  FAR_GROUND_DROP,
+  GROUND_TILE,
+  SURFACE_TILE,
+  addFurlongPoles,
+  dirtTexture,
+  groundTexture,
+  turfTexture,
+} from './scenery';
 
 // The plush model is 4 units long: scale 1.0 draws a ~4m horse (≈1.7x life size)
 // so the field stays legible against the true-scale course. Never enlarged on selection.
@@ -11,9 +21,10 @@ export const HORSE_SCALE = 1.0;
 
 export type Terrain = ReturnType<typeof makeTerrain>;
 
-function material(color: string, lift = 0) {
+function material(color: string, lift = 0, map: T.Texture | null = null) {
   return new T.MeshStandardMaterial({
     color,
+    map,
     roughness: 0.96,
     side: T.DoubleSide,
     polygonOffset: lift !== 0,
@@ -26,25 +37,56 @@ export function mesh(geometry: T.BufferGeometry, color: string, lift = 0) {
   return new T.Mesh(geometry, material(color, lift));
 }
 
-/** Flat strip between two lanes of a track, following its (exaggerated) height. */
-function ribbon(track: TrackModel, inner: number, outer: number, color: string, lift = 1) {
+/** Strip of `n` quads between two edges; `at(i, edge)` gives each vertex and its texture coordinate. */
+function strip(n: number, at: (i: number, edge: 0 | 1) => {p: T.Vector3; uv: [number, number]}) {
   const positions: number[] = [];
+  const uvs: number[] = [];
   const indices: number[] = [];
-  for (let i = 0; i <= 1024; i++) {
-    for (const lane of [inner, outer]) {
-      const p = track.sample((i / 1024) * track.lap, lane).point;
-      positions.push(p.x, p.y + 0.02, p.z);
+  for (let i = 0; i <= n; i++) {
+    for (const edge of [0, 1] as const) {
+      const {p, uv} = at(i, edge);
+      positions.push(p.x, p.y, p.z);
+      uvs.push(uv[0], uv[1]);
     }
-    if (i < 1024) {
+    if (i < n) {
       const k = i * 2;
       indices.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
     }
   }
   const geo = new T.BufferGeometry();
   geo.setAttribute('position', new T.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new T.Float32BufferAttribute(uvs, 2));
   geo.setIndex(indices);
   geo.computeVertexNormals();
-  const m = mesh(geo, color, lift);
+  return geo;
+}
+
+/** Flat strip between two lanes of a track, following its (exaggerated) height. */
+function ribbon(track: TrackModel, inner: number, outer: number, map: T.Texture, lift = 1) {
+  const geo = strip(1024, (i, edge) => {
+    const d = (i / 1024) * track.lap,
+      lane = edge ? outer : inner,
+      p = track.sample(d, lane).point;
+    p.y += 0.02;
+    return {p, uv: [d / SURFACE_TILE, lane / SURFACE_TILE]};
+  });
+  const m = new T.Mesh(geo, material('#ffffff', lift, map));
+  m.receiveShadow = true;
+  return m;
+}
+
+const VERGE_COLOR = '#a9bd8f';
+/**
+ * Grass bank falling away from one edge of a course (`away`: 1 outside the outer rail,
+ * -1 inside the inner rail), so the raised surface meets the ground instead of floating over it.
+ */
+function verge(track: TrackModel, lane: number, away: 1 | -1) {
+  const geo = strip(512, (i, edge) => {
+    const p = track.sample((i / 512) * track.lap, lane + edge * away * 3.5).point;
+    p.y -= edge * 1.4;
+    return {p, uv: [0, 0]};
+  });
+  const m = mesh(geo, VERGE_COLOR);
   m.receiveShadow = true;
   return m;
 }
@@ -73,34 +115,44 @@ function railRuns(track: TrackModel, lane: number, open?: (p: T.Vector3) => bool
   return {closed: false, runs};
 }
 
-/** White rail: a tube along the lane plus a post every ~8m, left open where `open(p)` is true. */
-function rail(track: TrackModel, lane: number, open?: (p: T.Vector3) => boolean) {
+const UP = new T.Vector3(0, 1, 0);
+/**
+ * White rail: a tube along the lane, carried on posts every ~8m that stand `away` from the
+ * course (-1 infield side, 1 outside) and lean in to it. Left open where `open(p)` is true.
+ */
+function rail(track: TrackModel, lane: number, away: 1 | -1, open?: (p: T.Vector3) => boolean) {
   const group = new T.Group();
   const {closed, runs} = railRuns(track, lane, open);
+  const railMat = new T.MeshStandardMaterial({color: '#f7f6ea', roughness: 0.6});
   for (const run of runs) {
     const pts = run.map((p) => p.clone().setY(p.y + 1.1));
-    group.add(
-      mesh(
-        new T.TubeGeometry(new T.CatmullRomCurve3(pts, closed), pts.length * 2, 0.1, 5, closed),
-        '#f2f1de',
-      ),
+    const tube = new T.Mesh(
+      new T.TubeGeometry(new T.CatmullRomCurve3(pts, closed), pts.length * 2, 0.1, 6, closed),
+      railMat,
     );
+    tube.castShadow = true;
+    group.add(tube);
   }
-  const postGeo = new T.CylinderGeometry(0.075, 0.075, 1.2, 5);
-  const postMat = new T.MeshStandardMaterial({color: '#eaeedc'});
   const count = Math.ceil(track.lap / 8);
-  const posts = new T.InstancedMesh(postGeo, postMat, count);
+  const posts = new T.InstancedMesh(new T.CylinderGeometry(0.06, 0.075, 1, 6), railMat, count);
   const dummy = new T.Object3D();
+  const arm = new T.Vector3();
   let used = 0;
   for (let i = 0; i < count; i++) {
-    const p = track.sample((i / count) * track.lap, lane).point;
-    if (open?.(p)) continue;
-    dummy.position.copy(p);
-    dummy.position.y += 0.55;
+    const d = (i / count) * track.lap;
+    const top = track.sample(d, lane).point;
+    if (open?.(top)) continue;
+    const foot = track.sample(d, lane + away * 0.55).point;
+    top.y += 1.06;
+    arm.subVectors(top, foot);
+    dummy.position.copy(foot).addScaledVector(arm, 0.5);
+    dummy.quaternion.setFromUnitVectors(UP, arm.clone().normalize());
+    dummy.scale.set(1, arm.length(), 1);
     dummy.updateMatrix();
     posts.setMatrixAt(used++, dummy.matrix);
   }
   posts.count = used;
+  posts.castShadow = true;
   group.add(posts);
   return group;
 }
@@ -137,11 +189,12 @@ function railSpecs(
 ) {
   // Rails open where the race's own strip runs across them.
   const open = onRoute(route, track.width, distance);
-  const specs: {track: TrackModel; lane: number; open?: (p: T.Vector3) => boolean}[] = [
-    {track, lane: 0, open: open?.inner},
-    {track, lane: track.width, open: open?.outer},
+  type Spec = {track: TrackModel; lane: number; away: 1 | -1; open?: (p: T.Vector3) => boolean};
+  const specs: Spec[] = [
+    {track, lane: 0, away: -1, open: open?.inner},
+    {track, lane: track.width, away: 1, open: open?.outer},
   ];
-  if (track !== turf) specs.push({track: turf, lane: turf.width, open: open?.outer});
+  if (track !== turf) specs.push({track: turf, lane: turf.width, away: 1, open: open?.outer});
   return specs;
 }
 
@@ -209,9 +262,18 @@ export function addGround(scene: T.Scene, tracks: TrackModel[], route?: RaceRout
   ground.rotateX(-Math.PI / 2);
   ground.translate(box.min.x + size.x / 2, 0, box.min.z + size.z / 2);
   const gp = ground.attributes.position as T.BufferAttribute;
-  for (let i = 0; i < gp.count; i++) gp.setY(i, terrain.heightAt(gp.getX(i), gp.getZ(i)));
+  // The last 45m ease down to the flat land beyond, so the ground has no visible border.
+  const floor = Math.min(...terrain.samples.map((s) => s.y)) - FAR_GROUND_DROP + 0.05;
+  for (let i = 0; i < gp.count; i++) {
+    const x = gp.getX(i),
+      z = gp.getZ(i),
+      edge = Math.min(x - box.min.x, box.max.x - x, z - box.min.z, box.max.z - z);
+    gp.setY(i, T.MathUtils.lerp(floor, terrain.heightAt(x, z), T.MathUtils.smoothstep(edge, 0, 45)));
+  }
   ground.computeVertexNormals();
-  const groundMesh = mesh(ground, '#cbd4bb');
+  const map = groundTexture();
+  map.repeat.set(size.x / GROUND_TILE, size.z / GROUND_TILE);
+  const groundMesh = new T.Mesh(ground, material('#ffffff', 0, map));
   groundMesh.receiveShadow = true;
   scene.add(groundMesh);
   return terrain;
@@ -224,6 +286,7 @@ function drape(
   points: number[][],
   color: string,
   lift: number,
+  map: T.Texture | null = null,
 ) {
   const shape = new T.Shape();
   points.forEach(([x, z], i) => {
@@ -238,8 +301,11 @@ function drape(
   for (let i = 0; i < pos.count; i++) {
     pos.setY(i, terrain.heightAt(pos.getX(i), pos.getZ(i)) + lift);
   }
+  const uv = geo.attributes.uv as T.BufferAttribute;
+  for (let i = 0; i < uv.count; i++)
+    uv.setXY(i, pos.getX(i) / SURFACE_TILE, pos.getZ(i) / SURFACE_TILE);
   geo.computeVertexNormals();
-  const m = mesh(geo, color, 1);
+  const m = new T.Mesh(geo, material(map ? '#ffffff' : color, 1, map));
   m.receiveShadow = true;
   return m;
 }
@@ -257,25 +323,14 @@ const TOKYO_APRON_B = [
 ];
 
 /** Strip along a chute (引込線) from its start to the main rail, over its own flat height. */
-function chuteRibbon(surface: NonNullable<RaceRoute['chuteSurface']>, width: number, color: string) {
-  const positions: number[] = [];
-  const indices: number[] = [];
+function chuteRibbon(surface: NonNullable<RaceRoute['chuteSurface']>, width: number, map: T.Texture) {
   const N = 96;
-  for (let i = 0; i <= N; i++) {
-    for (const lane of [0, width]) {
-      const p = surface.sample(i / N, lane).point;
-      positions.push(p.x, p.y + 0.02, p.z);
-    }
-    if (i < N) {
-      const k = i * 2;
-      indices.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
-    }
-  }
-  const geo = new T.BufferGeometry();
-  geo.setAttribute('position', new T.Float32BufferAttribute(positions, 3));
-  geo.setIndex(indices);
-  geo.computeVertexNormals();
-  const m = mesh(geo, color, 2);
+  const geo = strip(N, (i, edge) => {
+    const p = surface.sample(i / N, edge ? width : 0).point;
+    p.y += 0.02;
+    return {p, uv: [((i / N) * surface.length) / SURFACE_TILE, (edge * width) / SURFACE_TILE]};
+  });
+  const m = new T.Mesh(geo, material('#ffffff', 2, map));
   m.receiveShadow = true;
   return m;
 }
@@ -290,18 +345,23 @@ export function addCourseSurfaces(
 ) {
   const {turf, dirt, outer} = courses;
   // Outer course first (lowest priority), then the inner turf, then dirt on top.
-  if (outer) scene.add(ribbon(outer, 0, outer.width, '#7faf66', 1));
-  scene.add(ribbon(turf, 0, turf.width, '#7faf66', 2));
-  if (dirt) scene.add(ribbon(dirt, 0, dirt.width, '#ceb28a', 3));
-  if (route?.chuteSurface && route.drawChute)
-    scene.add(chuteRibbon(route.chuteSurface, turf.width, '#7faf66'));
+  const grass = turfTexture();
+  if (outer) scene.add(ribbon(outer, 0, outer.width, grass, 1));
+  scene.add(ribbon(turf, 0, turf.width, grass, 2));
+  if (dirt) scene.add(ribbon(dirt, 0, dirt.width, dirtTexture(), 3));
+  for (const t of courses.tracks) scene.add(verge(t, 0, -1), verge(t, t.width, 1));
+  // The pocket's turf follows the line the field runs, which leaves the plan's drawn pocket
+  // to come onto the course smoothly.
+  if (route?.chuteSurface) scene.add(chuteRibbon(route.chuteSurface, route.chuteSurface.width, grass));
   if (tokyo && dirt) {
-    const add = (points: number[][], color: string, lift: number) =>
-      scene.add(drape(turf, terrain, points, color, lift));
+    // Draped polygons are not aligned with any course, so their turf has no mowing bands.
+    const plain = turfTexture(false);
+    const add = (points: number[][], color: string, lift: number, map: T.Texture | null = null) =>
+      scene.add(drape(turf, terrain, points, color, lift, map));
     // Turf chutes from the main plan, draped onto the ground instead of floating flat.
-    add(TOKYO_CHUTE_A, '#7faf66', 0.3);
-    add(TOKYO_CHUTE_B, '#7faf66', 0.3);
-    add(TOKYO_CHUTE_C, '#7faf66', 0.3);
+    add(TOKYO_CHUTE_A, '#7faf66', 0.3, plain);
+    add(TOKYO_CHUTE_B, '#7faf66', 0.3, plain);
+    add(TOKYO_CHUTE_C, '#7faf66', 0.3, plain);
     add(TOKYO_APRON_A, '#bdc4be', 5);
     add(TOKYO_APRON_B, '#bfc7c0', 4);
   }
@@ -315,7 +375,7 @@ export function addRails(
   route?: RaceRoute,
   distance = 0,
 ) {
-  for (const r of railSpecs(track, turf, route, distance)) scene.add(rail(r.track, r.lane, r.open));
+  for (const r of railSpecs(track, turf, route, distance)) scene.add(rail(r.track, r.lane, r.away, r.open));
 }
 
 /** Finish line, GOAL/START labels, remaining-distance boards and the starting gate stalls (returned). */
@@ -335,8 +395,9 @@ export function addMarkers(scene: T.Scene, race: Race, track: TrackModel, route:
   finishLine.position.copy(track.sample(0, track.width / 2).point);
   finishLine.position.y += 0.1;
   scene.add(finishLine);
-  scene.add(goalPost(track));
+  addGoalBoard(scene, race, track);
   mark('GOAL',track.sample(0, track.width + 8).point, 16);
+  addFurlongPoles(scene, track);
   // Remaining-distance boards along the last lap, sized to be readable from the pack camera.
   for (let remaining = 200; remaining < track.lap; remaining += 200) {
     mark(`${remaining}m`, track.sample(track.lap - remaining, track.width + 6).point, 11);
@@ -345,70 +406,50 @@ export function addMarkers(scene: T.Scene, race: Race, track: TrackModel, route:
   return addGates(scene, race, route);
 }
 
-/** Round red-and-white board face, with the finish line drawn down its middle. */
-function goalBoardTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 256;
-  const g = c.getContext('2d')!;
-  g.fillStyle = '#c8202a';
-  g.beginPath();
-  g.arc(128, 128, 128, 0, Math.PI * 2);
-  g.fill();
-  g.fillStyle = '#fffdf4';
-  g.beginPath();
-  g.arc(128, 128, 104, 0, Math.PI * 2);
-  g.fill();
-  g.fillStyle = '#c8202a';
-  g.fillRect(120, 24, 16, 208);
-  const tex = new T.CanvasTexture(c);
-  tex.colorSpace = T.SRGBColorSpace;
-  return tex;
-}
-
-/** ゴール板: a pole just inside the inner rail at the finish, its round board facing across the course. */
-function goalPost(track: TrackModel) {
-  const at = track.sample(0, -1.4);
-  const group = new T.Group();
-  group.position.copy(at.point);
-  group.rotation.y = -Math.atan2(at.tangent.z, at.tangent.x);
-  group.scale.setScalar(1.6); // drawn at the same exaggeration as the horses
-  const pole = mesh(new T.CylinderGeometry(0.12, 0.16, 5.2, 10), '#f4f3ea');
-  pole.position.y = 2.6;
-  pole.castShadow = true;
-  group.add(pole);
-  const base = mesh(new T.CylinderGeometry(0.45, 0.55, 0.3, 12), '#8d938a');
-  base.position.y = 0.15;
-  group.add(base);
-  const board = new T.Mesh(
-    new T.CircleGeometry(1.0, 40),
-    new T.MeshStandardMaterial({map: goalBoardTexture(), roughness: 0.7, side: T.DoubleSide}),
-  );
-  board.position.y = 5.3;
-  board.castShadow = true;
-  group.add(board);
-  const rim = mesh(new T.TorusGeometry(1.0, 0.06, 6, 40), '#e8e6da');
-  rim.position.y = 5.3;
-  group.add(rim);
-  group.name = 'goal-post';
-  return group;
-}
-
-/** Gate stalls between the starting lanes. */
+/** 発馬機: padded stall partitions between the starting lanes under a frame on wheels. */
 function addGates(scene: T.Scene, race: Race, route: RaceRoute) {
   const lanes = startLanes(race);
+  const edges = [lanes[0] - 0.8];
+  for (let i = 1; i < lanes.length; i++) edges.push((lanes[i - 1] + lanes[i]) / 2);
+  edges.push(lanes.at(-1)! + 0.8);
+  const middle = (edges[0] + edges.at(-1)!) / 2;
+  const span = edges.at(-1)! - edges[0];
+  const at = route.sample(0, middle);
   const gateGroup = new T.Group();
-  for (let i = 0; i <= lanes.length; i++) {
-    let lane: number;
-    if (i === 0) lane = lanes[0] - 0.8;
-    else if (i === lanes.length) lane = lanes.at(-1)! + 0.8;
-    else lane = (lanes[i - 1] + lanes[i]) / 2;
-    const p = route.sample(0, lane);
-    const gate = mesh(new T.BoxGeometry(2.6, 2.9, 0.14), '#386d62');
-    gate.position.copy(p.point);
-    gate.position.y += 1.45;
-    gate.rotation.y = -Math.atan2(p.tangent.z, p.tangent.x);
-    gateGroup.add(gate);
+  gateGroup.position.copy(at.point);
+  gateGroup.rotation.y = -Math.atan2(at.tangent.z, at.tangent.x);
+  // Local x runs with the race and local z to its left; lanes grow outward, on either side.
+  const side = -at.tangent.z * at.outward.x + at.tangent.x * at.outward.z >= 0 ? 1 : -1;
+  const body = material('#2f6a5c'),
+    pad = material('#ece9d6'),
+    frame = new T.MeshStandardMaterial({color: '#dfe3da', roughness: 0.5}),
+    tyre = material('#3a3f3c');
+  const LENGTH = 3.4,
+    TOP = 3.5;
+  const add = (geo: T.BufferGeometry, mat: T.Material, x: number, y: number, z: number) => {
+    const m = new T.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    gateGroup.add(m);
+    return m;
+  };
+  const panel = new T.BoxGeometry(LENGTH, 1.7, 0.16),
+    cushion = new T.BoxGeometry(LENGTH, 0.5, 0.26),
+    post = new T.CylinderGeometry(0.07, 0.07, TOP, 8),
+    tie = new T.BoxGeometry(LENGTH, 0.12, 0.12);
+  for (const lane of edges) {
+    const z = (lane - middle) * side;
+    add(panel, body, 0, 1.05, z);
+    add(cushion, pad, 0, 2.1, z);
+    for (const x of [-LENGTH / 2, LENGTH / 2]) add(post, frame, x, TOP / 2, z);
+    add(tie, frame, 0, TOP, z);
   }
+  const beam = new T.BoxGeometry(0.2, 0.28, span + 0.5);
+  for (const x of [-LENGTH / 2, LENGTH / 2]) add(beam, frame, x, TOP, 0);
+  const wheel = new T.CylinderGeometry(0.55, 0.55, 0.3, 16);
+  for (const x of [-1.1, 1.1])
+    for (const z of [-span / 2 - 0.4, span / 2 + 0.4])
+      add(wheel, tyre, x, 0.55, z).rotation.x = Math.PI / 2;
   gateGroup.name = 'starting-gate';
   scene.add(gateGroup);
   return gateGroup;

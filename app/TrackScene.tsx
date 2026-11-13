@@ -10,6 +10,7 @@ import {clampPlacement} from './manualEdit';
 import type {PlaybackPlan} from './playback';
 import {createPackCamera} from './packCamera';
 import {posePlush} from './plushHorse';
+import {addFarGround} from './scenery';
 import {
   addCourseSurfaces,
   addGround,
@@ -161,6 +162,7 @@ export default function TrackScene({
     addCourseSurfaces(scene, courses, terrain, tokyo, route);
     addRails(scene, track, courses.turf, route, race.distance);
     const gate = addMarkers(scene, race, track, route);
+    addFarGround(scene, Math.min(...terrain.samples.map((s) => s.y)));
     const gateBox = new T.Box3().setFromObject(gate);
     const frustum = new T.Frustum();
     const view = new T.Matrix4();

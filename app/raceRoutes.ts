@@ -28,7 +28,7 @@ export type RouteSpec = {
   chute?: Pixel[];
   pin?: boolean;
   first?: CourseKind;
-  /** 'polygons': the chute surface is drawn from plan polygons (Tokyo); default draws a ribbon. */
+  /** 'polygons': the pocket is also drawn from plan polygons (Tokyo), under the route's own strip. */
   surface?: 'polygons';
 };
 
@@ -97,9 +97,12 @@ export type RaceRoute = {
   /** Metres between the route's start and the plan's start mark (null without a mark). */
   markError: number | null;
   /** Pocket path (null without a chute): keeps the ground below it and opens the outer rail. */
-  chuteSurface: {length: number; sample: (u: number, lane?: number) => TrackPoint} | null;
-  /** Draw the pocket as a ribbon (false when the surface comes from plan polygons). */
-  drawChute: boolean;
+  chuteSurface: {
+    length: number;
+    /** Width of the strip: that of the course the pocket runs on to. */
+    width: number;
+    sample: (u: number, lane?: number) => TrackPoint;
+  } | null;
 };
 
 const mod = (v: number, n: number) => ((v % n) + n) % n;
@@ -131,6 +134,118 @@ function nearestOnTrack(track: TrackModel, p: {x: number; z: number}) {
     }
   }
   return {distance: mod(refined, track.lap), gap: Math.sqrt(err)};
+}
+
+/** Signed turn (radians) from one level direction to another. */
+const turn = (a: T.Vector3, b: T.Vector3) => Math.atan2(a.x * b.z - a.z * b.x, a.x * b.x + a.z * b.z);
+
+/**
+ * The end of a pocket (引込線) redrawn as one curve that leaves the drawn line (`drawn`, ending
+ * on the rail) and arrives running with the course. `onward` holds the course's directions
+ * from the join on. Of the curves tried (how far back it starts, how wide it swings), this
+ * keeps the one that weaves least: `weave` is how much it turns one way only to turn back,
+ * in radians, counted on into the course.
+ */
+function easeOntoCourse(drawn: T.CatmullRomCurve3, onward: T.Vector3[]) {
+  const length = drawn.getLength(),
+    end = drawn.getPointAt(1).setY(0),
+    level = (v: T.Vector3) => v.setY(0).normalize(),
+    into = level(onward[0].clone());
+  const hermite = (from: T.Vector3, m0: T.Vector3, m1: T.Vector3, t: number) => {
+    const t2 = t * t,
+      t3 = t2 * t;
+    return from
+      .clone()
+      .multiplyScalar(2 * t3 - 3 * t2 + 1)
+      .addScaledVector(m0, t3 - 2 * t2 + t)
+      .addScaledVector(end, -2 * t3 + 3 * t2)
+      .addScaledVector(m1, t3 - t2);
+  };
+  let best: {back: number; pull: number; weave: number} | null = null;
+  for (let back = 40; back <= Math.max(40, length * 0.85); back += 10) {
+    if (back > length) break;
+    const u = 1 - back / length,
+      from = drawn.getPointAt(u).setY(0),
+      leave = level(drawn.getTangentAt(u)),
+      reach = from.distanceTo(end);
+    for (const pull of [0.5, 0.75, 1]) {
+      const m0 = leave.clone().multiplyScalar(reach * pull),
+        m1 = into.clone().multiplyScalar(reach * pull);
+      const ways = [leave];
+      for (let i = 1; i <= 16; i++)
+        ways.push(hermite(from, m0, m1, i / 16).sub(hermite(from, m0, m1, (i - 1) / 16)));
+      ways.push(...onward);
+      let turned = 0,
+        net = 0;
+      for (let i = 1; i < ways.length; i++) {
+        const step = turn(ways[i - 1], ways[i]);
+        turned += Math.abs(step);
+        net += step;
+      }
+      const weave = turned - Math.abs(net);
+      if (!best || weave < best.weave - 0.005) best = {back, pull, weave};
+    }
+  }
+  const {back, pull, weave} = best ?? {back: length * 0.6, pull: 1, weave: Infinity};
+  const points: T.Vector3[] = [];
+  const kept = length - back;
+  for (let i = 0, n = Math.max(1, Math.ceil(kept / 8)); i < n; i++)
+    points.push(drawn.getPointAt((i / n) * (kept / length)).setY(0));
+  const from = drawn.getPointAt(kept / length).setY(0),
+    reach = from.distanceTo(end),
+    m0 = level(drawn.getTangentAt(kept / length)).multiplyScalar(reach * pull),
+    m1 = into.clone().multiplyScalar(reach * pull);
+  for (let i = 0, n = Math.ceil(back / 6); i <= n; i++) points.push(hermite(from, m0, m1, i / n));
+  const curve = new T.CatmullRomCurve3(points, false, 'centripetal');
+  curve.arcLengthDivisions = 1024;
+  return {curve, weave};
+}
+
+/**
+ * Where a pocket joins its course, and the path it takes to get there.
+ *
+ * The pocket drawn on the plan ends on the rail at an angle (22° for Tokyo's 2,000m): a field
+ * following it kinks outward at the join. The end of the pocket is redrawn to arrive running
+ * with the course. A pocket in line with a straight (Kyoto's 1,600m, Hanshin's 2,200m) reaches
+ * the rail while that is still coming off its bend, so its join moves on down the course, to
+ * where it can run in with the least weaving and without cutting inside the rail.
+ */
+function pocketJoin(track: TrackModel, drawn: T.Vector3[]) {
+  const snapped = nearestOnTrack(track, drawn.at(-1)!).distance;
+  /** Lanes from the rail (negative: inside it), looking only at the course around the join. */
+  const laneOf = (p: T.Vector3, upTo: number) => {
+    let lane = 0,
+      err = Infinity;
+    for (let d = snapped - 60; d <= upTo + 10; d += 2) {
+      const s = track.sample(d),
+        e = (s.point.x - p.x) ** 2 + (s.point.z - p.z) ** 2;
+      if (e < err) {
+        err = e;
+        lane = (p.x - s.point.x) * s.outward.x + (p.z - s.point.z) * s.outward.z;
+      }
+    }
+    return lane;
+  };
+  const attempt = (ahead: number) => {
+    const at = snapped + ahead,
+      to = track.sample(at),
+      line = new T.CatmullRomCurve3([...drawn.slice(0, -1), to.point], false, 'centripetal');
+    line.arcLengthDivisions = 1024;
+    const onward = [0, 15, 30, 45, 60, 80, 100].map((d) => track.sample(at + d).tangent);
+    const eased = easeOntoCourse(line, onward);
+    // Only the stretch beside the course matters: further back the pocket is well outside it.
+    let clear = true;
+    for (let i = 0; i <= 24 && clear; i++)
+      clear = laneOf(eased.curve.getPointAt(1 - (i / 24) * 0.35), at) > -1.5;
+    return {distance: at, branch: eased.curve, weave: clear ? eased.weave : Infinity};
+  };
+  let best = attempt(0);
+  // A join further on has to weave clearly less (2°) to be worth leaving the drawn one.
+  for (let ahead = 20; ahead <= 240 && best.weave > 0.035; ahead += 20) {
+    const moved = attempt(ahead);
+    if (moved.weave < best.weave - 0.035) best = moved;
+  }
+  return best;
 }
 
 function blend(a: TrackPoint, b: TrackPoint, w: number): TrackPoint {
@@ -179,17 +294,14 @@ export function makeRoute(race: Race, track: TrackModel): RaceRoute {
     spec,
     markError,
     chuteSurface,
-    drawChute: !!chuteSurface && spec?.surface !== 'polygons',
   });
 
   // 引込線: a pocket from the plan mark onto the main rail.
   if (spec?.chute) {
     const pts = spec.chute.map(([x, y]) => turf.pixel(x, y)),
-      join = nearestOnTrack(track, pts.at(-1)!),
-      joinPoint = track.sample(join.distance).point;
-    pts[pts.length - 1] = joinPoint;
-    const branch = new T.CatmullRomCurve3(pts, false, 'centripetal');
-    branch.arcLengthDivisions = 1024;
+      join = pocketJoin(track, pts),
+      branch = join.branch;
+    pts[pts.length - 1] = branch.getPointAt(1);
     const length = branch.getLength(),
       // Whole laps run after the join: rail length from the join to the post, plus extra laps.
       laps = Math.max(1, Math.round((D - length + join.distance) / lap)),
@@ -238,7 +350,7 @@ export function makeRoute(race: Race, track: TrackModel): RaceRoute {
       'chute',
       0,
       pts,
-      {length, sample: chutePoint},
+      {length, width: track.width, sample: chutePoint},
     );
   }
 
