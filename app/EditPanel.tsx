@@ -17,6 +17,9 @@ export default function EditPanel({
   onMove,
   onReset,
   onExit,
+  onExport,
+  onImport,
+  message,
 }: {
   race: Race;
   plan: PlaybackPlan;
@@ -31,6 +34,11 @@ export default function EditPanel({
   /** No key: clear every edit of the race. No number: clear the whole point. */
   onReset: (key?: EditKey, number?: number) => void;
   onExit: () => void;
+  /** Saves this race's edits to a file another browser can read. */
+  onExport: () => void;
+  onImport: (file: File) => void;
+  /** Result of the last file import or export. */
+  message: string;
 }) {
   const points = editPoints(race),
     index = race.horses.findIndex((h) => h.number === selected),
@@ -125,6 +133,29 @@ export default function EditPanel({
           >
             すべて戻す
           </button>
+        )}
+      </div>
+      <div className="edit-file" role="group" aria-label="編集のファイル保存と読み込み">
+        <button className="file-button" onClick={onExport} disabled={total === 0}>
+          編集をファイルに保存
+        </button>
+        <label className="file-button">
+          ファイルから読み込む
+          <input
+            type="file"
+            accept="application/json,.json"
+            aria-label="手動エディットのファイルを読み込む"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onImport(f);
+              e.target.value = '';
+            }}
+          />
+        </label>
+        {message && (
+          <small className="edit-hint" role="status">
+            {message}
+          </small>
         )}
       </div>
     </section>

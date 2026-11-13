@@ -446,6 +446,21 @@
 .edit-reset:empty {
   display: none;
 }
+.edit-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.edit-file .file-button {
+  background: #fff;
+  font-size: 11px;
+}
+.edit-file .file-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 @media (max-width: 760px) {
   .edit-points {
     grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -16,6 +16,9 @@ import {
   loadEdits,
   saveEdits,
   clampPlacement,
+  editCount,
+  editsFile,
+  parseEditsFile,
   type RaceEdits,
 } from './manualEdit';
 import type {Placement} from './raceLayout';
@@ -52,7 +55,8 @@ export default function Home() {
     // Read on the client only; nothing edited is rendered until edit mode is switched on.
     [allEdits, setAllEdits] = useState<Record<string, RaceEdits>>(() =>
       typeof window === 'undefined' ? {} : loadEdits(),
-    );
+    ),
+    [editMessage, setEditMessage] = useState('');
   useEffect(() => {
     Promise.allSettled([
       readJson<Dataset>('/data/forecasts.json'),
@@ -120,6 +124,45 @@ export default function Home() {
       saveEdits(next);
       return next;
     });
+  const exportEdits = () => {
+    if (!race || !raceEdits) return;
+    const blob = new Blob([JSON.stringify(editsFile({[raceId]: raceEdits}), null, 1)], {
+      type: 'application/json',
+    });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `manual-edits_${raceId}_${race.name}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setEditMessage(`${a.download} を保存しました`);
+  };
+  const importEdits = async (file: File) => {
+    let parsed: ReturnType<typeof parseEditsFile>;
+    try {
+      parsed = parseEditsFile(JSON.parse(await file.text()));
+    } catch (e) {
+      return setEditMessage(`${file.name} はJSONとして読めません（${String(e)}）`);
+    }
+    if (!parsed.ok) return setEditMessage(`${file.name} は読み込めません：${parsed.error}`);
+    const ids = Object.keys(parsed.races);
+    const overwritten = ids.filter((id) => editCount(allEdits[id]) > 0);
+    if (
+      overwritten.length &&
+      !confirm(`${overwritten.length}レースの今の手動エディットをファイルの内容で置き換えますか？`)
+    )
+      return;
+    const races = parsed.races;
+    setAllEdits((all) => {
+      const next = {...all, ...races};
+      saveEdits(next);
+      return next;
+    });
+    const names = ids.map((id) => data?.races.find((r) => r.id === id)?.name ?? id);
+    setEditMessage(
+      `${names.join('・')}の編集を読み込みました` +
+        (ids.includes(raceId) ? '' : '（このレースの編集は入っていません）'),
+    );
+  };
   const importPace = async (file: File) => {
     try {
       const parsed = parsePaceForecast(JSON.parse(await file.text()));
@@ -465,6 +508,9 @@ export default function Home() {
                     })
                   }
                   onExit={() => setEditing(false)}
+                  onExport={exportEdits}
+                  onImport={importEdits}
+                  message={editMessage}
                 />
               )}
               <div className="live-order-panel">

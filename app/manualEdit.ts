@@ -96,6 +96,46 @@ export function applyEdits(race: Race, base: PlaybackPlan, edits: RaceEdits): Pl
   };
 }
 
+/** File format for moving edits between browsers: edits of one or more races keyed by race id. */
+const FILE_FORMAT = 'paddock-studio-manual-edits';
+export type EditsFile = {format: typeof FILE_FORMAT; version: 1; races: Record<string, RaceEdits>};
+export const editsFile = (races: Record<string, RaceEdits>): EditsFile => ({
+  format: FILE_FORMAT,
+  version: 1,
+  races,
+});
+
+const EDIT_KEYS: EditKey[] = ['early', 'middle', 'corner4', 'stretch'];
+/** Reads an edits file, keeping only well-formed placements. */
+export function parseEditsFile(
+  value: unknown,
+): {ok: true; races: Record<string, RaceEdits>} | {ok: false; error: string} {
+  const v = value as Partial<EditsFile> | null;
+  if (!v || typeof v !== 'object' || v.format !== FILE_FORMAT)
+    return {ok: false, error: '手動エディットのファイルではありません'};
+  if (v.version !== 1) return {ok: false, error: `未対応のバージョンです（${String(v.version)}）`};
+  if (!v.races || typeof v.races !== 'object') return {ok: false, error: 'races がありません'};
+  const races: Record<string, RaceEdits> = {};
+  for (const [id, edits] of Object.entries(v.races)) {
+    if (!edits || typeof edits !== 'object') continue;
+    const out: RaceEdits = {};
+    for (const key of EDIT_KEYS) {
+      const point = (edits as Record<string, unknown>)[key];
+      if (!point || typeof point !== 'object') continue;
+      const horses: Record<string, Placement> = {};
+      for (const [number, p] of Object.entries(point as Record<string, unknown>)) {
+        const {gap, lane} = (p ?? {}) as Partial<Placement>;
+        if (/^\d+$/.test(number) && Number.isFinite(gap) && Number.isFinite(lane))
+          horses[number] = clampPlacement({gap: gap!, lane: lane!});
+      }
+      if (Object.keys(horses).length) out[key] = horses;
+    }
+    if (editCount(out) > 0) races[id] = out;
+  }
+  if (!Object.keys(races).length) return {ok: false, error: '編集が入っていません'};
+  return {ok: true, races};
+}
+
 const STORAGE_KEY = 'paddock-studio:manual-edits';
 export function loadEdits(): Record<string, RaceEdits> {
   try {
