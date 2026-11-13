@@ -21,6 +21,7 @@ const horse = z.object({
   last3: z.number().min(28).max(50), // closing 3F in seconds (上がり), traffic included
   last3Free: z.number().min(28).max(50).optional(), // closing 3F with a clear run
   kickDelay: z.number().min(0).max(5).optional(), // seconds lost waiting for room (仕掛け遅れ)
+  paceCost: z.number().min(0).max(5).optional(), // seconds lost to energy spent early (脚の消耗: pace exposure, 二の足/かかり)
   finish: z.object({rank: z.number().positive(), gap: z.number().min(0).max(80)}).optional(),
 });
 const race = z.object({

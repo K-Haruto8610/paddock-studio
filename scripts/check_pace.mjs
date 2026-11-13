@@ -26,6 +26,7 @@ const parsed = parsePaceForecast(raw);
 assert.ok(parsed.ok, 'Bundled file matches paddock.pace-forecast/v1: ' + (parsed.error ?? ''));
 const file = parsed.data;
 
+const heldCost = [];
 for (const race of data.races) {
   const {pace, reason} = paceForRace(file, race);
   if (race.historical === false && !pace) continue; // upcoming race not yet modelled
@@ -65,7 +66,10 @@ for (const race of data.races) {
   const held = pace.horses.flatMap((h) => h.positions.filter((p) => p.held));
   if (held.length) {
     assert.ok(held.every((p) => p.wantRank !== undefined), 'Held positions carry the wanted rank');
-    assert.ok(held.reduce((s, p) => s + p.rank - p.wantRank, 0) / held.length > 0, 'Holding back costs position');
+    // A held horse can still land on its wanted rank in one race (others behind tucked in too), so the
+    // cost is checked over all races: never ahead of the wish on average, and behind it overall.
+    assert.ok(held.reduce((s, p) => s + p.rank - p.wantRank, 0) / held.length >= 0, `${race.name}: holding back never gains position`);
+    heldCost.push(...held.map((p) => p.rank - p.wantRank));
   }
   // 仕掛け遅れ: never negative, equals traffic-included minus clear-run closing, drawn in the straight.
   for (const h of pace.horses)
@@ -119,4 +123,5 @@ const ext = parsePaceForecast(minimal);
 assert.ok(ext.ok);
 const extPlan = buildPlayback(race, 'forecast', undefined, paceForRace(ext.data, race).pace);
 assert.equal(extPlan.checkpoints.length, 3, 'start, 4角, finish');
+assert.ok(heldCost.reduce((a, b) => a + b, 0) / heldCost.length > 0, 'Holding back costs position');
 console.log('PASS: schema, field matching, rank/gap/lane/closing parity, no result leakage, clearance, rejections');

@@ -24,7 +24,7 @@ from build_forecasts import settings, number, clean, load_upcoming_entries  # no
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = 'paddock.pace-forecast/v1'
-VERSION = '1.3'
+VERSION = '1.4'
 # Representative lengths for each JRA separator (midpoints of the published bands).
 GAP_LENGTHS = {'': 0.6, ',': 1.5, '-': 3.5, '=': 6.5}
 SEP_ORDER = ['', ',', '-', '=']
@@ -86,6 +86,8 @@ def load_frame(today_s):
     d = pd.DataFrame(rows)
     d['date'] = d.KAISAI_NEN + d.KAISAI_GAPPI
     d = d[d.date < today_s]  # pre-race cards have no results: never history or training rows
+    # Named races only. Adding the unnamed ordinary races (about 3.7x the rows) was tested on 2026-11-13 and
+    # made the named-race validation worse (finish-order corr 0.205 -> 0.192): lower classes run differently.
     d = d[d.BAMEI.map(clean) & d.KYOSOMEI_HONDAI.map(clean)].copy()
     for col in ['KYORI', 'TRACK_CODE', 'SHUSSO_TOSU', 'UMABAN', 'WAKUBAN', 'BAREI', 'FUTAN_JURYO', 'KOHAN_3F'] + [f'CORNER{i}_JUNI' for i in CORNERS]:
         d[col] = d[col].map(number)
@@ -281,19 +283,36 @@ def reconstruct(rank_pred, gap_pred, spread, numbers):
 
 
 TRAFFIC = ['traffic_out', 'traffic_close']
+# Energy spent before the straight (脚が溜まらない). Tested on Sep-Dec 2025 (see README): being near the front
+# in a fast early pace costs most; being further forward early than usual (二の足 / かかり) a little. Moving up
+# mid-race (早仕掛け) and slow-pace keenness showed no cost in the data and are left out.
+ENERGY = ['e_exposure', 'e_ahead']
 CLOSING_BASE = FEATURES + ['going']  # going (馬場状態) lowers the closing error (validation 0.951 -> 0.925 s)
-LAST3_FEATURES = CLOSING_BASE + TRAFFIC
+LAST3_FEATURES = CLOSING_BASE + TRAFFIC + ENERGY
 # Contention-layer parameters; tuned on Jun-Aug 2025 (see tune_contention). These are the defaults.
 DEFAULT_PARAMS = {'alpha': .5, 'delta': .08, 'width': 3, 'front': .35, 'hold': .06}
 PARAM_GRID = [{'alpha': a, 'delta': dl, 'width': w, 'front': f, 'hold': h}
               for a in (.5, .7) for dl in (.04, .08) for w in (2, 3) for f in (.25, .45) for h in (.03, .06, .1)]
 
 
+def energy_cost(first, pace, usual):
+    """first: normalised rank at the first observed corner; pace: early 3F vs course norm (s, negative =
+    fast); usual: the horse's usual early position. e_exposure: near the front in a fast pace;
+    e_ahead: further forward than usual early (used early speed / keen)."""
+    first, pace, usual = (np.asarray(v, float) for v in (first, pace, usual))
+    return {'e_exposure': np.clip(-np.nan_to_num(pace), 0, None) * (1 - first),
+            'e_ahead': np.clip(np.nan_to_num(usual - first, nan=0.0), 0, None)}
+
+
 def add_traffic(d):
-    """Traffic at the last corner, from the passing string. Only a training label input for the closing
-    model: at prediction time these come from the simulated formation, never from the race itself."""
+    """Traffic at the last corner and energy spent before it, from the race itself. Only training inputs
+    for the closing model: at prediction time these come from the simulated formation and the predicted
+    pace, never from the race itself."""
     d['traffic_out'] = d.out4.fillna(d.out3)
     d['traffic_close'] = d.close4.fillna(d.close3)
+    first = d[[f'r{c}' for c in CORNERS]].bfill(axis=1).iloc[:, 0]
+    for k, v in energy_cost(first, d.pace, d.early_wish).items():
+        d[k] = v
     return d
 
 
@@ -305,8 +324,8 @@ def fit_models(d, end):
         # Gap shape: median (L1) resists tailed-off horses. Lanes, ranks, closing: mean.
         models[t] = lgbm('l1' if t[0] == 'g' else 'l2').fit(d.loc[rows, FEATURES], d.loc[rows, t])
     rows = fit & d.last3.notna()
-    # Traffic can only slow a horse down: monotone (+) in horses outside and a wall ahead.
-    closing_model = lgbm('l2').set_params(monotone_constraints=[0] * len(CLOSING_BASE) + [1] * len(TRAFFIC))
+    # Traffic and spent energy can only slow a horse down: monotone (+).
+    closing_model = lgbm('l2').set_params(monotone_constraints=[0] * len(CLOSING_BASE) + [1] * (len(TRAFFIC) + len(ENERGY)))
     models['last3_traffic'] = closing_model.fit(d.loc[rows, LAST3_FEATURES], d.loc[rows, 'last3'])
     # Pace model, and out-of-fold pace predictions for the spread models' training rows (so they learn
     # from predictions as noisy as the ones they get before a race, not from the actual pace).
@@ -446,14 +465,26 @@ def prepare_race(models, x, key, corners):
     return numbers, pred, spreads, x.early_rel.fillna(.5).to_numpy()
 
 
-def closing(models, x, form, corners):
-    """Closing 3F with the traffic the formation leaves at the last corner, and with a clear run."""
-    last = form[corners[-1]]
+def closing(models, x, form, corners, pace, parts=False):
+    """Closing 3F with the traffic the formation leaves at the last corner and the energy its first-corner
+    position cost in the predicted pace; also with a clear run (traffic removed, energy kept).
+    parts=True also returns the closing with neither traffic nor energy cost (for paceCost)."""
+    last, n = form[corners[-1]], len(form[corners[-1]]['rank'])
     xt = x[CLOSING_BASE].copy()
     xt['traffic_out'], xt['traffic_close'] = np.array(last['out'], float), np.array(last['close'], float)
+    first = (np.array(form[corners[0]]['rank']) - 1) / max(1, n - 1)
+    for k, v in energy_cost(first, np.full(n, pace), x.early_wish.to_numpy()).items():
+        xt[k] = v
     free = xt.copy()
     free['traffic_out'], free['traffic_close'] = 0.0, 0.0
-    return models['last3_traffic'].predict(xt[LAST3_FEATURES]), models['last3_traffic'].predict(free[LAST3_FEATURES])
+    m = models['last3_traffic']
+    out = (m.predict(xt[LAST3_FEATURES]), m.predict(free[LAST3_FEATURES]))
+    if parts:
+        fresh = free.copy()
+        for k in ENERGY:
+            fresh[k] = 0.0
+        out += (m.predict(fresh[LAST3_FEATURES]),)
+    return out
 
 
 def evaluation_races(models, d, start, end):
@@ -525,7 +556,7 @@ def score(models, races, P):
             err.setdefault(f'g{c}', []).extend(np.abs(np.array(form[c]['gap']) - x[f'g{c}'].to_numpy()))
             err.setdefault(f'l{c}', []).extend(np.abs(np.array(form[c]['lane'], float) - x[f'l{c}'].to_numpy()))
         ok = x.last3.notna().to_numpy()
-        last3 = pred['last3'] if P is None else closing(models, x, form, corners)[0]
+        last3 = pred['last3'] if P is None else closing(models, x, form, corners, pred['pace'])[0]
         err.setdefault('last3', []).extend(np.abs(last3 - x.last3.to_numpy())[ok])
     return {k: float(np.mean(v)) for k, v in err.items()}
 
@@ -567,7 +598,7 @@ def validate(d, P):
     delays, held = [], []
     for x, corners, numbers, pred, spreads, early in races:
         form = simulate(numbers, early, pred, spreads, corners, P)
-        t3, free = closing(models, x, form, corners)
+        t3, free = closing(models, x, form, corners, pred['pace'])
         delays.extend(t3 - free)
         held.extend(form[corners[0]]['held'])
     metrics['_summary'] = {'races': len(races), 'meanKickDelay': float(np.mean(np.maximum(delays, 0))),
@@ -614,7 +645,7 @@ def race_output(models, x, key, corners, P, gi_bands=PACE_BANDS):
     """One race: contention formation per corner, traffic-aware closing, finish estimate."""
     numbers, pred, spreads, early = prepare_race(models, x, key, corners)
     form = simulate(numbers, early, pred, spreads, corners, P)
-    last3, free = closing(models, x, form, corners)
+    last3, free, fresh = closing(models, x, form, corners, pred['pace'], parts=True)
     n = len(numbers)
     horses = {}
     for i, num in enumerate(numbers):
@@ -625,7 +656,8 @@ def race_output(models, x, key, corners, P, gi_bands=PACE_BANDS):
                               'wantRank': f['want'][i], 'held': bool(f['held'][i]),
                               'boxed': bool(f['out'][i] > 0 and f['close'][i] > 0)})
         horses[str(num)] = {'positions': positions, 'last3': round(float(last3[i]), 1), 'last3Free': round(float(free[i]), 1),
-                            'kickDelay': round(max(0.0, float(last3[i] - free[i])), 2)}
+                            'kickDelay': round(max(0.0, float(last3[i] - free[i])), 2),
+                            'paceCost': round(max(0.0, float(free[i] - fresh[i])), 2)}
     # Finish = last-corner gap plus the closing difference over the final 3F (lengths/second rule);
     # the closing time already carries the delay from being shut in.
     gaps = form[corners[-1]]['gap']
@@ -724,6 +756,7 @@ def main():
                        'ポジション争い：各馬の希望位置（順位モデル）と前の角の位置から押し出しの強さを決め、同じ列に並べる頭数を制限。列が埋まると先行型は外を回り、それ以外は後ろで控える（位置を失う）。',
                        '前半のペース：出走馬の先行型の頭数・過去に逃げた割合・その馬たちが走ったレースの前半の速さ・馬場状態から、前半3Fがコースの標準より何秒速いかを予想（H/M/S）。隊列の長さモデルに使う（予想値で学習）。上がりモデルには馬場状態を入れる。',
                        '道中の位置変化：最初の角からの累積移動量を角ごとに学習（過去走の移動・最大の上げ幅・出走馬中の動く馬の割合・角の数）。2角以降は「最初の角の位置＋予想移動量」と希望位置を混ぜて並べ直す。強さは2025年6〜8月で、順位誤差の悪化を0.2%以内に抑える範囲で移動の相関が最大になる値を選ぶ。',
+                       '脚の消耗：前半のペースが速いほど・前にいるほど、また普段より前で運ぶ（二の足・かかり）ほど上がりが遅くなる量を上がりモデルで学習（遅くする方向のみ）。予想時は予想ペースと1角の予想位置から入れ、paceCost（秒）として出す。',
                        '仕掛け遅れ：上がり3Fモデルは最終角の渋滞（外に並ぶ頭数・1馬身未満で前が壁）を特徴量に学習し、予想時はポジション争いで決まった隊列の渋滞を入れる。前が開いた場合との差を仕掛け遅れ（秒）として出す。',
                        '馬身差と内外はJRAの通過順表記から復元。記号の幅（,=1〜2馬身, -=2〜5, ==5以上）は中央値で近似。',
                        '内外は併走群の内からの位置（0=最内または単独）。ラチからの距離ではない。',
