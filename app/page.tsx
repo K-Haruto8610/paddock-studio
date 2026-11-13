@@ -1,5 +1,5 @@
 'use client';
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import Link from 'next/link';
 import TrackScene from './TrackScene';
 import PlaybackNotes from './PlaybackNotes';
@@ -22,6 +22,7 @@ import {
   type RaceEdits,
 } from './manualEdit';
 import type {Placement} from './raceLayout';
+import {RaceRecorder, mp4MimeType, type RecordingOverlay} from './recorder';
 
 async function readJson<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -56,7 +57,12 @@ export default function Home() {
     [allEdits, setAllEdits] = useState<Record<string, RaceEdits>>(() =>
       typeof window === 'undefined' ? {} : loadEdits(),
     ),
-    [editMessage, setEditMessage] = useState('');
+    [editMessage, setEditMessage] = useState(''),
+    // Video recording of one forecast playthrough (race view + running order) as MP4.
+    [recording, setRecording] = useState(false),
+    [recordMessage, setRecordMessage] = useState('');
+  const recorder = useRef<RaceRecorder | null>(null),
+    overlay = useRef<RecordingOverlay | null>(null);
   useEffect(() => {
     Promise.allSettled([
       readJson<Dataset>('/data/forecasts.json'),
@@ -203,6 +209,75 @@ export default function Home() {
     const number = String(race.horses[index].number);
     updateEdits((e) => ({...e, [editPoint]: {...e[editPoint], [number]: clampPlacement(placement)}}));
   };
+  // What the video shows besides the scene; read by the recorder on every frame.
+  if (race && course && plan && frame)
+    overlay.current = {
+      title: `${race.name}　${dateLabel(race.date)} ${race.venue}${race.surface}${race.distance}m`,
+      status: `● ${editing ? '手動エディット' : `モデル予想${pace ? ` ${pace.model}` : ''}`} · ${frame.label}`,
+      orderTitle: progress === 0 ? 'ゲート配置' : '現在の隊列',
+      orderNote: progress === 0 ? '左から馬番順' : '先頭 → 後方',
+      order: frame.order.map(({horse: h}) => ({
+        number: h.number,
+        background: frameColors[h.gate - 1],
+        color: h.gate === 1 ? '#333' : '#fff',
+      })),
+      seek: {
+        progress,
+        profileImage: course!.profileImage,
+        lapFraction: course!.lap / race.distance,
+        checkpoints: plan!.checkpoints.map((c) => ({
+          label: c.label,
+          at: c.distance / race.distance,
+          active: frame.exact === c,
+          edit: !!c.edit,
+          edited: !!c.edited,
+        })),
+      },
+    };
+  const startRecording = () => {
+    if (!race || recording) return;
+    const type = mp4MimeType();
+    if (!type)
+      return setRecordMessage(
+        'このブラウザーはMP4の録画に対応していません。Chrome・Edge（最新版）またはSafariでお試しください。',
+      );
+    try {
+      recorder.current = new RaceRecorder(type, () => overlay.current!);
+    } catch (e) {
+      return setRecordMessage(`録画を開始できません（${String(e)}）`);
+    }
+    const name = `${editing ? '手動エディット' : 'モデル予想'}_${race.date}_${race.name}.mp4`;
+    recorder.current.name = name;
+    setRecording(true);
+    setRecordMessage('録画中…スタートからゴールまで再生します。一時停止すると録画を終えて保存します。');
+    setProgress(0);
+    setPlaying(true);
+  };
+  // A recording is one playthrough: it ends when playback stops (the finish, a pause, a seek
+  // or a race/mode change), holding the last frame briefly at the finish.
+  useEffect(() => {
+    if (!recording || playing) return;
+    const rec = recorder.current;
+    const timer = setTimeout(
+      () => {
+        recorder.current = null;
+        setRecording(false);
+        rec
+          ?.stop()
+          .then((blob) => {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = rec.name;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+            setRecordMessage(`${rec.name} を保存しました`);
+          })
+          .catch((e) => setRecordMessage(`録画を保存できませんでした（${String(e)}）`));
+      },
+      progress >= 1 ? 1000 : 0,
+    );
+    return () => clearTimeout(timer);
+  }, [recording, playing, progress]);
   const startEditing = () => {
     if (!race) return;
     setEditing(true);
@@ -394,6 +469,7 @@ export default function Home() {
                   onSelect={setSelected}
                   editAt={editPoint ? frame.exact!.distance : null}
                   onEdit={moveHorse}
+                  onRendered={recording ? (c) => recorder.current?.drawFrame(c) : undefined}
                 />
                 <div className="scene-top">
                   <span
@@ -487,7 +563,24 @@ export default function Home() {
                   <option value="1">1×</option>
                   <option value="2">2×</option>
                 </select>
+                {!actual && (
+                  <button
+                    className={`record ${recording ? 'recording' : ''}`}
+                    disabled={!plan.available || recording}
+                    aria-label={recording ? '録画中' : '予想を録画（MP4）'}
+                    title="レース画面と隊列をMP4で録画"
+                    onClick={startRecording}
+                  >
+                    <i aria-hidden="true" />
+                    {recording ? '録画中' : '録画'}
+                  </button>
+                )}
               </div>
+              {!actual && recordMessage && (
+                <p className="notice record-message" role="status">
+                  {recordMessage}
+                </p>
+              )}
               {editing && (
                 <EditPanel
                   race={race}

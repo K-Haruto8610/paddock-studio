@@ -96,6 +96,7 @@ export default function TrackScene({
   onSelect,
   editAt = null,
   onEdit,
+  onRendered,
 }: {
   race: Race;
   plan: PlaybackPlan;
@@ -108,16 +109,20 @@ export default function TrackScene({
   editAt?: number | null;
   /** Called when a dragged horse is let go at an edit point: its new place in plan units. */
   onEdit?: (index: number, placement: Placement) => void;
+  /** Called right after each frame renders, while the canvas still holds it (video recording). */
+  onRendered?: (canvas: HTMLCanvasElement) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   // The animation loop lives outside React's render cycle: it reads the latest props from refs.
   const state = useRef<LiveState>({progress, rate, selected, followKey, plan, editAt});
   const select = useRef(onSelect);
   const edit = useRef(onEdit);
+  const rendered = useRef(onRendered);
   useEffect(() => {
     state.current = {progress, rate, selected, followKey, plan, editAt};
     select.current = onSelect;
     edit.current = onEdit;
+    rendered.current = onRendered;
   });
   const webgl = useSyncExternalStore(subscribeNever, hasWebGL, () => true);
 
@@ -315,6 +320,7 @@ export default function TrackScene({
       sun.position.copy(packCenter).add(new T.Vector3(-200, 500, 180));
       controls.update();
       renderer.render(scene, camera);
+      rendered.current?.(renderer.domElement);
       frame = requestAnimationFrame(draw);
     }
     draw();

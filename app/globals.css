@@ -802,3 +802,38 @@ footer > span:first-child {
 .key-jump {
   background: #91b4bf;
 }
+
+.playback .record {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 6px 10px;
+  border: 1px solid #dce1d3;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.playback .record i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #c0392b;
+}
+.playback .record.recording {
+  color: #c0392b;
+  border-color: #c0392b;
+}
+.playback .record.recording i {
+  animation: record-blink 1s steps(2) infinite;
+}
+.playback .record:disabled:not(.recording) {
+  opacity: 0.5;
+}
+@keyframes record-blink {
+  50% {
+    opacity: 0.2;
+  }
+}
+.record-message {
+  margin-top: 10px;
+}
