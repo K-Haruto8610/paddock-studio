@@ -79,7 +79,7 @@ export default function PlaybackNotes({
                   ? 'ブリンカー着用'
                   : 'ブリンカーなし'}
             </b>
-            {horse.blinker && <small>3Dでは青いメンコで代用</small>}
+            {horse.blinker && <small>3Dではメンコで代用</small>}
           </div>
           <h4>{actual ? '通過順位 → 入線順位' : '予想位置の変化'}</h4>
           <div className="mini-flow result-flow">

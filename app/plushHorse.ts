@@ -1,4 +1,5 @@
 import * as T from 'three';
+import {seededPick} from './seededPick';
 import {MarchingCubes} from 'three/addons/objects/MarchingCubes.js';
 import type {Horse} from './types';
 import {STRIDE_LENGTH, NO_KICK, type Kick} from './closingKick';
@@ -151,6 +152,8 @@ export function bodyDistance(px: number, py: number, pz: number, settings: HeadS
 }
 
 const HOOD_THICKNESS = 0.035;
+// Felt colours a menko comes in; each horse wears the one its name picks, in every race.
+const MENKO_COLORS = ['#327ca6', '#b8343c', '#2f7d52', '#d9a62e', '#6a4a9c', '#d0688f', '#23396f', '#d9712c', '#2a2b30', '#e9e4d6', '#3aa39a', '#8c2f55'];
 const smoothMax = (a: number, b: number, k: number) => -smoothUnion(-a, -b, k);
 /**
  * Menko (racing hood) as a solid of felt: the shell grown by the cloth thickness, cut to the hood's outline,
@@ -1210,7 +1213,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   const bodyFabric = fabrics.body ?? 'current';
   const piled = !!FABRIC_LOOKS[bodyFabric].pile;
   const blue = cloth('#234b98');
-  const hood = h.blinker ? fabricMaterial('#327ca6', fabrics.menko ?? 'current') : brown;
+  const hood = h.blinker ? fabricMaterial(seededPick(h.name, MENKO_COLORS), fabrics.menko ?? 'current') : brown;
   const eye = new T.MeshStandardMaterial({color: '#151416', roughness: 0.48});
   const shine = new T.MeshStandardMaterial({color: '#e1d9c9', roughness: 0.6});
   const sphere = new T.SphereGeometry(1, 16, 12);

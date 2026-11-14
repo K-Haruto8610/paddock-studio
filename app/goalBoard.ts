@@ -2,14 +2,28 @@ import * as T from 'three';
 import type {Race} from './types';
 import type {TrackModel} from './trackGeometry';
 import {courseFor} from './courses';
+import {seededPick} from './seededPick';
 
 // The winning post dressed for a GⅠ day: a horseshoe arch carrying the race name and date
 // around the mirror post, the venue's sign beside it, flower beds along the inner rail and
 // banners on the rail. An original design in the spirit of a big-race day, not a copy of
 // any real course's signage.
 
-const PURPLE = '#3a2a8c';
-const DEEP_PURPLE = '#261a63';
+/** Colours of the dressing, built around one hue so the gold lettering always reads. */
+type Theme = {main: string; deep: string; top: string; fanA: string; fanB: string};
+// Hues that carry gold text well: purple, crimson, royal blue, emerald, teal, magenta, red, violet, green.
+const HUES = [250, 350, 215, 160, 190, 320, 5, 280, 135];
+/** The dressing's colours for a race: chosen by its id, so a race always looks the same. */
+function themeFor(race: Race): Theme {
+  const hue = seededPick(race.id, HUES);
+  return {
+    main: `hsl(${hue}, 54%, 36%)`,
+    deep: `hsl(${hue}, 58%, 24%)`,
+    top: `hsl(${hue}, 53%, 43%)`,
+    fanA: `hsl(${(hue + 80) % 360}, 72%, 66%)`,
+    fanB: `hsl(${hue}, 100%, 86%)`,
+  };
+}
 const GOLD = '#f0cf78';
 const MINCHO = '"Yu Mincho", "Hiragino Mincho ProN", "Noto Serif JP", serif';
 /** Drawn larger than life, like the horses, so it reads from the pack camera. */
@@ -99,22 +113,22 @@ function horseshoeShape() {
 }
 
 /** Face of the arch: race name down the left leg, date down the right, gold rim, fans. */
-function horseshoeTexture(race: Race, shape: T.Shape) {
+function horseshoeTexture(race: Race, shape: T.Shape, theme: Theme) {
   const W = 560,
     H = 680;
   const {c, g} = canvas(W, H);
   const px = (x: number) => ((x + HORSESHOE.width / 2) / HORSESHOE.width) * W;
   const py = (y: number) => (1 - y / HORSESHOE.height) * H;
   const wash = g.createLinearGradient(0, 0, 0, H);
-  wash.addColorStop(0, '#4733a6');
-  wash.addColorStop(1, DEEP_PURPLE);
+  wash.addColorStop(0, theme.top);
+  wash.addColorStop(1, theme.deep);
   g.fillStyle = wash;
   g.fillRect(0, 0, W, H);
-  fan(g, px(-2.3), py(6.9), 95, -0.5, '#e76aa5');
-  fan(g, px(2.2), py(7.0), 105, 0.55, '#c9b6ff');
-  fan(g, px(-2.6), py(0.5), 80, 0.3, '#c9b6ff');
-  fan(g, px(2.5), py(0.6), 85, -0.35, '#e76aa5');
-  fan(g, px(0), py(8.6), 90, 0, '#e76aa5');
+  fan(g, px(-2.3), py(6.9), 95, -0.5, theme.fanA);
+  fan(g, px(2.2), py(7.0), 105, 0.55, theme.fanB);
+  fan(g, px(-2.6), py(0.5), 80, 0.3, theme.fanB);
+  fan(g, px(2.5), py(0.6), 85, -0.35, theme.fanA);
+  fan(g, px(0), py(8.6), 90, 0, theme.fanA);
   // Gold rim along the outline.
   g.strokeStyle = GOLD;
   g.lineWidth = 12;
@@ -140,7 +154,7 @@ function horseshoeTexture(race: Race, shape: T.Shape) {
     g.fillRect(-30, -30, 60, 60);
     g.restore();
     g.shadowBlur = 0;
-    g.fillStyle = DEEP_PURPLE;
+    g.fillStyle = theme.deep;
     g.font = `900 46px ${MINCHO}`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
@@ -172,12 +186,12 @@ function horseshoeTexture(race: Race, shape: T.Shape) {
 }
 
 /** Oval badge at the crown of the arch. */
-function badgeTexture() {
+function badgeTexture(theme: Theme) {
   const {c, g} = canvas(320, 220);
-  g.fillStyle = PURPLE;
+  g.fillStyle = theme.main;
   g.fillRect(0, 0, 320, 220);
-  fan(g, 60, 215, 120, -0.2, '#e76aa5');
-  fan(g, 270, 60, 90, 2.6, '#c9b6ff');
+  fan(g, 60, 215, 120, -0.2, theme.fanA);
+  fan(g, 270, 60, 90, 2.6, theme.fanB);
   g.strokeStyle = GOLD;
   g.lineWidth = 12;
   g.beginPath();
@@ -221,12 +235,12 @@ function venueDiamondTexture(venue: string) {
   return textureOf(c);
 }
 
-function bannerTexture(text: string) {
+function bannerTexture(text: string, theme: Theme) {
   const {c, g} = canvas(1024, 64);
-  g.fillStyle = PURPLE;
+  g.fillStyle = theme.main;
   g.fillRect(0, 0, 1024, 64);
-  fan(g, 60, 80, 70, 0, '#e76aa5');
-  fan(g, 964, 80, 70, 0, '#e76aa5');
+  fan(g, 60, 80, 70, 0, theme.fanA);
+  fan(g, 964, 80, 70, 0, theme.fanA);
   g.fillStyle = GOLD;
   g.fillRect(0, 0, 1024, 5);
   g.fillRect(0, 59, 1024, 5);
@@ -277,7 +291,7 @@ function box(w: number, h: number, d: number, color: string, roughness = 0.8) {
 }
 
 /** Horseshoe arch with the mirror post (ゴール板) standing in its opening. */
-function arch(race: Race) {
+function arch(race: Race, theme: Theme) {
   const group = new T.Group();
   const shape = horseshoeShape();
   const DEPTH = 0.3;
@@ -293,9 +307,9 @@ function arch(race: Race) {
     uv = face.attributes.uv as T.BufferAttribute;
   for (let i = 0; i < pos.count; i++)
     uv.setXY(i, (pos.getX(i) + HORSESHOE.width / 2) / HORSESHOE.width, pos.getY(i) / HORSESHOE.height);
-  group.add(twoSided(face, horseshoeTexture(race, shape), DEPTH + 0.04));
+  group.add(twoSided(face, horseshoeTexture(race, shape, theme), DEPTH + 0.04));
   // Badge overlapping the crown.
-  const badge = twoSided(new T.CircleGeometry(1, 48), badgeTexture(), DEPTH + 0.36);
+  const badge = twoSided(new T.CircleGeometry(1, 48), badgeTexture(theme), DEPTH + 0.36);
   badge.scale.set(1.75, 1.2, 1);
   badge.position.y = 8.75;
   group.add(badge);
@@ -312,7 +326,7 @@ function arch(race: Race) {
   const plinth = box(7.6, 3.4, 1.5, '#cfd2c9');
   plinth.position.y = -1.3;
   group.add(plinth);
-  const post = box(0.62, 7.4, 0.42, '#2f5d48', 0.6);
+  const post = box(0.62, 7.4, 0.42, theme.deep, 0.6);
   post.position.y = 3.9;
   group.add(post);
   const mirror = new T.MeshStandardMaterial({color: '#dcebf0', roughness: 0.12, metalness: 0.75});
@@ -422,9 +436,10 @@ export function addGoalBoard(scene: T.Scene, race: Race, track: TrackModel) {
     group.rotation.y = -Math.atan2(at.tangent.z, at.tangent.x);
     return group;
   };
+  const theme = themeFor(race);
   const post = facing(0, -SETBACK);
   post.scale.setScalar(SCALE);
-  post.add(arch(race));
+  post.add(arch(race, theme));
   post.name = 'goal-post';
   scene.add(post);
   const sign = facing(13.5, -SETBACK);
@@ -441,7 +456,7 @@ export function addGoalBoard(scene: T.Scene, race: Race, track: TrackModel) {
   ] as const) {
     const hung = facing(distance, 0.14);
     hung.position.y += 0.62;
-    hung.add(twoSided(banner, bannerTexture(text), 0.03));
+    hung.add(twoSided(banner, bannerTexture(text, theme), 0.03));
     scene.add(hung);
   }
 }
