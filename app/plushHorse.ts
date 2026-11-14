@@ -1,6 +1,7 @@
 import * as T from 'three';
 import {MarchingCubes} from 'three/addons/objects/MarchingCubes.js';
 import type {Horse} from './types';
+import {STRIDE_LENGTH, NO_KICK, type Kick} from './closingKick';
 const coat: Record<string, string> = {
   '01': '#b8773c',
   '02': '#845330',
@@ -38,7 +39,9 @@ export function label(text: string, width = 512) {
 
 type Point = [number, number, number];
 type LegRig = {mesh: T.Mesh; base: Float32Array; baseNormals: Float32Array; index: Uint32Array; leg: Uint8Array; weight: Float32Array; last: string};
-type PlushRig = {body: T.Group; head: T.Group; tail: T.Group; legs?: LegRig};
+type HairRig = {uniforms: HairUniforms; mesh: T.Mesh};
+type HeadRig = {parts: {mesh: T.Mesh; base: Float32Array; baseNormals: Float32Array; index: Uint32Array; weight: Float32Array}[]; last: number};
+type PlushRig = {body: T.Group; head: T.Group; tail: T.Group; legs?: LegRig; neck?: HeadRig; hair?: {mane: HairRig; tail: HairRig}};
 // Gallop footfall order (right lead): left hind -> right hind -> left fore -> right fore, then a moment of
 // suspension. `beat` is when each foot lands, as a fraction of the stride. The horse faces +x; its left is -z.
 const LEGS = [
@@ -48,8 +51,25 @@ const LEGS = [
   {x: 0.64, z: 0.43, beat: 0.4, reach: 0.55, center: 0.06},
 ] as const;
 const LEG_PIVOT_Y = 0.95;
-// In race metres: at normal playback speed a 2400 m race shows about two strides a second.
-const STRIDE_LENGTH = 16;
+// STRIDE_LENGTH (race metres per stride) lives in closingKick.ts, next to the cadence that is integrated over it.
+
+/**
+ * Closing-kick running form: how far each part moves from its normal gallop as the kick level goes 0 -> 1.
+ * These are the numbers to tune by eye (the plush preview has a kick slider).
+ */
+export const KICK_HEAD_DOWN = 15 * Math.PI / 180; // neck/head base angle: lowered and stretched forward (nose down)
+export const NOD = 0.08; // neck up-down amplitude of the normal gallop, in radians
+export const KICK_NOD = 3; // neck up-down amplitude, as a multiple of the normal gallop's
+export const KICK_NOD_BEAT = 0.35; // stride phase of the nod's lowest point: the forelegs land at 0.3 and 0.4
+export const KICK_LEAN = 4 * Math.PI / 180; // forward lean of the whole body
+export const KICK_ROCK = 1.4; // body pitch rocking, as a multiple
+// Two gaits: a long, floating stride in the body of the race (ストライド走法), and a short, quick one in the
+// closing kick (ピッチ走法). The quicker turnover itself is KICK_CADENCE in closingKick.ts.
+export const STRIDE_REACH = 1.15; // leg swing of the normal gallop, as a multiple of the legs' own reach
+export const KICK_REACH = 0.8; // leg swing at full kick, on the same scale
+export const STRIDE_HOP = 0.09; // height of the suspension between strides in the normal gallop
+export const KICK_HOP = 0.035; // and at full kick: the feet barely leave the ground
+export const KICK_STREAM = 1.5; // how hard the air streams the mane and tail back, as a multiple
 
 export const DEFAULT_LEG_WIDTH = 0.8;
 export const HEAD_WIDTH_SCALES = [0.6, 0.7, 0.8, 0.9, 0.95] as const;
@@ -602,7 +622,13 @@ function addPile(mesh: T.Mesh, material: T.Material) {
 }
 
 type Strand = {points: T.Vector3[]; radius: number; shade: number};
-type HairTemplate = {positions: Float32Array; normals: Float32Array; colors: Float32Array; index: Uint32Array};
+type HairTemplate = {
+  positions: Float32Array; normals: Float32Array; colors: Float32Array; index: Uint32Array;
+  /** For the sway shader: 0 at the root to 1 at the tip, a random seed per hair, the hair's root, and its path per unit of fraction. */
+  fractions: Float32Array; seeds: Float32Array; roots: Float32Array; spans: Float32Array;
+};
+/** Bump when the template layout changes, so stale templates (hot reload) are never reused. */
+const HAIR_TEMPLATE_VERSION = 2;
 type Solid = (x: number, y: number, z: number) => number;
 
 /** Thin tapering tubes, one per hair, merged into a single mesh. */
@@ -610,11 +636,17 @@ function strandTemplate(strands: Strand[]): HairTemplate {
   const sides = 4;
   const rings = strands.reduce((n, s) => n + s.points.length, 0);
   const positions = new Float32Array(rings * sides * 3), normals = new Float32Array(rings * sides * 3), colors = new Float32Array(rings * sides * 3);
+  const fractions = new Float32Array(rings * sides), seeds = new Float32Array(rings * sides);
+  const roots = new Float32Array(rings * sides * 3), spans = new Float32Array(rings * sides * 3);
   const index: number[] = [];
   const tangent = new T.Vector3(), side = new T.Vector3(), across = new T.Vector3(), offset = new T.Vector3();
   let v = 0;
-  for (const strand of strands) {
+  for (const [n, strand] of strands.entries()) {
     const last = strand.points.length - 1;
+    let length = 0;
+    for (let i = 0; i < last; i++) length += strand.points[i].distanceTo(strand.points[i + 1]);
+    // Golden-ratio spacing: any run of neighbouring hairs gets well-spread seeds.
+    const seed = ((n + 1) * 0.6180339887) % 1;
     for (let i = 0; i <= last; i++) {
       tangent.copy(strand.points[Math.min(i + 1, last)]).sub(strand.points[Math.max(i - 1, 0)]).normalize();
       // Carry the frame along the hair so the tube never twists.
@@ -632,6 +664,10 @@ function strandTemplate(strands: Strand[]): HairTemplate {
         positions.set([p.x + offset.x * radius, p.y + offset.y * radius, p.z + offset.z * radius], v * 3);
         normals.set([offset.x, offset.y, offset.z], v * 3);
         colors.set([shade, shade, shade], v * 3);
+        fractions[v] = t;
+        seeds[v] = seed;
+        roots.set([strand.points[0].x, strand.points[0].y, strand.points[0].z], v * 3);
+        spans.set([tangent.x * length, tangent.y * length, tangent.z * length], v * 3);
         if (i < last) {
           const next = v - j + (j + 1) % sides;
           index.push(v, next, v + sides, next, next + sides, v + sides);
@@ -640,14 +676,23 @@ function strandTemplate(strands: Strand[]): HairTemplate {
       }
     }
   }
-  return {positions, normals, colors, index: Uint32Array.from(index)};
+  return {positions, normals, colors, index: Uint32Array.from(index), fractions, seeds, roots, spans};
 }
 
+// One geometry per template, shared by every horse: the sway is done by the vertex shader, so nothing per-horse is baked in.
+const hairGeometries = new WeakMap<HairTemplate, T.BufferGeometry>();
 function hairGeometry(template: HairTemplate) {
+  const shared = hairGeometries.get(template);
+  if (shared) return shared;
   const geometry = new T.BufferGeometry();
+  hairGeometries.set(template, geometry);
   geometry.setAttribute('position', new T.BufferAttribute(template.positions, 3));
   geometry.setAttribute('normal', new T.BufferAttribute(template.normals, 3));
   geometry.setAttribute('color', new T.BufferAttribute(template.colors, 3));
+  geometry.setAttribute('hairFrac', new T.BufferAttribute(template.fractions, 1));
+  geometry.setAttribute('hairSeed', new T.BufferAttribute(template.seeds, 1));
+  geometry.setAttribute('hairRoot', new T.BufferAttribute(template.roots, 3));
+  geometry.setAttribute('hairSpan', new T.BufferAttribute(template.spans, 3));
   geometry.setIndex(new T.BufferAttribute(template.index, 1));
   return geometry;
 }
@@ -724,7 +769,7 @@ function outlineSpan(table: [number, number, number][], y: number): [number, num
 
 /** The mane, in body coordinates: locks of hair rising from the crest and swept back, from the poll to the withers. */
 function maneGeometry(settings: HeadSettings, menko: boolean) {
-  const cacheKey = JSON.stringify(settings) + menko;
+  const cacheKey = JSON.stringify(settings) + menko + HAIR_TEMPLATE_VERSION;
   let template = maneTemplates.get(cacheKey);
   if (!template) {
     const {headWidth} = settings;
@@ -888,7 +933,7 @@ const TAIL_ROOT: Point = [-1.22, 1.38, 0];
 const tailTemplates = new Map<string, HairTemplate>();
 /** The tail, in the tail group's coordinates: long hairs that leave the dock, arch, and hang clear of the hindquarters. */
 function tailGeometry(settings: HeadSettings) {
-  const cacheKey = JSON.stringify(settings);
+  const cacheKey = JSON.stringify(settings) + HAIR_TEMPLATE_VERSION;
   let template = tailTemplates.get(cacheKey);
   if (!template) {
     const solid: Solid = (x, y, z) => bodyDistance(x + TAIL_ROOT[0], y + TAIL_ROOT[1], z + TAIL_ROOT[2], settings, false);
@@ -928,6 +973,177 @@ function tailGeometry(settings: HeadSettings) {
     tailTemplates.set(cacheKey, template);
   }
   return hairGeometry(template);
+}
+
+type HairUniforms = {
+  hairPhase: {value: number}; hairAmount: {value: number}; hairKick: {value: number}; hairWind: {value: number}; hairHead: {value: number};
+  hairToBody: {value: T.Matrix4}; hairFromBody: {value: T.Matrix4};
+};
+const hairUniforms = (): HairUniforms => ({
+  hairPhase: {value: 0}, hairAmount: {value: 0}, hairKick: {value: 0}, hairWind: {value: 0}, hairHead: {value: 0},
+  hairToBody: {value: new T.Matrix4()}, hairFromBody: {value: new T.Matrix4()},
+});
+
+/**
+ * Sway tuning, one set per kind of hair. Displacements are in units of the hair's own length (times fraction^2), so
+ * `wind` 0.35 leans the tip of a mane hair back by about a third of its length.
+ * natural/drop: how fast a hair swings by itself (relative to the stride) at the root and how much slower toward the tip;
+ * bounce: how much of the body's vertical shake it picks up; wind/lift: streaming back and up; side/sideRate: sideways
+ * sway and its rate in cycles per stride; flutter: the fine 2x/3x ripple; travel: radians of phase lag from root to tip.
+ */
+const HAIR_TUNING = {
+  mane: {natural: 3.4, drop: 1.5, bounce: 1.0, wind: 0.35, lift: 0.12, side: 0.05, sideRate: 1, flutter: 0.06, travel: 0.9},
+  tail: {natural: 3.0, drop: 1.4, bounce: 1.7, wind: 0.55, lift: 0.06, side: 0.3, sideRate: 0.5, flutter: 0.08, travel: 1.3},
+};
+// Hair never passes through the body: ellipsoids just inside the stuffed shell (centre, radii), in body coordinates.
+// Checked numerically against bodyDistance: every point of each lies at least 0.02 inside the shell.
+const HAIR_BARREL = {center: [-0.15, 1.22, 0], radii: [1.19, 0.84, 0.77]};
+const HAIR_RUMP = {center: [-0.7, 1.2, 0], radii: [0.6, 0.75, 0.65]};
+// The neck: a tapered capsule from `from` to `to`, flattened sideways by `width` like the chest it is built from.
+const HAIR_NECK = {from: [0.55, 1.25], to: [0.93, 1.9], radii: [0.54, 0.46], width: 0.92};
+const glsl = (v: number[]) => `vec${v.length}(${v.map(n => n.toFixed(3)).join(', ')})`;
+
+/**
+ * Vertex-shader sway for mane and tail. Everything is a pure function of the stride phase, so it repeats exactly
+ * when paused, seeked or recorded. Per hair: the root is fixed, the offset grows with the square of the root-to-tip
+ * fraction, a wave runs toward the tip, and a seed gives it its own phase, stiffness and amplitude.
+ * Work is done in body coordinates (the meshes pass matrices to and from them), so wind, the body's shake and the
+ * collision ellipsoids are written once, whatever group the hair hangs from.
+ */
+function hairShader(kind: 'mane' | 'tail', depth: boolean) {
+  const k = HAIR_TUNING[kind], f = (n: number) => n.toFixed(3);
+  return `
+${kind === 'mane' ? '#define HAIR_MANE' : ''}
+${depth ? '#define HAIR_DEPTH' : ''}
+attribute float hairFrac;
+attribute float hairSeed;
+attribute vec3 hairRoot;
+attribute vec3 hairSpan;
+uniform float hairPhase;
+uniform float hairAmount;
+uniform float hairKick;
+uniform float hairWind;
+uniform float hairHead;
+uniform mat4 hairToBody;
+uniform mat4 hairFromBody;
+
+float hairHash(float x) { return fract(sin(x * 91.3458 + 17.17) * 47453.5453); }
+
+// Pull a point out of an ellipsoid along the ray from its centre.
+vec3 hairOut(vec3 p, vec3 c, vec3 r) {
+  vec3 q = (p - c) / r;
+  float k = dot(q, q);
+  return k < 1.0 ? c + q * (r * inversesqrt(max(k, 1e-4))) : p;
+}
+vec3 hairCollide(vec3 p) {
+  p = hairOut(p, ${glsl(HAIR_BARREL.center)}, ${glsl(HAIR_BARREL.radii)});
+  p = hairOut(p, ${glsl(HAIR_RUMP.center)}, ${glsl(HAIR_RUMP.radii)});
+  vec3 a = vec3(${HAIR_NECK.from.map(f).join(', ')}, 0.0), ab = vec3(${HAIR_NECK.to.map(f).join(', ')}, 0.0) - a;
+  vec3 q = vec3(p.xy, p.z / ${f(HAIR_NECK.width)});
+  float t = clamp(dot(q - a, ab) / dot(ab, ab), 0.0, 1.0);
+  vec3 c = a + ab * t, v = q - c;
+  float radius = mix(${f(HAIR_NECK.radii[0])}, ${f(HAIR_NECK.radii[1])}, t), l = length(v);
+  if (l < radius && l > 1e-4) { q = c + v * (radius / l); p = vec3(q.xy, q.z * ${f(HAIR_NECK.width)}); }
+  return p;
+}
+
+// Hair bobbing against the body's own vertical shake, as a damped oscillator driven by the body's acceleration
+// (x'' + 2 zeta w x' + w^2 x = -y''). Solved in closed form per harmonic n of the stride: a hair that is slow
+// to respond (low w) lags the body, so the body dropping lifts it late and the body rising drops it late.
+float hairBob(float phi, float w, float n, float weight) {
+  float a = n * (phi - 5.5292); // the body is highest at stride phase 0.88
+  vec2 den = vec2(w * w - n * n, 0.8 * w * n);
+  vec2 inv = vec2(den.x, -den.y) / dot(den, den);
+  return n * n * weight * (inv.x * cos(a) - inv.y * sin(a));
+}
+
+// Where the hair is pushed, in body coordinates, at fraction f.
+vec3 hairSway(float f, float len, vec3 along, vec4 r, float lock) {
+  float stiff = mix(0.8, 1.3, r.x), gain = mix(0.7, 1.3, r.y);
+  // The wave reaches the tip later than the root; each hair (and each lock of them) is a little out of step.
+  float phi = 6.2831853 * hairPhase - ${f(k.travel)} * f - (lock + r.z) * 0.35;
+  float w = (${f(k.natural)} - ${f(k.drop)} * f) * stiff;
+  float bob = hairBob(phi, w, 1.0, 1.0) + hairBob(phi, w, 2.0, 0.3);
+  vec3 d = vec3(0.0);
+  d.y = bob * ${f(k.bounce)} * gain * (1.0 + 0.4 * hairKick) * hairAmount;
+  d.x = -hairWind * ${f(k.wind)} * (0.8 + 0.4 * r.w);
+  d.y += hairWind * ${f(k.lift)};
+  d.z = hairAmount * ${f(k.side)} * gain * sin(${f(k.sideRate)} * phi + 6.2831853 * r.y);
+  float flutter = 0.6 * sin(2.0 * phi + 6.2831853 * r.z) + 0.4 * sin(3.0 * phi + 6.2831853 * r.w);
+  d.yz += ${f(k.flutter)} * hairAmount * vec2(flutter, 0.5 * sin(3.0 * phi + 9.0 * r.x) + 0.5 * cos(2.0 * phi + 3.0 * r.y));
+  d *= f * f * len;
+  // A hair bends rather than stretches: nearly all of the push along its own length is dropped.
+  return d - 0.9 * along * dot(along, d);
+}
+
+// A hair keeps its length: the push swings the point about the hair's root instead of dragging it away, so a hard
+// wind lays the tail out behind the horse rather than stretching it.
+vec3 hairBend(vec3 base, vec3 span, float f, float len, vec3 d) {
+  vec3 rel = span * f + d;
+  float l = length(rel);
+  return base - span * f + (l > 1e-5 ? rel * (f * len / l) : rel);
+}
+
+vec3 hairTurn(vec3 p, float a) {
+  float c = cos(a), s = sin(a);
+  return vec3(c * p.x - s * p.y, s * p.x + c * p.y, p.z);
+}
+
+void hairDeform(out vec3 outPosition, out vec3 outNormal) {
+  mat3 toBody = mat3(hairToBody);
+  vec3 base = (hairToBody * vec4(position, 1.0)).xyz, span = toBody * hairSpan, n0 = toBody * normal;
+#ifdef HAIR_MANE
+  // The mane rides the neck, not the head: only the hair at the poll turns with the head.
+  float turn = hairHead * smoothstep(${f(HEAD_BLEND[0])}, ${f(HEAD_BLEND[1])}, dot(hairRoot.xy - vec2(${HEAD_PIVOT.map(f).join(', ')}), vec2(${HEAD_AXIS.map(f).join(', ')})));
+  vec3 pivot = vec3(${HEAD_PIVOT.map(f).join(', ')}, 0.0);
+  base = pivot + hairTurn(base - pivot, turn); span = hairTurn(span, turn); n0 = hairTurn(n0, turn);
+#endif
+  float len = length(span);
+  vec3 along = span / max(len, 1e-5);
+  vec4 r = vec4(hairHash(hairSeed), hairHash(hairSeed + 0.37), hairHash(hairSeed + 0.71), hairHash(hairSeed + 0.13));
+  float lock = dot(hairRoot, vec3(4.0, 2.5, 7.0));
+  // Collision is faded in with the motion, so the standing pose is exactly the authored hair.
+  float solid = smoothstep(0.0, 0.15, hairAmount);
+  vec3 p0 = hairBend(base, span, hairFrac, len, hairSway(hairFrac, len, along, r, lock));
+  p0 = mix(p0, hairCollide(p0), solid);
+  outPosition = (hairFromBody * vec4(p0, 1.0)).xyz;
+#ifdef HAIR_DEPTH
+  outNormal = vec3(0.0);
+#else
+  // Normals follow the bend: turn them by the rotation that carries the hair's rest direction to its bent one.
+  float e = 0.06;
+  vec3 p1 = hairBend(base + span * e, span, hairFrac + e, len, hairSway(hairFrac + e, len, along, r, lock));
+  p1 = mix(p1, hairCollide(p1), solid);
+  vec3 b = normalize(p1 - p0), v = cross(along, b);
+  float c = dot(along, b);
+  vec3 n = n0 * c + cross(v, n0) + v * (dot(v, n0) / max(1.0 + c, 0.1));
+  outNormal = normalize(mat3(hairFromBody) * n);
+#endif
+}`;
+}
+
+/** Mane and tail share one look but each gets its own material (so its own uniforms) and a matching shadow material. */
+function hairMaterials(kind: 'mane' | 'tail') {
+  const uniforms = hairUniforms();
+  const material = new T.MeshPhysicalMaterial({color: '#2f2b2d', vertexColors: true, roughness: 0.82, metalness: 0, sheen: 0.85, sheenRoughness: 0.72, sheenColor: '#605650', specularIntensity: 0.35});
+  material.onBeforeCompile = shader => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>\n${hairShader(kind, false)}`)
+      .replace('#include <beginnormal_vertex>', 'vec3 hairPosition, objectNormal;\nhairDeform(hairPosition, objectNormal);')
+      .replace('#include <begin_vertex>', 'vec3 transformed = hairPosition;');
+  };
+  material.customProgramCacheKey = () => `hair-${kind}`;
+  // The sun's shadow map draws the hair with this, so the shadow sways exactly as the hair does.
+  const depth = new T.MeshDepthMaterial({depthPacking: T.RGBADepthPacking});
+  depth.onBeforeCompile = shader => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>\n${hairShader(kind, true)}`)
+      .replace('#include <begin_vertex>', 'vec3 hairNormal, transformed;\nhairDeform(transformed, hairNormal);');
+  };
+  depth.customProgramCacheKey = () => `hair-${kind}-depth`;
+  return {uniforms, material, depth};
 }
 
 /** A stuffed, slightly squared sphere avoids the old stack-of-balls silhouette. */
@@ -991,7 +1207,6 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   const brown = fabricMaterial(coat[h.coatCode] || '#999999', fabrics.body ?? 'current');
   const dark = cloth('#29272a');
   const hair = fabricMaterial('#29272a', fabrics.mane ?? 'current');
-  const strandMaterial = new T.MeshPhysicalMaterial({color: '#2f2b2d', vertexColors: true, roughness: 0.82, metalness: 0, sheen: 0.85, sheenRoughness: 0.72, sheenColor: '#605650', specularIntensity: 0.35});
   const bodyFabric = fabrics.body ?? 'current';
   const piled = !!FABRIC_LOOKS[bodyFabric].pile;
   const blue = cloth('#234b98');
@@ -1033,8 +1248,10 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   const raise = Math.max(0, pileLength - 0.02);
   const legs = legRig(shell);
 
+  const nodding = [shell];
   if (h.blinker) {
     const menko = new T.Mesh(hoodGeometry(settings), hood);
+    nodding.push(menko);
     menko.name = 'felt-menko';
     menko.castShadow = menko.receiveShadow = true;
     body.add(menko);
@@ -1072,23 +1289,28 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     ball(head, dark, [1.1, -0.13, side * (noseZ + 0.006 + raise / 1.18)], [0.027, 0.039, 0.02], false);
   }
   // Tube UVs run 0..1 along each strap, so the grain is tiled many times along its length.
-  if (options.bridle) addBridle(head, fabricMaterial('#5b3826', fabrics.bridle ?? 'current', [12, 0.3]), settings, !!h.blinker);
+  if (options.bridle) addBridle(head, fabricMaterial('#5b3826', fabrics.bridle ?? 'current', [12, 0.3]), settings, !!h.blinker, pileLength);
 
-  // Mane and tail are real hairs. The mane is grown in body coordinates and carried by the head.
-  const mane = new T.Mesh(maneGeometry(settings, !!h.blinker), strandMaterial);
-  mane.scale.setScalar(1 / 1.18);
-  mane.position.set(-0.67 / 1.18, -1.91 / 1.18, 0);
+  // Mane and tail are real hairs that sway in the vertex shader. The mane is grown in body coordinates and hangs from
+  // the body: it rides the neck, and the shader turns only the hair at the poll with the head, which now nods far more.
+  const maneHair = hairMaterials('mane'), tailHair = hairMaterials('tail');
+  const mane = new T.Mesh(maneGeometry(settings, !!h.blinker), maneHair.material);
   mane.name = 'hair-mane';
   mane.castShadow = mane.receiveShadow = true;
-  head.add(mane);
+  mane.customDepthMaterial = maneHair.depth;
+  // The sway reaches outside the resting bounds, so the box must not cull it.
+  mane.frustumCulled = false;
+  body.add(mane);
   const tail = new T.Group();
   tail.position.set(...TAIL_ROOT);
   body.add(tail);
   // A small stuffed dock closes the root, where the hairs are sewn in.
   ball(tail, hair, [-0.12, 0, 0], [0.12, 0.1, 0.1]).name = 'tail-dock';
-  const tailMesh = new T.Mesh(tailGeometry(settings), strandMaterial);
+  const tailMesh = new T.Mesh(tailGeometry(settings), tailHair.material);
   tailMesh.name = 'hair-tail';
   tailMesh.castShadow = tailMesh.receiveShadow = true;
+  tailMesh.customDepthMaterial = tailHair.depth;
+  tailMesh.frustumCulled = false;
   tail.add(tailMesh);
 
   // Saddlecloth drapes over the back. Numbers are printed on both physical sides.
@@ -1151,11 +1373,59 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   num.position.set(0, 4.4, 0);
   num.scale.set(2.2, 2.2, 1);
   g.add(num);
-  g.userData.plushRig = {body, head, tail, legs} satisfies PlushRig;
+  g.userData.plushRig = {body, head, tail, legs, neck: headRig(nodding), hair: {mane: {uniforms: maneHair.uniforms, mesh: mane}, tail: {uniforms: tailHair.uniforms, mesh: tailMesh}}} satisfies PlushRig;
   return g;
 }
 
 /** Weights each low shell vertex to the nearest leg, so a leg can swing without splitting the seamless body. */
+/**
+ * The head is part of the one seamless shell, so nodding has to bend the cloth itself: every vertex past the neck
+ * turns about HEAD_PIVOT, fading out across the neck. Eyes, ears and bridle ride the head group, which poseHead
+ * carries through the same turn, so they stay on the surface instead of sliding over it and sinking in.
+ */
+const HEAD_ORIGIN = [0.67, 1.91]; // the head group's place at rest
+const HEAD_PIVOT = [0.55, 1.6]; // inside the neck
+const HEAD_AXIS = [Math.SQRT1_2, Math.SQRT1_2]; // from the pivot toward the head
+const HEAD_BLEND = [0, 0.25]; // distance along the axis over which the turn fades in
+const headWeight = (x: number, y: number) =>
+  T.MathUtils.smoothstep((x - HEAD_PIVOT[0]) * HEAD_AXIS[0] + (y - HEAD_PIVOT[1]) * HEAD_AXIS[1], HEAD_BLEND[0], HEAD_BLEND[1])
+  // The legs are posed separately: keep the two sets of vertices apart.
+  * T.MathUtils.smoothstep(y, LEG_PIVOT_Y, LEG_PIVOT_Y + 0.2);
+function headRig(meshes: T.Mesh[]): HeadRig {
+  return {last: 0, parts: meshes.map(mesh => {
+    const position = mesh.geometry.attributes.position as T.BufferAttribute, normal = mesh.geometry.attributes.normal as T.BufferAttribute;
+    const index: number[] = [], weight: number[] = [];
+    for (let i = 0; i < position.count; i++) {
+      const w = headWeight(position.getX(i), position.getY(i));
+      if (w > 0.001) {index.push(i); weight.push(w);}
+    }
+    return {mesh, base: (position.array as Float32Array).slice(), baseNormals: (normal.array as Float32Array).slice(), index: Uint32Array.from(index), weight: Float32Array.from(weight)};
+  })};
+}
+function poseHead(rig: HeadRig, head: T.Group, angle: number) {
+  const c = Math.cos(angle), s = Math.sin(angle);
+  const ox = HEAD_ORIGIN[0] - HEAD_PIVOT[0], oy = HEAD_ORIGIN[1] - HEAD_PIVOT[1];
+  head.position.set(HEAD_PIVOT[0] + ox * c - oy * s, HEAD_PIVOT[1] + ox * s + oy * c, 0);
+  head.rotation.z = angle;
+  if (Math.abs(angle - rig.last) < 1e-4) return;
+  rig.last = angle;
+  for (const part of rig.parts) {
+    const position = part.mesh.geometry.attributes.position as T.BufferAttribute, normal = part.mesh.geometry.attributes.normal as T.BufferAttribute;
+    const p = position.array as Float32Array, n = normal.array as Float32Array;
+    for (let k = 0; k < part.index.length; k++) {
+      const i = part.index[k] * 3, a = angle * part.weight[k];
+      const ca = Math.cos(a), sa = Math.sin(a);
+      const dx = part.base[i] - HEAD_PIVOT[0], dy = part.base[i + 1] - HEAD_PIVOT[1];
+      p[i] = HEAD_PIVOT[0] + dx * ca - dy * sa;
+      p[i + 1] = HEAD_PIVOT[1] + dx * sa + dy * ca;
+      const nx = part.baseNormals[i], ny = part.baseNormals[i + 1];
+      n[i] = nx * ca - ny * sa;
+      n[i + 1] = nx * sa + ny * ca;
+    }
+    position.needsUpdate = normal.needsUpdate = true;
+  }
+}
+
 function legRig(mesh: T.Mesh): LegRig {
   const position = mesh.geometry.attributes.position as T.BufferAttribute;
   const index: number[] = [], leg: number[] = [], weight: number[] = [];
@@ -1203,18 +1473,27 @@ function poseLegs(rig: LegRig, angles: number[]) {
 
 const STRAP_WIDTH = 0.062;
 const STRAP_THICKNESS = 0.009;
-const STRAP_LIFT = 0.022; // Clearance for the leather backing and the short coat pile.
+const STRAP_LIFT = 0.022; // Clearance for the leather backing over flat cloth; over pile the strap rides on the fibre tips.
 
 /**
  * Leather head straps built only from plane sections ("rings") and straight runs, so they read as clean
  * loops and lines. Every open end finishes exactly on another strap's centre line under a flat leather joint,
  * so there are no cut ends or gaps. All coordinates are in the head group's frame.
  */
-function addBridle(head: T.Group, leather: T.Material, settings: HeadSettings, menko: boolean) {
+function addBridle(head: T.Group, leather: T.Material, settings: HeadSettings, menko: boolean, pileLength = 0) {
   const distance = (v: T.Vector3) => {
     const px = 0.67 + v.x * 1.18, py = 1.91 + v.y * 1.18, pz = v.z * 1.18;
     const shell = bodyDistance(px, py, pz, settings);
     return (menko ? Math.min(shell, hoodDistance(px, py, pz, settings)) : shell) / 1.18;
+  };
+  // The straps sit on top of the coat: with their underside at the fibre tips, the pile cannot swallow them.
+  // The hood presses the pile flat, so over it the plain clearance is enough.
+  const pileLift = Math.max(STRAP_LIFT, pileLength / 1.18 + STRAP_THICKNESS / 2 + 0.003);
+  const liftAt = (v: T.Vector3) => {
+    if (!menko) return pileLift;
+    const px = 0.67 + v.x * 1.18, py = 1.91 + v.y * 1.18, pz = v.z * 1.18;
+    const over = hoodDistance(px, py, pz, settings) - bodyDistance(px, py, pz, settings);
+    return T.MathUtils.lerp(STRAP_LIFT, pileLift, T.MathUtils.smoothstep(over, 0, 0.04));
   };
   const normalAt = (v: T.Vector3) => {
     const e = 0.002, n = new T.Vector3(
@@ -1233,7 +1512,7 @@ function addBridle(head: T.Group, leather: T.Material, settings: HeadSettings, m
     }
     return origin.clone().addScaledVector(dir, (lo + hi) / 2);
   };
-  const lifted = (surface: T.Vector3) => surface.clone().addScaledVector(normalAt(surface), STRAP_LIFT);
+  const lifted = (surface: T.Vector3) => surface.clone().addScaledVector(normalAt(surface), liftAt(surface));
   // Plane section around a centre inside the head: the plane holds `up` and the z axis.
   const ring = (center: T.Vector3, up: T.Vector3, from: number, to: number, steps: number) => {
     const side = new T.Vector3(0, 0, 1);
@@ -1268,7 +1547,7 @@ function addBridle(head: T.Group, leather: T.Material, settings: HeadSettings, m
         points[i].lerp(prev.clone().add(next).multiplyScalar(0.5), 0.5);
       }
       for (const p of points) {
-        const gap = distance(p) - STRAP_LIFT;
+        const gap = distance(p) - liftAt(p);
         if (gap < 0) p.addScaledVector(normalAt(p), -gap);
       }
     }
@@ -1372,27 +1651,35 @@ function addBridle(head: T.Group, leather: T.Material, settings: HeadSettings, m
   for (const p of [noseLeft, noseRight, headstall[corners[0]], headstall[corners[1]]]) joint(p);
 }
 
-/** Distance-based posing: pausing and seeking the replay always reproduce the same pose. */
-export function posePlush(g: T.Group, distance: number, reducedMotion = false) {
+/**
+ * Distance-based posing: pausing and seeking the replay always reproduce the same pose. `kick` is the closing-kick
+ * state at this distance (see closingKick.ts): its level blends in the sprinting form, and its stride count keeps
+ * the faster cadence continuous in distance.
+ */
+export function posePlush(g: T.Group, distance: number, reducedMotion = false, kick: Kick = NO_KICK) {
   const rig = g.userData.plushRig as PlushRig | undefined;
   if (!rig) return;
   const amount = reducedMotion ? 0 : T.MathUtils.smoothstep(Math.max(distance, 0), 0, STRIDE_LENGTH);
+  const k = reducedMotion ? 0 : T.MathUtils.clamp(kick.level, 0, 1);
   // Every motion below is a smooth periodic function of the stride phase, so strides join with no seam.
-  const phase = Math.max(distance, 0) / STRIDE_LENGTH;
+  const phase = Math.max(distance, 0) / STRIDE_LENGTH + (reducedMotion ? 0 : kick.strides);
   const wave = (offset: number) => Math.cos(2 * Math.PI * (phase - offset));
+  const reach = T.MathUtils.lerp(STRIDE_REACH, KICK_REACH, k);
   const angles = LEGS.map(l => {
     // Foot lands at its beat reaching forward, sweeps back under the body (stance), then swings forward again.
     // The warp makes the stance quicker than the swing, as in a real gallop.
     const t = phase - l.beat;
     const warped = t + 0.5 / (2 * Math.PI) * Math.sin(2 * Math.PI * (t - 0.25));
-    return (l.center + l.reach * Math.cos(2 * Math.PI * warped)) * amount;
+    return (l.center + l.reach * reach * Math.cos(2 * Math.PI * warped)) * amount;
   });
   if (rig.legs) poseLegs(rig.legs, angles);
   // Rocking: nose up while the hinds carry the body, nose down while the fores do.
-  const pitch = 0.06 * wave(0.2);
+  const pitch = 0.06 * (1 + (KICK_ROCK - 1) * k) * wave(0.2);
   // Keep the lowest foot on the ground (a soft minimum, so the body never jerks between feet),
-  // then add the hop of the suspension phase after the leading fore pushes off.
-  const sinP = Math.sin(pitch * amount), cosP = Math.cos(pitch * amount);
+  // then add the hop of the suspension phase after the leading fore pushes off. The kick's forward lean is part of
+  // the body angle here, so the hooves neither float nor sink when it changes.
+  const angle = (pitch - KICK_LEAN * k) * amount;
+  const sinP = Math.sin(angle), cosP = Math.cos(angle);
   const softness = 30;
   let sum = 0;
   LEGS.forEach((l, n) => {
@@ -1401,10 +1688,32 @@ export function posePlush(g: T.Group, distance: number, reducedMotion = false) {
     sum += Math.exp(-softness * (footX * sinP + footY * cosP));
   });
   const lowest = -Math.log(sum / LEGS.length) / softness;
-  const hop = 0.07 * Math.max(0, wave(0.88)) ** 2;
+  const hop = T.MathUtils.lerp(STRIDE_HOP, KICK_HOP, k) * Math.max(0, wave(0.88)) ** 2;
   rig.body.position.y = -lowest + hop * amount;
-  rig.body.rotation.z = pitch * amount;
-  rig.head.rotation.z = -0.7 * pitch * amount;
+  rig.body.rotation.z = angle;
+  // The head counter-rotates the rocking; in the kick it nods harder, bottoming out as the forelegs land, on a lower base.
+  const nod = -NOD * (1 + (KICK_NOD - 1) * k) * Math.cos(2 * Math.PI * (phase - T.MathUtils.lerp(0.2, KICK_NOD_BEAT, k)));
+  const headAngle = (nod - KICK_HEAD_DOWN * k) * amount;
+  if (rig.neck) poseHead(rig.neck, rig.head, headAngle); else rig.head.rotation.z = headAngle;
   rig.tail.rotation.z = -amount * (0.3 + 0.08 * wave(0.3));
   rig.tail.rotation.x = amount * 0.05 * Math.sin(2 * Math.PI * phase);
+  if (rig.hair) poseHair(rig, phase, amount, k);
+}
+
+/** Per-frame inputs of the hair shaders: a handful of numbers, and the tail's matrix to and from body coordinates. */
+function poseHair(rig: PlushRig, phase: number, amount: number, kick: number) {
+  const {mane, tail} = rig.hair!;
+  // The air streams the hair back in proportion to how hard the horse is running.
+  const wind = amount * (1 + (KICK_STREAM - 1) * kick);
+  for (const u of [mane.uniforms, tail.uniforms]) {
+    u.hairPhase.value = phase;
+    u.hairAmount.value = amount;
+    u.hairKick.value = kick * amount;
+    u.hairWind.value = wind;
+    u.hairHead.value = rig.head.rotation.z;
+  }
+  // The mane hangs straight from the body, so its matrices stay identity; the tail turns about its dock.
+  rig.tail.updateMatrix();
+  tail.uniforms.hairToBody.value.copy(rig.tail.matrix).multiply(tail.mesh.matrix);
+  tail.uniforms.hairFromBody.value.copy(tail.uniforms.hairToBody.value).invert();
 }

@@ -486,7 +486,11 @@ export function disposeScene(scene: T.Scene) {
   const materials = new Set<T.Material>();
   const textures = new Set<T.Texture>();
   scene.traverse((o) => {
-    if (o instanceof T.Mesh) geometries.add(o.geometry);
+    if (o instanceof T.Mesh) {
+      geometries.add(o.geometry);
+      // Hair draws its sway into the shadow map with a material of its own.
+      if (o.customDepthMaterial) materials.add(o.customDepthMaterial);
+    }
     if (o instanceof T.Mesh || o instanceof T.Sprite) {
       for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
         materials.add(m);

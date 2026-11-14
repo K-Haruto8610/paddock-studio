@@ -1,6 +1,7 @@
 import type {Race, ReplayRace, PlaybackMode} from './types';
 import type {RacePace} from './paceForecast';
 import type {EditKey} from './manualEdit';
+import {kickPlans, type KickPlan} from './closingKick';
 import {checkpointDistances, cornerLabels, courseFor} from './courses';
 import {
   buildLayouts,
@@ -31,6 +32,8 @@ export type PlaybackPlan = {
   source?: 'pace' | 'legacy';
   /** True when the plan carries the manual edit points. */
   edited?: boolean;
+  /** Per horse (race order): where its closing kick starts and how strong it is. */
+  kicks: KickPlan[];
 };
 
 type PaceSpot = {gap: number; lane: number; rank: number};
@@ -141,6 +144,11 @@ function paceForecastPlan(
     layouts,
     knots: checkpoints.map((c) => c.distance),
     checkpoints,
+    kicks: kickPlans(
+      race.distance,
+      pace.horses.map((h) => h.last3),
+      pace.horses.map((h) => h.kickDelay),
+    ),
   };
 }
 
@@ -194,6 +202,7 @@ export function buildPlayback(
         layouts: [forecast[0], forecast[0]],
         knots: [0, race.distance],
         checkpoints: [start, {...start, label: '実績データなし', distance: race.distance}],
+        kicks: kickPlans(race.distance, race.horses.map(() => null)),
       };
     const checkpoints = [start],
       layouts = [forecast[0]];
@@ -234,6 +243,11 @@ export function buildPlayback(
       layouts,
       knots: checkpoints.map((c) => c.distance),
       checkpoints,
+      // The recorded closing 3F where the replay has one; a horse without it kicks at a neutral strength.
+      kicks: kickPlans(
+        race.distance,
+        race.horses.map((h) => replay.horses[String(h.number)]?.last3),
+      ),
     };
   }
   if (pace) return paceForecastPlan(race, pace, start, forecast[0]);
@@ -265,6 +279,10 @@ export function buildPlayback(
     layouts: [...forecast, finish],
     knots: [...distances, race.distance],
     checkpoints,
+    kicks: kickPlans(
+      race.distance,
+      race.horses.map((h) => h.last3),
+    ),
   };
 }
 

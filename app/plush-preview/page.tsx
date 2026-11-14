@@ -9,6 +9,7 @@ import {plush, posePlush, PREVIOUS_HEAD, CURRENT_HEAD, SAVED_HEAD, normalizeHead
 import './preview.css';
 import {disposeScene} from '../sceneBuilders';
 import type {Horse} from '../types';
+import {KICK_CADENCE, STRIDE_LENGTH, type Kick} from '../closingKick';
 
 const sliders: {key: keyof HeadSettings; label: string; left: string; right: string}[] = [
   {key: 'headWidth', label: '頭の幅', left: '細い 0.60倍', right: '変更前 1.00倍'},
@@ -32,13 +33,16 @@ export default function PlushPreview() {
   const [bridle, setBridle] = useState(true);
   const [view, setView] = useState('斜め');
   const [moving, setMoving] = useState(false);
+  const [kick, setKick] = useState(0);
   const [saved, setSaved] = useState('');
   const movingRef = useRef(moving);
+  const kickRef = useRef(kick);
   const sceneRef = useRef<T.Scene | null>(null);
   const modelRef = useRef<T.Group | null>(null);
   const cameraRef = useRef<T.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   useEffect(() => {movingRef.current = moving;}, [moving]);
+  useEffect(() => {kickRef.current = kick;}, [kick]);
   // Restore after mount: reading localStorage during render would mismatch the server HTML.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -106,11 +110,19 @@ export default function PlushPreview() {
     const motion = matchMedia('(prefers-reduced-motion: reduce)');
     let frame = 0;
     let distance = 0;
+    // The preview holds the kick level fixed, so the faster cadence is accumulated here as the slider moves
+    // (the race derives it in closed form from the distance instead).
+    let strides = 0;
     let last = performance.now();
     const draw = (now: number) => {
-      if (movingRef.current) distance += Math.min((now - last) / 1000, 0.05) * 32;
+      if (movingRef.current) {
+        const step = Math.min((now - last) / 1000, 0.05) * 32;
+        distance += step;
+        strides += step * KICK_CADENCE * kickRef.current / STRIDE_LENGTH;
+      }
       last = now;
-      if (modelRef.current) posePlush(modelRef.current, distance, motion.matches);
+      const state: Kick = {level: kickRef.current, strides};
+      if (modelRef.current) posePlush(modelRef.current, distance, motion.matches, state);
       controls.update();
       renderer.render(scene, camera);
       frame = requestAnimationFrame(draw);
@@ -183,6 +195,7 @@ export default function PlushPreview() {
           <label><input type="checkbox" checked={bridle} onChange={e => setBridle(e.target.checked)} /> 頭絡</label>
           {['斜め', '横', '正面', '後ろ'].map(angle => <button key={angle} aria-pressed={view === angle} onClick={() => setView(angle)}>{angle}</button>)}
           <button onClick={() => setMoving(!moving)}>{moving ? '一時停止' : '動きを見る'}</button>
+          <label>上がりの走り <input type="range" aria-label="上がりの走り" min={0} max={1} step={0.01} value={kick} onChange={e => setKick(Number(e.target.value))} /> {Math.round(kick * 100)}%</label>
         </div>
         <div ref={host} aria-label="馬のぬいぐるみの3Dプレビュー" className="plush-canvas" />
         <p className="plush-hint">ドラッグで回転・スクロールで拡大。調整しても視点を保ちます。</p>

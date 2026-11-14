@@ -10,6 +10,7 @@ import {clampPlacement} from './manualEdit';
 import type {PlaybackPlan} from './playback';
 import {createPackCamera} from './packCamera';
 import {posePlush} from './plushHorse';
+import {kickAt, NO_KICK, type KickPlan} from './closingKick';
 import {addFarGround} from './scenery';
 import {
   addCourseSurfaces,
@@ -60,6 +61,7 @@ function placeHorses(
   travel: number,
   selected: number | null,
   reducedMotion: boolean,
+  kicks: KickPlan[],
 ) {
   ring.visible = selected !== null;
   horses.forEach((g, i) => {
@@ -78,7 +80,8 @@ function placeHorses(
     // The number floats straight above the horse: undo the slope pitch so it does not sway.
     const number = g.getObjectByName('numberplate')!;
     number.position.set(0, 4.4, 0).applyAxisAngle(Z_AXIS, -pitch);
-    posePlush(g, at, reducedMotion);
+    // The closing kick depends on the horse's own distance, so seeking and recording reproduce the same form.
+    posePlush(g, at, reducedMotion, reducedMotion ? NO_KICK : kickAt(at, kicks[i]));
     g.getObjectByName('nameplate')!.visible = selected === race.horses[i].number;
     if (selected === race.horses[i].number) {
       ring.position.copy(g.position);
@@ -294,7 +297,7 @@ export default function TrackScene({
       const raw = interpolateLayouts(live.layouts, travel, live.knots);
       if (drag) raw[drag.index] = drag.now;
       const placements = separateLayouts(raw);
-      placeHorses(horses, race, route, ring, placements, travel, selected, motionPreference.matches);
+      placeHorses(horses, race, route, ring, placements, travel, selected, motionPreference.matches, live.kicks);
 
       const packCenter = new T.Box3()
         .setFromPoints(horses.map((g) => g.position))
