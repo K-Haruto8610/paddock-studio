@@ -29,6 +29,7 @@ python scripts/build_forecasts.py        # 過去GⅠ + 出馬表確定済みの
 python scripts/export_replays.py         # DBの実績 + data/results/<RACE_CODE>.json（DBの行が使えないレースの手入力結果）
 python scripts/pace_model.py             # 展開予想モデル（forecasts.json の後に実行）→ public/data/pace_forecasts.json
 node scripts/check_pace.mjs              # 展開予想の取り込み・再生の検査
+node scripts/check_passing.mjs           # 追い越し中に内外が入れ替わらないことの検査
 python scripts/digitize_jra_courses.py   # JRA図面の読取（references/jra → app/courseData.ts, public/courses）
 npx tsc --noEmit
 node scripts/check_replay.mjs

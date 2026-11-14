@@ -4,7 +4,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 const out=path.resolve('outputs/replay-check');await fs.mkdir(out,{recursive:true});
-for(const name of ['courseData','courses','raceLayout','playback']){
+for(const name of ['courseData','courses','raceLayout','playback','closingKick']){
  const src=await fs.readFile(`app/${name}.ts`,'utf8');
  const js=ts.transpileModule(src,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.js'");
  await fs.writeFile(path.join(out,name+'.js'),js);

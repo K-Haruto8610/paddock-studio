@@ -5,7 +5,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import type {Race} from './types';
 import {makeTrack, availableKinds} from './trackGeometry';
 import {makeRoute, type RaceRoute} from './raceRoutes';
-import {interpolateLayouts, separateLayouts, type Placement} from './raceLayout';
+import {interpolateLayouts, sampleLayouts, separateLayouts, type Placement} from './raceLayout';
 import {clampPlacement} from './manualEdit';
 import type {PlaybackPlan} from './playback';
 import {createPackCamera} from './packCamera';
@@ -282,7 +282,7 @@ export default function TrackScene({
     function draw(now = performance.now()) {
       const dt = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
-      const {progress: target, rate, selected, followKey, plan: live} = state.current;
+      const {progress: target, rate, selected, followKey, plan: live, editAt} = state.current;
       // React state updates on its own clock, so its steps don't line up with this frame's time.
       // Advance by this frame's own time and only ease towards the React value, so motion stays even.
       // A seek (a large difference) jumps straight there.
@@ -294,9 +294,14 @@ export default function TrackScene({
       }
       const p = shown;
       const travel = p * race.distance;
-      const raw = interpolateLayouts(live.layouts, travel, live.knots);
-      if (drag) raw[drag.index] = drag.now;
-      const placements = separateLayouts(raw);
+      // Stopped on an edit point the field is shown exactly as placed (and follows the drag);
+      // otherwise the horses run the simulated lanes, where a pass never trades sides.
+      let placements: Placement[];
+      if (drag || (editAt !== null && rate === 0)) {
+        const raw = interpolateLayouts(live.layouts, travel, live.knots);
+        if (drag) raw[drag.index] = drag.now;
+        placements = separateLayouts(raw);
+      } else placements = sampleLayouts(live.layouts, travel, live.knots);
       placeHorses(horses, race, route, ring, placements, travel, selected, motionPreference.matches, live.kicks);
 
       const packCenter = new T.Box3()

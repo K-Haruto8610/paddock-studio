@@ -8,7 +8,7 @@ import {pathToFileURL} from 'node:url';
 
 const out = path.resolve('outputs/pace-check');
 await fs.mkdir(out, {recursive: true});
-for (const name of ['courseData', 'courses', 'raceLayout', 'playback', 'paceForecast']) {
+for (const name of ['courseData', 'courses', 'raceLayout', 'playback', 'paceForecast', 'closingKick']) {
   const src = await fs.readFile(`app/${name}.ts`, 'utf8');
   const js = ts
     .transpileModule(src, {compilerOptions: {module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022}})
