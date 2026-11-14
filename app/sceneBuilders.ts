@@ -413,6 +413,9 @@ export function addRails(
 export function addMarkers(scene: T.Scene, race: Race, track: TrackModel, route: RaceRoute) {
   const mark = (text: string, at: T.Vector3, w: number) => {
     const s = label(text, 256);
+    // Course signs belong in the scene, unlike the always-readable horse number labels.
+    s.material.depthTest = true;
+    s.material.depthWrite = false;
     s.position.copy(at);
     s.position.y += w / 4 + 1.5;
     s.scale.set(w, w / 4, 1);
@@ -429,9 +432,9 @@ export function addMarkers(scene: T.Scene, race: Race, track: TrackModel, route:
   addGoalBoard(scene, race, track);
   mark('GOAL',track.sample(0, track.width + 8).point, 16);
   addFurlongPoles(scene, track);
-  // Remaining-distance boards along the last lap, sized to be readable from the pack camera.
+  // Put distance labels beyond the inner rail, behind the field as seen by the outside camera.
   for (let remaining = 200; remaining < track.lap; remaining += 200) {
-    mark(`${remaining}m`, track.sample(track.lap - remaining, track.width + 6).point, 11);
+    mark(`${remaining}m`, track.sample(track.lap - remaining, -8).point, 7);
   }
   mark(`START ${race.distance}m`, route.sample(0, track.width + 9).point, 24);
   return addGates(scene, race, route);

@@ -2,6 +2,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import Link from 'next/link';
 import TrackScene from './TrackScene';
+import type {CameraMode} from './raceCamera';
 import PlaybackNotes from './PlaybackNotes';
 import HorseTable, {frameColors, dateLabel} from './HorseTable';
 import ModelNotes from './ModelNotes';
@@ -44,6 +45,7 @@ export default function Home() {
     [playing, setPlaying] = useState(false),
     [speed, setSpeed] = useState(1),
     [followKey, setFollowKey] = useState(0),
+    [cameraMode, setCameraMode] = useState<CameraMode>('pack'),
     [tab, setTab] = useState('horses'),
     [modeChoice, setMode] = useState<PlaybackMode>('replay'),
     // Race-flow model output: bundled file, optionally replaced by a file the user imports.
@@ -470,6 +472,7 @@ export default function Home() {
                   rate={playing ? speed / PLAYBACK_MS : 0}
                   selected={selected}
                   followKey={followKey}
+                  cameraMode={cameraMode}
                   onSelect={setSelected}
                   editAt={editPoint ? frame.exact!.distance : null}
                   onEdit={moveHorse}
@@ -490,7 +493,14 @@ export default function Home() {
                         : ''}
                   </span>
                   <div className="view-buttons">
-                    <button onClick={() => setFollowKey((k) => k + 1)}>馬群を追尾</button>
+                    <button aria-pressed={cameraMode === 'pack'} onClick={() => {
+                      setCameraMode('pack');
+                      setFollowKey((k) => k + 1);
+                    }}>馬群を追尾</button>
+                    <button aria-pressed={cameraMode === 'broadcast'} title="スタートは俯瞰・コーナーは先頭馬のアオリ・直線は全頭・最終直線は上位6頭" onClick={() => {
+                      setCameraMode('broadcast');
+                      setFollowKey((k) => k + 1);
+                    }}>自動演出</button>
                   </div>
                 </div>
                 <div className="scene-bottom">

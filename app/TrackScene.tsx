@@ -9,6 +9,8 @@ import {interpolateLayouts, sampleLayouts, separateLayouts, type Placement} from
 import {clampPlacement} from './manualEdit';
 import type {PlaybackPlan} from './playback';
 import {createPackCamera} from './packCamera';
+import {raceShot, type CameraMode} from './raceCamera';
+import {courseFor} from './courses';
 import {posePlush} from './plushHorse';
 import {kickAt, NO_KICK, type Kick, type KickPlan} from './closingKick';
 import {addFarGround} from './scenery';
@@ -35,6 +37,7 @@ type LiveState = {
   rate: number;
   selected: number | null;
   followKey: number;
+  cameraMode: CameraMode;
   plan: PlaybackPlan;
   /** Manual edit mode: distance of the edit point the race is paused on (null elsewhere). */
   editAt: number | null;
@@ -107,6 +110,7 @@ export default function TrackScene({
   rate = 0,
   selected,
   followKey,
+  cameraMode = 'pack',
   onSelect,
   editAt = null,
   onEdit,
@@ -119,6 +123,7 @@ export default function TrackScene({
   rate?: number;
   selected: number | null;
   followKey: number;
+  cameraMode?: CameraMode;
   onSelect: (n: number) => void;
   editAt?: number | null;
   /** Called when a dragged horse is let go at an edit point: its new place in plan units. */
@@ -128,12 +133,12 @@ export default function TrackScene({
 }) {
   const host = useRef<HTMLDivElement>(null);
   // The animation loop lives outside React's render cycle: it reads the latest props from refs.
-  const state = useRef<LiveState>({progress, rate, selected, followKey, plan, editAt});
+  const state = useRef<LiveState>({progress, rate, selected, followKey, cameraMode, plan, editAt});
   const select = useRef(onSelect);
   const edit = useRef(onEdit);
   const rendered = useRef(onRendered);
   useEffect(() => {
-    state.current = {progress, rate, selected, followKey, plan, editAt};
+    state.current = {progress, rate, selected, followKey, cameraMode, plan, editAt};
     select.current = onSelect;
     edit.current = onEdit;
     rendered.current = onRendered;
@@ -171,6 +176,7 @@ export default function TrackScene({
     const tokyo = race.venueCode === '05';
     const track = makeTrack(race);
     const route = makeRoute(race, track);
+    const straight = courseFor(race).straight;
     const courses = buildCourseSet(race, track, availableKinds(race));
     const terrain = addGround(scene, courses.tracks, route);
     const surface = addCourseSurfaces(scene, courses, terrain, tokyo, route);
@@ -299,7 +305,7 @@ export default function TrackScene({
     function draw(now = performance.now()) {
       const dt = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
-      const {progress: target, rate, selected, followKey, plan: live, editAt} = state.current;
+      const {progress: target, rate, selected, followKey, cameraMode, plan: live, editAt} = state.current;
       // React state updates on its own clock, so its steps don't line up with this frame's time.
       // Advance by this frame's own time and only ease towards the React value, so motion stays even.
       // A seek (a large difference) jumps straight there.
@@ -327,10 +333,15 @@ export default function TrackScene({
       const gaps = placements.map((v) => v.gap);
       const leaderAt = travel - Math.min(...gaps);
       const meanLane = placements.reduce((sum, v) => sum + v.lane, 0) / placements.length;
+      const order = placements.map((_, i) => i).sort((a, b) => gaps[a] - gaps[b]);
       packCamera.update({
         dt,
         progress: p,
         followKey,
+        mode: cameraMode,
+        shot: raceShot(route, Math.max(0, leaderAt), race.distance, straight),
+        horses: order.map((i) => horses[i].position),
+        leader: route.sample(Math.max(0, leaderAt), placements[order[0]].lane),
         spread: Math.max(...gaps) - Math.min(...gaps),
         behindLeader: (metres) => route.sample(Math.max(0, leaderAt - metres), meanLane),
       });

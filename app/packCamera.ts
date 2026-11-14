@@ -1,6 +1,7 @@
 import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import type {TrackPoint} from './trackGeometry';
+import {createShotTransition, fitRaceShot, type CameraMode, type RaceShot} from './raceCamera';
 
 /** Where the leading horse sits by default: this fraction of the way from the screen centre to the edge. */
 const LEADER_AT_EDGE = 0.72;
@@ -24,12 +25,14 @@ export function createPackCamera(
   let zoom = 1;
   let dragging = false;
   let lastProgress = Number.NaN;
+  let lastMode: CameraMode = 'pack';
   // Cursor-zoom offset of the target from the automatic frame, along the course (tangent, outward).
   const offset = new T.Vector2();
   // Last automatic frame and target, used to turn a wheel step into an offset.
   let frame: TrackPoint | null = null;
   const desired = new T.Vector3();
   const ray = new T.Raycaster();
+  const transition = createShotTransition();
 
   const onControlStart = () => {
     if (dragging) following = false;
@@ -74,14 +77,20 @@ export function createPackCamera(
       dt: number;
       progress: number;
       followKey: number;
+      mode: CameraMode;
+      shot: RaceShot;
+      /** Horse positions ordered by current distance, leader first. */
+      horses: T.Vector3[];
+      leader: TrackPoint;
       /** Length of the field from leader to last horse, in metres. */
       spread: number;
       /** A course point this many metres behind the leader, on the field's mean lane. */
       behindLeader: (metres: number) => TrackPoint;
     }) {
-      const {dt, progress, followKey, spread, behindLeader} = opts;
-      if (followKey !== lastFollowKey) {
+      const {dt, progress, followKey, spread, behindLeader, mode, shot, horses, leader} = opts;
+      if (followKey !== lastFollowKey || mode !== lastMode) {
         following = true;
+        lastMode = mode;
         lastFollowKey = followKey;
         zoom = 1;
         offset.set(0, 0);
@@ -101,16 +110,37 @@ export function createPackCamera(
       const maxOffset = halfWidth * 1.2;
       if (offset.length() > maxOffset) offset.setLength(maxOffset);
       desired.copy(frame.point).add(fromOffset(frame));
-      const packOffset = frame.outward
+      let packOffset = frame.outward
         .clone()
         .multiplyScalar(distance)
         .addScaledVector(frame.tangent, distance * 0.12);
       packOffset.y = distance * 0.62;
+      controls.maxPolarAngle = mode === 'broadcast' ? Math.PI * 0.55 : Math.PI * 0.48;
+      controls.maxDistance = mode === 'broadcast' ? 5000 : 900;
+      if (mode === 'broadcast' && horses.length) {
+        frame = leader;
+        if (shot === 'corner') {
+          desired.copy(horses[0]).add(new T.Vector3(0, 3.2, 0));
+          packOffset = leader.outward.clone().multiplyScalar(18)
+            .addScaledVector(leader.tangent, 9).setY(-1.8);
+        } else {
+          const fittedShot = fitRaceShot(shot === 'finish' ? horses.slice(0, 6) : horses,
+            leader.outward, shot, camera.fov, camera.aspect);
+          desired.copy(fittedShot.target);
+          packOffset = fittedShot.offset;
+        }
+        desired.add(fromOffset(frame));
+        packOffset.multiplyScalar(zoom);
+      }
       if (following) {
-        const alpha = first || Math.abs(progress - lastProgress) > 0.03 ? 1 : 1 - Math.exp(-dt * 6);
+        const snap = first || Math.abs(progress - lastProgress) > 0.03;
+        const blended = transition(`${mode}:${mode === 'broadcast' ? shot : 'pack'}:${followKey}`,
+          dt, snap, leader, controls.target, camera.position, desired, desired.clone().add(packOffset));
+        if (blended.active) controls.maxPolarAngle = Math.PI * 0.55;
+        const alpha = snap ? 1 : 1 - Math.exp(-dt * 6);
         first = false;
-        controls.target.lerp(desired, alpha);
-        camera.position.lerp(desired.clone().add(packOffset), alpha);
+        controls.target.lerp(blended.target, alpha);
+        camera.position.lerp(blended.position, alpha);
       }
       lastProgress = progress;
     },
