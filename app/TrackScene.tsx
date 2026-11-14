@@ -25,6 +25,7 @@ import {
 } from './sceneBuilders';
 import {addRaceGrass} from './raceGrass';
 import {addDirtTrail} from './dirtTrail';
+import {raceSunOffset} from './raceLighting';
 const Z_AXIS = new T.Vector3(0, 0, 1);
 /** Beyond this distance from the field a blade of grass is smaller than a pixel, so none are drawn. */
 const GRASS_SIGHT = 320;
@@ -163,7 +164,8 @@ export default function TrackScene({
     controls.minDistance = 12;
     controls.maxDistance = 900;
     controls.maxPolarAngle = Math.PI * 0.48;
-    const sun = addLights(scene);
+    const sunOffset = raceSunOffset(race.date);
+    const sun = addLights(scene, sunOffset);
 
     // Course geometry and everything drawn on it.
     const tokyo = race.venueCode === '05';
@@ -348,7 +350,7 @@ export default function TrackScene({
       // A hand edit is not a replay of the race: its horses are moved, not run, and the trail starts over.
       trail?.update(field, travel, !!drag || (editAt !== null && rate === 0), live);
       sun.target.position.copy(packCenter);
-      sun.position.copy(packCenter).add(new T.Vector3(-200, 500, 180));
+      sun.position.copy(packCenter).add(sunOffset);
       controls.update();
       renderer.render(scene, camera);
       rendered.current?.(renderer.domElement);

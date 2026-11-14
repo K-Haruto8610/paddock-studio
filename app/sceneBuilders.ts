@@ -237,10 +237,10 @@ export function buildCourseSet(
   };
 }
 
-export function addLights(scene: T.Scene) {
+export function addLights(scene: T.Scene, sunOffset: T.Vector3) {
   scene.add(new T.HemisphereLight('#fffbed', '#809177', 2));
   const sun = new T.DirectionalLight('#fff6e6', 2);
-  sun.position.set(-200, 500, 180);
+  sun.position.copy(sunOffset);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.left = -110;
