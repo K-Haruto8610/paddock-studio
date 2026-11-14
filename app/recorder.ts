@@ -40,6 +40,8 @@ export type RecordingOverlay = {
   seek: {
     /** 0..1 through the race. */
     progress: number;
+    /** Right-handed course: the bar runs right to left, mirrored. */
+    reversed: boolean;
     /** JRA height profile image, one lap per tile, repeated leftwards from the finish. */
     profileImage: string;
     /** One lap as a fraction of the race distance (tile width). */
@@ -162,7 +164,7 @@ export class RaceRecorder {
       w = WIDTH - 56,
       y0 = SEEK_TOP + 20,
       h = 56,
-      at = (f: number) => x0 + f * w;
+      at = (f: number) => x0 + (seek.reversed ? 1 - f : f) * w;
     c.save();
     c.beginPath();
     c.roundRect(x0, y0, w, h, 5);
@@ -172,12 +174,19 @@ export class RaceRecorder {
     const img = loadedImage(seek.profileImage);
     if (img && seek.lapFraction > 0) {
       const tile = w * seek.lapFraction;
+      c.save();
+      if (seek.reversed) {
+        // Mirror about the bar's centre, so the finish edge of each tile lands on the left.
+        c.translate(2 * x0 + w, 0);
+        c.scale(-1, 1);
+      }
       for (let right = x0 + w; right > x0; right -= tile)
         c.drawImage(img, right - tile, y0, tile, h);
+      c.restore();
     }
     const now = at(Math.max(0, Math.min(1, seek.progress)));
     c.fillStyle = '#23463626';
-    c.fillRect(x0, y0, now - x0, h);
+    c.fillRect(seek.reversed ? now : x0, y0, seek.reversed ? x0 + w - now : now - x0, h);
     c.setLineDash([4, 4]);
     c.strokeStyle = '#2e584580';
     c.lineWidth = 1.5;
@@ -208,7 +217,8 @@ export class RaceRecorder {
     seek.checkpoints.forEach((cp, i) => {
       c.font = font(16, cp.active ? 700 : 400);
       c.fillStyle = cp.active ? '#2e5845' : cp.edit ? '#8a5a1f' : '#8c9584';
-      c.textAlign = i === 0 ? 'left' : i === seek.checkpoints.length - 1 ? 'right' : 'center';
+      const edge = i === 0 ? 'left' : i === seek.checkpoints.length - 1 ? 'right' : 'center';
+      c.textAlign = seek.reversed && edge !== 'center' ? (edge === 'left' ? 'right' : 'left') : edge;
       c.fillText(cp.label + (cp.edited ? '●' : ''), at(cp.at), y0 + h + 24);
     });
     c.textAlign = 'left';

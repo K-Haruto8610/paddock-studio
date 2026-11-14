@@ -189,6 +189,19 @@
 .phases button:last-child {
   transform: translateX(-100%);
 }
+/* Right-handed course: the bar runs right to left, start on the right and the finish on the left. */
+.timeline.reversed .profile-track {
+  transform: scaleX(-1);
+}
+.timeline.reversed input[type='range'] {
+  direction: rtl;
+}
+.timeline.reversed .phases button:first-child {
+  transform: translateX(-100%);
+}
+.timeline.reversed .phases button:last-child {
+  transform: none;
+}
 @media (max-width: 760px) {
   .profile-track {
     height: 42px;

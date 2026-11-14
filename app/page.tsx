@@ -189,6 +189,9 @@ export default function Home() {
   );
   // Seek-bar background: JRA's official section graph, one lap per tile, travel left->right
   // with the winning post on the right edge. Longer races repeat the lap leftwards.
+  // The bar runs the way the field passes the stands: left to right on a left-handed course,
+  // and mirrored, right to left, on a right-handed one.
+  const reversed = !!course && !course.left;
   const profileStyle =
     race && course
       ? {
@@ -223,6 +226,7 @@ export default function Home() {
       })),
       seek: {
         progress,
+        reversed,
         profileImage: course!.profileImage,
         lapFraction: course!.lap / race.distance,
         checkpoints: plan!.checkpoints.map((c) => ({
@@ -515,7 +519,7 @@ export default function Home() {
                 <button className="reset" aria-label="スタートに戻す" onClick={() => seek(0)}>
                   ↺
                 </button>
-                <div className="timeline">
+                <div className={reversed ? 'timeline reversed' : 'timeline'}>
                   <div className="profile-track" aria-hidden="true" style={profileStyle}>
                     <span className="profile-done" style={{width: `${progress * 100}%`}} />
                     {plan.checkpoints.map((c) => (
@@ -542,7 +546,9 @@ export default function Home() {
                         key={`${c.label}-${c.distance}`}
                         aria-label={`${c.label}へ移動`}
                         onClick={() => seek(c.distance / race.distance)}
-                        style={{left: `${(c.distance / race.distance) * 100}%`}}
+                        style={{
+                          left: `${(reversed ? 1 - c.distance / race.distance : c.distance / race.distance) * 100}%`,
+                        }}
                         className={[
                           frame.exact === c ? 'checkpoint-active' : '',
                           c.edit ? 'checkpoint-edit' : '',
