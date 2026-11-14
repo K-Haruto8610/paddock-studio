@@ -80,15 +80,8 @@ for (const race of data.races) {
   const delayed = pace.horses.map((h, i) => ({h, i})).filter(({h}) => (h.kickDelay ?? 0) > 0.05);
   const straight = plan.checkpoints.find((c) => c.label === '直線');
   assert.equal(Boolean(straight), delayed.length > 0, 'Straight checkpoint exactly when a move is delayed');
-  if (straight) {
-    const last = plan.checkpoints.find((c) => c.corner === pace.corners.at(-1)),
-      fin = plan.checkpoints.at(-1);
-    for (const {i} of delayed) {
-      // A delayed horse has made at most half of its straight-line ranks by mid-straight.
-      const made = last.ranks[i] - straight.ranks[i], total = last.ranks[i] - fin.ranks[i];
-      if (total > 1) assert.ok(made <= total * 0.5 + 1, `${race.horses[i].number}: move is delayed`);
-    }
-  }
+  // Delay controls distance gained, not ranks gained: a tight pack can yield several passes
+  // from a small gain. Check distance on an isolated fixture below, without collision padding.
   // 上がり: finish order follows the closing estimate, so the straight changes the order.
   const last = plan.checkpoints.at(-2), finish = plan.checkpoints.at(-1);
   assert.notDeepEqual(last.ranks, finish.ranks, 'Closing 3F moves horses in the straight');
@@ -106,6 +99,37 @@ for (const race of data.races) {
 
 // Rejections: a file from another model must name every starter, and match the schema.
 const race = data.races.find((r) => file.races[r.id]);
+const delayRace = {...race, horses: race.horses.slice(0, 2)};
+const delayPace = structuredClone(paceForRace(file, race).pace);
+delayPace.horses = delayPace.horses.slice(0, 2);
+delayPace.horses.forEach((h, i) => {
+  h.positions = h.positions.map((p) => ({...p, rank: i + 1, gap: i * 10, lane: i * 2}));
+  h.finish = {rank: i + 1, gap: i * 2};
+  h.kickDelay = 0;
+});
+// The trailing horse gains eight lengths in total. A 0.15 s delay permits only two
+// lengths by mid-straight; 0.3 s permits none. The leader stays fixed as a reference.
+for (const [delay, expectedGap] of [[0.15, 8], [0.3, 10]]) {
+  delayPace.horses[1].kickDelay = delay;
+  const plan = buildPlayback(delayRace, 'forecast', undefined, delayPace);
+  const midIndex = plan.checkpoints.findIndex((c) => c.label === '直線');
+  assert.ok(midIndex >= 0);
+  const mid = plan.layouts[midIndex];
+  assert.ok(Math.abs((mid[1].gap - mid[0].gap) / (HORSE_LENGTH * 1.3) - expectedGap) < 1e-9,
+    `${delay}s delay: distance gained is delayed`);
+  const finish = plan.layouts.at(-1);
+  assert.ok(Math.abs((finish[1].gap - finish[0].gap) / (HORSE_LENGTH * 1.3) - 2) < 1e-9,
+    'Delay preserves the final estimated gap');
+}
+// A horse gaining position takes an outside path even without a kick delay.
+delayPace.horses.forEach((h, i) => {
+  h.positions.forEach((p) => { p.lane = 0; });
+  h.kickDelay = 0;
+  h.finish = {rank: 2 - i, gap: (1 - i) * 2};
+});
+const outsidePlan = buildPlayback(delayRace, 'forecast', undefined, delayPace);
+assert.ok(outsidePlan.layouts.at(-1)[1].lane > outsidePlan.layouts.at(-1)[0].lane,
+  'Straight-line overtaker aims outside the horse it passes');
 const broken = structuredClone(file);
 delete broken.races[race.id].horses[String(race.horses[0].number)];
 assert.equal(paceForRace(broken, race).pace, null, 'Missing horse is rejected');

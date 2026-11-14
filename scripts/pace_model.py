@@ -24,7 +24,7 @@ from build_forecasts import settings, number, clean, load_upcoming_entries  # no
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = 'paddock.pace-forecast/v1'
-VERSION = '1.4'
+VERSION = '1.5'
 # Representative lengths for each JRA separator (midpoints of the published bands).
 GAP_LENGTHS = {'': 0.6, ',': 1.5, '-': 3.5, '=': 6.5}
 SEP_ORDER = ['', ',', '-', '=']
@@ -289,10 +289,11 @@ TRAFFIC = ['traffic_out', 'traffic_close']
 ENERGY = ['e_exposure', 'e_ahead']
 CLOSING_BASE = FEATURES + ['going']  # going (馬場状態) lowers the closing error (validation 0.951 -> 0.925 s)
 LAST3_FEATURES = CLOSING_BASE + TRAFFIC + ENERGY
-# Contention-layer parameters; tuned on Jun-Aug 2025 (see tune_contention). These are the defaults.
-DEFAULT_PARAMS = {'alpha': .5, 'delta': .08, 'width': 3, 'front': .35, 'hold': .06}
+# Contention-layer parameters; tuned on Jun-Aug 2025 (see tune_contention).
+# Keep the requested four-wide limit fixed during tuning; front runners may run five wide.
+DEFAULT_PARAMS = {'alpha': .5, 'delta': .08, 'width': 4, 'front': .35, 'hold': .06}
 PARAM_GRID = [{'alpha': a, 'delta': dl, 'width': w, 'front': f, 'hold': h}
-              for a in (.5, .7) for dl in (.04, .08) for w in (2, 3) for f in (.25, .45) for h in (.03, .06, .1)]
+              for a in (.5, .7) for dl in (.04, .08) for w in (4,) for f in (.25, .45) for h in (.03, .06, .1)]
 
 
 def energy_cost(first, pace, usual):
@@ -378,7 +379,8 @@ def simulate(numbers, early, pred, spreads, corners, P):
 
     Each horse wants the position its own model predicts; after the first corner it can only move so far
     from where it already is (alpha blends the wish with the previous position). Horses claim spots in
-    order of that pressure. Horses within delta of the row's leader run abreast, at most width wide.
+    order of that pressure. Horses within delta of the row's leader run abreast.
+    The width limit applies only before corner 4 and to horses not moving up from their previous rank.
     When the row is full, a front-running type (early speed in the top 'front' share of the field) goes
     wide to keep its spot; any other horse tucks in behind (控える) and loses the position it wanted.
     Traffic at each corner (horses outside, wall under one length ahead) is kept for the closing model.
@@ -401,11 +403,21 @@ def simulate(numbers, early, pred, spreads, corners, P):
             prio = (1 - move_beta) * want + move_beta * (base + move_k * (move - move.mean()))
         else:
             prio = (1 - P['alpha']) * want + P['alpha'] * prev
-        side = lane_want if prev_lane is None else .5 * prev_lane + .5 * lane_want
         order = sorted(range(n), key=lambda i: (prio[i], numbers[i]))
         want_rank = [0] * n
         for pos, i in enumerate(order):
             want_rank[i] = pos + 1
+        # Keep a track-relative path across rows/corners instead of resetting each row to lane 0.
+        # A horse trying to improve its rank goes outside the horses it intends to pass.
+        advancing = [False] * n
+        side = np.maximum(0, lane_want).copy() if prev_lane is None else prev_lane.copy()
+        if prev is not None:
+            previous_rank = np.rint(prev * max(1, n - 1)).astype(int) + 1
+            for i in range(n):
+                advancing[i] = want_rank[i] < previous_rank[i]
+                if advancing[i]:
+                    crossed = [j for j in range(n) if want_rank[i] <= previous_rank[j] < previous_rank[i]]
+                    side[i] = max(side[i], max(prev_lane[j] for j in crossed) + 1)
         rows, held = [], [False] * n
         queue = [(prio[i], numbers[i], i) for i in order]
         heapq.heapify(queue)
@@ -413,7 +425,7 @@ def simulate(numbers, early, pred, spreads, corners, P):
             p, _, i = heapq.heappop(queue)
             if rows and p - rows[-1]['p0'] < P['delta']:
                 row = rows[-1]['m']
-                if len(row) < width or (early[i] <= P['front'] and len(row) < width + 1):
+                if c >= 4 or advancing[i] or len(row) < width or (early[i] <= P['front'] and len(row) < width + 1):
                     row.append(i)
                     continue
                 if not held[i]:
@@ -425,11 +437,12 @@ def simulate(numbers, early, pred, spreads, corners, P):
             rows.append({'p0': p, 'm': [i]})
         rank, lane, row_of, pos = [0] * n, [0] * n, [0] * n, 0
         for ri, row in enumerate(rows):
-            # Rail side first by preferred lane; a horse that went wide stays outermost.
-            row['m'] = sorted(row['m'][:width], key=lambda i: (side[i], numbers[i])) + row['m'][width:]
-            for li, i in enumerate(row['m']):
+            row['m'] = sorted(row['m'], key=lambda i: (side[i], numbers[i]))
+            outer = -1.0
+            for i in row['m']:
                 pos += 1
-                rank[i], lane[i], row_of[i] = pos, li, ri
+                outer = max(float(side[i]), outer + 1)
+                rank[i], lane[i], row_of[i] = pos, outer, ri
         _, g = reconstruct(rank, pred[f'g{c}'], spreads[c], numbers)
         row_gap = []
         for ri, row in enumerate(rows):
@@ -442,8 +455,11 @@ def simulate(numbers, early, pred, spreads, corners, P):
         if have > 1e-6:
             row_gap = [v * target / have for v in row_gap]
         form[c] = {'rank': rank, 'gap': [row_gap[row_of[i]] for i in range(n)], 'lane': lane, 'held': held,
-                   'out': [len(rows[row_of[i]]['m']) - 1 - lane[i] for i in range(n)],
-                   'close': [float(row_of[i] > 0 and row_gap[row_of[i]] - row_gap[row_of[i] - 1] < 1.0) for i in range(n)],
+                   # Observed labels describe position within a row, not the track-relative path.
+                   'localLane': [rows[row_of[i]]['m'].index(i) for i in range(n)],
+                   'out': [sum(lane[j] > lane[i] for j in rows[row_of[i]]['m']) for i in range(n)],
+                   'close': [float(any(0 < row_gap[row_of[i]] - row_gap[row_of[j]] < 1.0
+                                       and abs(lane[j] - lane[i]) < 1.0 for j in range(n))) for i in range(n)],
                    'want': want_rank}
         prev, prev_lane = (np.array(rank) - 1) / max(1, n - 1), np.array(lane, float)
         if base is None:
@@ -554,7 +570,8 @@ def score(models, races, P):
         for c in corners:
             err.setdefault(f'r{c}', []).extend(np.abs((np.array(form[c]['rank']) - 1) / (n - 1) - x[f'r{c}'].to_numpy()))
             err.setdefault(f'g{c}', []).extend(np.abs(np.array(form[c]['gap']) - x[f'g{c}'].to_numpy()))
-            err.setdefault(f'l{c}', []).extend(np.abs(np.array(form[c]['lane'], float) - x[f'l{c}'].to_numpy()))
+            local_lane = form[c].get('localLane', form[c]['lane'])
+            err.setdefault(f'l{c}', []).extend(np.abs(np.array(local_lane, float) - x[f'l{c}'].to_numpy()))
         ok = x.last3.notna().to_numpy()
         last3 = pred['last3'] if P is None else closing(models, x, form, corners, pred['pace'])[0]
         err.setdefault('last3', []).extend(np.abs(last3 - x.last3.to_numpy())[ok])
@@ -753,17 +770,17 @@ def main():
              'moves': metrics.pop('_moves'), 'pace': {**metrics.pop('_pace'), 'giPace': gi_pace, 'giBands': list(gi_bands)}, 'paceFeatures': PACE_FEATURES, 'metrics': metrics,
              'notes': ['各角の順位・先頭からの馬身差・併走群内の内外位置と上がり3Fを個別に学習（LightGBM）。',
                        '馬身差は「順位モデルの並び × 馬ごとの差モデルの形 × レース単位の隊列の長さモデル」で再構成。',
-                       'ポジション争い：各馬の希望位置（順位モデル）と前の角の位置から押し出しの強さを決め、同じ列に並べる頭数を制限。列が埋まると先行型は外を回り、それ以外は後ろで控える（位置を失う）。',
+                       'ポジション争い：各馬の希望位置（順位モデル）と前の角の位置から押し出しの強さを決め、通常は4頭、先行型は5頭まで。前の角より位置を上げる馬は相手の外へ進み、頭数制限を受けない。4角以降も頭数制限なし。控える馬は後方へ回り、各列の左右位置は前の角から引き継ぐ。',
                        '前半のペース：出走馬の先行型の頭数・過去に逃げた割合・その馬たちが走ったレースの前半の速さ・馬場状態から、前半3Fがコースの標準より何秒速いかを予想（H/M/S）。隊列の長さモデルに使う（予想値で学習）。上がりモデルには馬場状態を入れる。',
                        '道中の位置変化：最初の角からの累積移動量を角ごとに学習（過去走の移動・最大の上げ幅・出走馬中の動く馬の割合・角の数）。2角以降は「最初の角の位置＋予想移動量」と希望位置を混ぜて並べ直す。強さは2025年6〜8月で、順位誤差の悪化を0.2%以内に抑える範囲で移動の相関が最大になる値を選ぶ。',
                        '脚の消耗：前半のペースが速いほど・前にいるほど、また普段より前で運ぶ（二の足・かかり）ほど上がりが遅くなる量を上がりモデルで学習（遅くする方向のみ）。予想時は予想ペースと1角の予想位置から入れ、paceCost（秒）として出す。',
                        '仕掛け遅れ：上がり3Fモデルは最終角の渋滞（外に並ぶ頭数・1馬身未満で前が壁）を特徴量に学習し、予想時はポジション争いで決まった隊列の渋滞を入れる。前が開いた場合との差を仕掛け遅れ（秒）として出す。',
                        '馬身差と内外はJRAの通過順表記から復元。記号の幅（,=1〜2馬身, -=2〜5, ==5以上）は中央値で近似。',
-                       '内外は併走群の内からの位置（0=最内または単独）。ラチからの距離ではない。',
+                       '学習用の内外は併走群内の位置。出力の内外は前の角から引き継ぐ進路スロット（0=内側）で、実測のラチ距離ではない。',
                        'ゴールは最終角の馬身差に上がり3Fの差（1秒=5馬身）を加えた推定。着順モデルではない。',
                        '過去5走のみを使用。オッズ・人気・払戻・対象レースの結果は使わない。']}
     out = {'schema': SCHEMA, 'generatedAt': datetime.now().isoformat(timespec='seconds'), 'model': model,
-           'units': {'gap': '馬身（先頭から）', 'lane': '併走群の内からの位置（0=最内/単独）', 'last3': '秒'}, 'races': out_races}
+           'units': {'gap': '馬身（先頭から）', 'lane': '内側からの進路スロット（0=内側、列ごとのリセットなし）', 'last3': '秒'}, 'races': out_races}
     Path(args.out).write_text(json.dumps(out, ensure_ascii=False, allow_nan=False), encoding='utf-8')
     (ROOT / 'models' / 'pace' / 'report.json').write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding='utf-8')
     print(f'wrote {len(out_races)} races -> {args.out}')

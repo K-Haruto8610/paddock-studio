@@ -93,9 +93,17 @@ function paceForecastPlan(
     .map((f, i) => ({f, i}))
     .sort((a, b) => (a.f.rank && b.f.rank ? a.f.rank - b.f.rank : a.f.gap - b.f.gap) || a.i - b.i)
     .forEach((v, k) => (ranks[v.i] = k + 1));
-  // A horse shut in at the last corner has to find room before it can kick: it is drawn angling out.
-  const finalLane = (h: RacePace['horses'][number]) =>
-    h.positions.at(-1)!.lane + ((h.kickDelay ?? 0) > 0.05 ? 1 : 0);
+  // Moving up in the straight takes an outside path past the horses ahead. There is no
+  // four/five-abreast limit after corner 4; the continuous lane solver keeps horses apart.
+  const finalLane = (h: RacePace['horses'][number], i: number) => {
+    const last = h.positions.at(-1)!;
+    let lane = last.lane + ((h.kickDelay ?? 0) > 0.05 ? 1 : 0);
+    pace.horses.forEach((other, j) => {
+      const ahead = other.positions.at(-1)!;
+      if (ahead.rank < last.rank && ranks[j] > ranks[i]) lane = Math.max(lane, ahead.lane + 1);
+    });
+    return lane;
+  };
   // 仕掛け遅れ: half-way up the straight, free horses have made half their ground; a delayed horse
   // has made less (none at 0.3 s or more), then finishes late.
   if (pace.horses.some((h) => (h.kickDelay ?? 0) > 0.05)) {
@@ -115,7 +123,7 @@ function paceForecastPlan(
       paceLayout(
         pace.horses.map((h, i) => ({
           gap: mid[i] - midLead,
-          lane: (h.positions.at(-1)!.lane + finalLane(h)) / 2,
+          lane: (h.positions.at(-1)!.lane + finalLane(h, i)) / 2,
           rank: midRanks[i],
         })),
       ),
@@ -131,7 +139,7 @@ function paceForecastPlan(
     paceLayout(
       pace.horses.map((h, i) => ({
         gap: finish[i].gap - lead,
-        lane: finalLane(h),
+        lane: finalLane(h, i),
         rank: ranks[i],
       })),
     ),
