@@ -1,7 +1,7 @@
 // Closing-kick (上がり) running form, as pure functions of a horse's own travelled distance.
 // Nothing here carries state, so pausing, seeking and MP4 recording always reproduce the same pose.
 
-/** In race metres: at normal playback speed a 2400 m race shows about two strides a second. */
+/** Distance per base stride in race metres, independent of race length and playback rate. */
 export const STRIDE_LENGTH = 16;
 /** The kick starts this far from the finish and ramps from 0 to full over KICK_RAMP metres. */
 export const KICK_WINDOW = 600;

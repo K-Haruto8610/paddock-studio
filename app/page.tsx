@@ -31,8 +31,8 @@ async function readJson<T>(url: string): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-/** A whole race plays in this many milliseconds at 1x speed. */
-const PLAYBACK_MS = 65000;
+/** Estimated race speed at 1x; the dataset does not include total finishing times. */
+const RACE_METRES_PER_SECOND = 17;
 
 export default function Home() {
   const [data, setData] = useState<Dataset | null>(null),
@@ -43,7 +43,7 @@ export default function Home() {
     [selected, setSelected] = useState<number | null>(null),
     [progress, setProgress] = useState(0),
     [playing, setPlaying] = useState(false),
-    [speed, setSpeed] = useState(1),
+    [speed, setSpeed] = useState(2),
     [followKey, setFollowKey] = useState(0),
     [cameraMode, setCameraMode] = useState<CameraMode>('pack'),
     [tab, setTab] = useState('horses'),
@@ -87,15 +87,17 @@ export default function Home() {
         );
     });
   }, []);
+  const race = data?.races.find((r) => r.id === raceId);
+  const playbackMs = race ? (race.distance / RACE_METRES_PER_SECOND) * 1000 : 0;
   useEffect(() => {
-    if (!playing) return;
+    if (!playing || playbackMs <= 0) return;
     let last = performance.now(),
       id = 0;
     const tick = (now: number) => {
       const dt = Math.min(now - last, 100);
       last = now;
       setProgress((p) => {
-        const next = p + (dt / PLAYBACK_MS) * speed;
+        const next = p + (dt / playbackMs) * speed;
         if (next >= 1) {
           setPlaying(false);
           return 1;
@@ -106,9 +108,8 @@ export default function Home() {
     };
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
-  }, [playing, speed]);
-  const race = data?.races.find((r) => r.id === raceId),
-    horse = race?.horses.find((h) => h.number === selected),
+  }, [playing, speed, playbackMs]);
+  const horse = race?.horses.find((h) => h.number === selected),
     course = race ? courseFor(race) : null,
     replay = replays?.races[raceId],
     // A race forecast from its entry card has no replay until a result is added (data/results).
@@ -469,7 +470,7 @@ export default function Home() {
                   race={race}
                   plan={plan}
                   progress={progress}
-                  rate={playing ? speed / PLAYBACK_MS : 0}
+                  rate={playing && playbackMs > 0 ? speed / playbackMs : 0}
                   selected={selected}
                   followKey={followKey}
                   cameraMode={cameraMode}
