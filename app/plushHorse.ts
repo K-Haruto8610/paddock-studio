@@ -459,16 +459,28 @@ function fabricMaterial(color: T.ColorRepresentation, kind: FabricKind, stretch:
 }
 
 const PILE_LAYERS = 12;
-/** Shade of the cloth backing under the pile; the fibres brighten from this toward their tips. */
-const PILE_ROOT_SHADE = 0.88;
+/** Shade at the fibre roots and of the cloth backing under the pile; the fibres brighten from this toward their tips. */
+const PILE_ROOT_SHADE = 0.45;
 let pileNoise: T.DataTexture | undefined;
-/** R: one random height per fibre. G: smooth patches, for the marks left where the pile is brushed. */
+/** R: one random height per fibre. G: smooth patches, for the marks left where the pile is brushed. B: tufts, high at their centres. */
 function pileNoiseTexture() {
   if (pileNoise) return pileNoise;
   const size = 256, cells = 12;
   let seed = 4271;
   const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
   const lattice = Float32Array.from({length: cells * cells}, random);
+  const tufts = 32;
+  const seeds = Array.from({length: tufts * tufts}, () => [random(), random()]);
+  // Distance to the nearest tuft centre, wrapping at the tile edge so the pattern repeats seamlessly.
+  const tuft = (x: number, y: number) => {
+    const fx = x / size * tufts, fy = y / size * tufts, cx = Math.floor(fx), cy = Math.floor(fy);
+    let nearest = 4;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const [jx, jy] = seeds[((cx + dx + tufts) % tufts) + tufts * ((cy + dy + tufts) % tufts)];
+      nearest = Math.min(nearest, Math.hypot(cx + dx + jx - fx, cy + dy + jy - fy));
+    }
+    return 1 - T.MathUtils.smoothstep(nearest, 0.1, 0.75);
+  };
   const data = new Uint8Array(size * size * 4);
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     const fx = x / size * cells, fy = y / size * cells;
@@ -479,6 +491,7 @@ function pileNoiseTexture() {
     const i = (x + y * size) * 4;
     data[i] = random() * 256;
     data[i + 1] = smooth * 255;
+    data[i + 2] = tuft(x + 0.5, y + 0.5) * 255;
     data[i + 3] = 255;
   }
   pileNoise = new T.DataTexture(data, size, size, T.RGBAFormat);
@@ -524,7 +537,9 @@ vRestNormal = restNormal;
 vPileScale = pileScale;
 // Fibres stand along the normal and lean a little down and back, as if stroked.
 float pileHeight = pileLength * pileScale * vPile;
-transformed += objectNormal * pileHeight + vec3(-0.2, -0.45, 0.0) * (pileHeight * vPile);`);
+// The stroke direction drifts from patch to patch but stays downward and backward overall.
+vec3 lean = vec3(-0.2, -0.45, 0.0) + 0.25 * vec3(sin(rest.y * 7.1 + rest.z * 5.3), sin(rest.x * 6.3 + rest.z * 4.1), sin(rest.x * 5.1 + rest.y * 3.7));
+transformed += objectNormal * pileHeight + lean * (pileHeight * vPile);`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
 uniform sampler2D pileMap;
@@ -549,12 +564,14 @@ varying float vPile;`)
   else { fuv = fp.xy; gx = fdx.xy; gy = fdy.xy; lie = vec2(1.0, 0.65); }
   fuv *= lie; gx *= lie; gy *= lie;
   float fibre = textureGrad(pileMap, fuv, gx, gy).r;
+  // Tufts: sampled coarser than the fibres, so each one spans several of them.
+  float tuft = textureGrad(pileMap, fuv * 3.2, gx * 3.2, gy * 3.2).b;
   float brushed = texture2D(pileMap, vRest.xy * 0.21 + 0.13).g + texture2D(pileMap, vRest.zy * 0.21 + 0.57).g - 1.0;
   // The pile is pinched short along the centre seam where the two halves are sewn together.
   float seam = pileSeam * (1.0 - smoothstep(0.004, 0.034, abs(vRest.z)));
-  float reach = (1.0 - 0.7 * seam) * (0.8 + 0.2 * brushed);
+  float reach = (1.0 - 0.7 * seam) * (0.8 + 0.25 * brushed) * mix(0.6, 1.0, tuft);
   diffuseColor.a = fibre - 0.92 * pow(min(vPile / reach, 1.5), 1.2) + 0.5;
-  diffuseColor.rgb *= mix(${PILE_ROOT_SHADE.toFixed(2)}, 1.03, vPile) * (1.0 + 0.08 * brushed) * (1.0 - 0.15 * seam);
+  diffuseColor.rgb *= mix(${PILE_ROOT_SHADE.toFixed(2)}, 1.05, pow(vPile, 1.5)) * (1.0 + 0.2 * brushed) * (1.0 - 0.25 * (1.0 - tuft)) * (1.0 - 0.15 * seam);
 }`)
       // The soft glow at grazing angles takes the colour of the fibres, so dark cloth stays dark.
       .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
