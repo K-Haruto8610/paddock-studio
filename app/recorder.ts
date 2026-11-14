@@ -4,8 +4,9 @@
  */
 
 /** Output size. H.264 needs even dimensions. */
-const WIDTH = 1280;
-const SCENE_HEIGHT = 720;
+const WIDTH = 1920;
+const SCENE_HEIGHT = 1020;
+export const RECORDING_SCENE_SIZE = {width: WIDTH, height: SCENE_HEIGHT};
 const SEEK_HEIGHT = 120;
 const ORDER_HEIGHT = 150;
 const SEEK_TOP = SCENE_HEIGHT;
@@ -81,7 +82,7 @@ export class RaceRecorder {
     this.ctx.fillStyle = '#e8eddf';
     this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
     const stream = this.canvas.captureStream(FPS);
-    this.recorder = new MediaRecorder(stream, {mimeType, videoBitsPerSecond: 8_000_000});
+    this.recorder = new MediaRecorder(stream, {mimeType, videoBitsPerSecond: 24_000_000});
     this.recorder.ondataavailable = (e) => {
       if (e.data.size) this.chunks.push(e.data);
     };
@@ -101,11 +102,8 @@ export class RaceRecorder {
    */
   drawFrame(scene: HTMLCanvasElement) {
     const c = this.ctx;
-    // Scene: cover-crop the live canvas into 16:9 whatever the page width is.
-    const scale = Math.max(WIDTH / scene.width, SCENE_HEIGHT / scene.height);
-    const sw = WIDTH / scale,
-      sh = SCENE_HEIGHT / scale;
-    c.drawImage(scene, (scene.width - sw) / 2, (scene.height - sh) / 2, sw, sh, 0, 0, WIDTH, SCENE_HEIGHT);
+    // TrackScene renders at the recording resolution: copy pixels without resampling.
+    c.drawImage(scene, 0, 0);
     const o = this.overlay();
     c.textBaseline = 'middle';
     const font = (px: number, weight = 400) =>

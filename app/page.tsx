@@ -23,7 +23,7 @@ import {
   type RaceEdits,
 } from './manualEdit';
 import type {Placement} from './raceLayout';
-import {RaceRecorder, mp4MimeType, type RecordingOverlay} from './recorder';
+import {RaceRecorder, mp4MimeType, RECORDING_SCENE_SIZE, type RecordingOverlay} from './recorder';
 
 async function readJson<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -478,6 +478,7 @@ export default function Home() {
                   editAt={editPoint ? frame.exact!.distance : null}
                   onEdit={moveHorse}
                   onRendered={recording ? (c) => recorder.current?.drawFrame(c) : undefined}
+                  recordingSize={recording ? RECORDING_SCENE_SIZE : undefined}
                 />
                 <div className="scene-top">
                   <span

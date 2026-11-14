@@ -115,6 +115,7 @@ export default function TrackScene({
   editAt = null,
   onEdit,
   onRendered,
+  recordingSize,
 }: {
   race: Race;
   plan: PlaybackPlan;
@@ -130,6 +131,7 @@ export default function TrackScene({
   onEdit?: (index: number, placement: Placement) => void;
   /** Called right after each frame renders, while the canvas still holds it (video recording). */
   onRendered?: (canvas: HTMLCanvasElement) => void;
+  recordingSize?: {width: number; height: number};
 }) {
   const host = useRef<HTMLDivElement>(null);
   // The animation loop lives outside React's render cycle: it reads the latest props from refs.
@@ -137,11 +139,13 @@ export default function TrackScene({
   const select = useRef(onSelect);
   const edit = useRef(onEdit);
   const rendered = useRef(onRendered);
+  const captureSize = useRef(recordingSize);
   useEffect(() => {
     state.current = {progress, rate, selected, followKey, cameraMode, plan, editAt};
     select.current = onSelect;
     edit.current = onEdit;
     rendered.current = onRendered;
+    captureSize.current = recordingSize;
   });
   const webgl = useSyncExternalStore(subscribeNever, hasWebGL, () => true);
 
@@ -286,10 +290,23 @@ export default function TrackScene({
     el.addEventListener('pointerup', onPointerUp);
     el.addEventListener('pointercancel', onPointerCancel);
 
+    let sizeKey = '';
     const resize = () => {
-      camera.aspect = el.clientWidth / el.clientHeight;
+      const capture = captureSize.current;
+      const width = capture?.width ?? Math.max(1, el.clientWidth);
+      const height = capture?.height ?? Math.max(1, el.clientHeight);
+      const pixelRatio = capture ? 1 : Math.min(devicePixelRatio, 2);
+      const key = `${width}:${height}:${pixelRatio}:${el.clientWidth}:${el.clientHeight}`;
+      if (key === sizeKey) return;
+      sizeKey = key;
+      camera.aspect = width / height;
       camera.updateProjectionMatrix();
-      renderer.setSize(el.clientWidth, el.clientHeight);
+      renderer.setPixelRatio(pixelRatio);
+      renderer.setSize(width, height, false);
+      // Fit the recording preview without stretching it; pointer coordinates stay accurate.
+      const scale = capture ? Math.min(el.clientWidth / width, el.clientHeight / height) : 1;
+      renderer.domElement.style.width = `${width * scale}px`;
+      renderer.domElement.style.height = `${height * scale}px`;
     };
     const observer = new ResizeObserver(resize);
     observer.observe(el);
@@ -303,6 +320,7 @@ export default function TrackScene({
     let lastTime = performance.now();
     let shown = state.current.progress;
     function draw(now = performance.now()) {
+      resize();
       const dt = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
       const {progress: target, rate, selected, followKey, cameraMode, plan: live, editAt} = state.current;
