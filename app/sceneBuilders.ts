@@ -14,10 +14,15 @@ import {
   groundTexture,
   turfTexture,
 } from './scenery';
+import {dirtReliefMap, RELIEF_TILE} from './surfaceDetail';
+import {groundOf, type GroundSurface} from './courseGround';
 
 // The plush model is 4 units long: scale 1.0 draws a ~4m horse (≈1.7x life size)
 // so the field stays legible against the true-scale course. Never enlarged on selection.
 export const HORSE_SCALE = 1.0;
+
+/** Strength of the dirt's relief (1 = the furrows as modelled). */
+const DIRT_RELIEF = 1.2;
 
 export type Terrain = ReturnType<typeof makeTerrain>;
 
@@ -62,7 +67,14 @@ function strip(n: number, at: (i: number, edge: 0 | 1) => {p: T.Vector3; uv: [nu
 }
 
 /** Flat strip between two lanes of a track, following its (exaggerated) height. */
-function ribbon(track: TrackModel, inner: number, outer: number, map: T.Texture, lift = 1) {
+function ribbon(
+  track: TrackModel,
+  inner: number,
+  outer: number,
+  map: T.Texture,
+  lift = 1,
+  relief: T.Texture | null = null,
+) {
   const geo = strip(1024, (i, edge) => {
     const d = (i / 1024) * track.lap,
       lane = edge ? outer : inner,
@@ -70,7 +82,12 @@ function ribbon(track: TrackModel, inner: number, outer: number, map: T.Texture,
     p.y += 0.02;
     return {p, uv: [d / SURFACE_TILE, lane / SURFACE_TILE]};
   });
-  const m = new T.Mesh(geo, material('#ffffff', lift, map));
+  const surface = material('#ffffff', lift, map);
+  if (relief) {
+    surface.normalMap = relief;
+    surface.normalScale.setScalar(DIRT_RELIEF);
+  }
+  const m = new T.Mesh(geo, surface);
   m.receiveShadow = true;
   return m;
 }
@@ -335,7 +352,10 @@ function chuteRibbon(surface: NonNullable<RaceRoute['chuteSurface']>, width: num
   return m;
 }
 
-/** Turf/dirt course surfaces, the race's chute, plus Tokyo's chutes and the dirt-start apron. */
+/**
+ * Turf/dirt course surfaces, the race's chute, plus Tokyo's chutes and the dirt-start apron.
+ * Returns where the race surfaces are, by position, for whatever is laid on them (grass, hoofprints).
+ */
 export function addCourseSurfaces(
   scene: T.Scene,
   courses: CourseSet,
@@ -344,15 +364,25 @@ export function addCourseSurfaces(
   route?: RaceRoute,
 ) {
   const {turf, dirt, outer} = courses;
+  const surfaces: GroundSurface[] = [];
+  const lay = (m: T.Mesh, lift: number, dirt = false) => {
+    scene.add(m);
+    surfaces.push({geometry: m.geometry, lift, dirt});
+  };
   // Outer course first (lowest priority), then the inner turf, then dirt on top.
   const grass = turfTexture();
-  if (outer) scene.add(ribbon(outer, 0, outer.width, grass, 1));
-  scene.add(ribbon(turf, 0, turf.width, grass, 2));
-  if (dirt) scene.add(ribbon(dirt, 0, dirt.width, dirtTexture(), 3));
+  if (outer) lay(ribbon(outer, 0, outer.width, grass, 1), 1);
+  lay(ribbon(turf, 0, turf.width, grass, 2), 2);
+  if (dirt) {
+    // Harrowed sand: furrows along the course, laid over the same strip as the colour.
+    const relief = dirtReliefMap();
+    relief.repeat.setScalar(SURFACE_TILE / RELIEF_TILE);
+    lay(ribbon(dirt, 0, dirt.width, dirtTexture(), 3, relief), 3, true);
+  }
   for (const t of courses.tracks) scene.add(verge(t, 0, -1), verge(t, t.width, 1));
   // The pocket's turf follows the line the field runs, which leaves the plan's drawn pocket
   // to come onto the course smoothly.
-  if (route?.chuteSurface) scene.add(chuteRibbon(route.chuteSurface, route.chuteSurface.width, grass));
+  if (route?.chuteSurface) lay(chuteRibbon(route.chuteSurface, route.chuteSurface.width, grass), 2);
   if (tokyo && dirt) {
     // Draped polygons are not aligned with any course, so their turf has no mowing bands.
     const plain = turfTexture(false);
@@ -365,6 +395,7 @@ export function addCourseSurfaces(
     add(TOKYO_APRON_A, '#bdc4be', 5);
     add(TOKYO_APRON_B, '#bfc7c0', 4);
   }
+  return groundOf(surfaces);
 }
 
 /** Rails of the course this race is run on (plus the turf rail when racing on another surface). */

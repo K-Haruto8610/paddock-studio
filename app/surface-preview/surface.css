@@ -1,0 +1,12 @@
+.surface-editor { max-width: 1600px; margin: auto; padding: 24px; }
+.surface-editor h1 { margin: 20px 0 10px; }
+.surface-controls { display: flex; gap: 8px 18px; align-items: center; flex-wrap: wrap; margin: 14px 0; }
+.surface-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.surface-group > span { font-size: 12px; color: #6b7469; margin-right: 2px; }
+.surface-editor button { border: 1px solid #d4d8cd; border-radius: 8px; padding: 8px 10px; background: #fffdf8; cursor: pointer; font: inherit; }
+.surface-editor button[aria-pressed=true] { background: #345b4b; color: white; }
+.surface-editor label { display: flex; gap: 8px; align-items: center; font-size: 13px; color: #444b42; }
+.surface-editor input[type=range] { width: 150px; }
+.surface-editor output { min-width: 5em; font-variant-numeric: tabular-nums; }
+.surface-canvas { height: max(420px, calc(100vh - 300px)); border-radius: 14px; overflow: hidden; touch-action: none; border: 1px solid #dddcd3; }
+.surface-status { margin: 10px 0 0; font-size: 13px; color: #444b42; font-variant-numeric: tabular-nums; }

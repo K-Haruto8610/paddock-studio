@@ -11,7 +11,7 @@ const GROUND_COLOR = '#c3d0ae';
 /** The flat land beyond the modelled ground lies this far below the lowest racing surface. */
 export const FAR_GROUND_DROP = 0.6;
 
-function seeded(seed: number) {
+export function seeded(seed: number) {
   return () => {
     seed = (seed + 0x6d2b79f5) | 0;
     let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -21,7 +21,7 @@ function seeded(seed: number) {
 }
 
 /** Smooth noise in -1..1 that repeats over the unit square (n cells a side). */
-function tileNoise(rand: () => number, n: number) {
+export function tileNoise(rand: () => number, n: number) {
   const grid = Float32Array.from({length: n * n}, () => rand() * 2 - 1);
   const ease = (t: number) => t * t * (3 - 2 * t);
   return (u: number, v: number) => {

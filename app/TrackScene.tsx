@@ -10,7 +10,7 @@ import {clampPlacement} from './manualEdit';
 import type {PlaybackPlan} from './playback';
 import {createPackCamera} from './packCamera';
 import {posePlush} from './plushHorse';
-import {kickAt, NO_KICK, type KickPlan} from './closingKick';
+import {kickAt, NO_KICK, type Kick, type KickPlan} from './closingKick';
 import {addFarGround} from './scenery';
 import {
   addCourseSurfaces,
@@ -23,7 +23,11 @@ import {
   buildCourseSet,
   disposeScene,
 } from './sceneBuilders';
+import {addRaceGrass} from './raceGrass';
+import {addDirtTrail} from './dirtTrail';
 const Z_AXIS = new T.Vector3(0, 0, 1);
+/** Beyond this distance from the field a blade of grass is smaller than a pixel, so none are drawn. */
+const GRASS_SIGHT = 320;
 
 type LiveState = {
   progress: number;
@@ -62,6 +66,8 @@ function placeHorses(
   selected: number | null,
   reducedMotion: boolean,
   kicks: KickPlan[],
+  /** Filled with each horse's distance along the route and closing-kick state, for what the hooves leave behind. */
+  pose: {at: number[]; kick: Kick[]},
 ) {
   ring.visible = selected !== null;
   horses.forEach((g, i) => {
@@ -81,7 +87,10 @@ function placeHorses(
     const number = g.getObjectByName('numberplate')!;
     number.position.set(0, 4.4, 0).applyAxisAngle(Z_AXIS, -pitch);
     // The closing kick depends on the horse's own distance, so seeking and recording reproduce the same form.
-    posePlush(g, at, reducedMotion, reducedMotion ? NO_KICK : kickAt(at, kicks[i]));
+    const kick = reducedMotion ? NO_KICK : kickAt(at, kicks[i]);
+    posePlush(g, at, reducedMotion, kick);
+    pose.at[i] = at;
+    pose.kick[i] = kick;
     g.getObjectByName('nameplate')!.visible = selected === race.horses[i].number;
     if (selected === race.horses[i].number) {
       ring.position.copy(g.position);
@@ -162,16 +171,20 @@ export default function TrackScene({
     const route = makeRoute(race, track);
     const courses = buildCourseSet(race, track, availableKinds(race));
     const terrain = addGround(scene, courses.tracks, route);
-    addCourseSurfaces(scene, courses, terrain, tokyo, route);
+    const surface = addCourseSurfaces(scene, courses, terrain, tokyo, route);
     addRails(scene, track, courses.turf, route, race.distance);
     const gate = addMarkers(scene, race, track, route);
     addFarGround(scene, Math.min(...terrain.samples.map((s) => s.y)));
+    // Blades of grass stand around the field when the race is run on turf.
+    const grass = track.kind === 'dirt' ? null : addRaceGrass(scene, route, track.width, surface);
     const gateBox = new T.Box3().setFromObject(gate);
     const frustum = new T.Frustum();
     const view = new T.Matrix4();
 
     // Horses and click-to-select; in edit mode, drag a horse to move it.
     const horses = addHorses(scene, race);
+    const pose = {at: horses.map(() => 0), kick: horses.map(() => NO_KICK)};
+    const field = {horses, ...pose};
     const ring = addSelectionRing(scene);
     const ray = new T.Raycaster();
     const mouse = new T.Vector2();
@@ -276,6 +289,8 @@ export default function TrackScene({
 
     const packCamera = createPackCamera(camera, controls, renderer.domElement);
     const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    // Hoofprints and kicked-up sand on a dirt course.
+    const trail = track.kind === 'dirt' ? addDirtTrail(scene, surface, () => motionPreference.matches) : null;
     let frame = 0;
     let lastTime = performance.now();
     let shown = state.current.progress;
@@ -302,7 +317,7 @@ export default function TrackScene({
         if (drag) raw[drag.index] = drag.now;
         placements = separateLayouts(raw);
       } else placements = sampleLayouts(live.layouts, travel, live.knots);
-      placeHorses(horses, race, route, ring, placements, travel, selected, motionPreference.matches, live.kicks);
+      placeHorses(horses, race, route, ring, placements, travel, selected, motionPreference.matches, live.kicks, pose);
 
       const packCenter = new T.Box3()
         .setFromPoints(horses.map((g) => g.position))
@@ -326,6 +341,12 @@ export default function TrackScene({
         );
         if (!frustum.intersectsBox(gateBox)) gate.visible = false;
       }
+      if (grass) {
+        if (!motionPreference.matches) grass.uniforms.uTime.value += dt;
+        grass.update(travel - Math.max(...gaps), leaderAt, camera.position.distanceTo(packCenter) < GRASS_SIGHT);
+      }
+      // A hand edit is not a replay of the race: its horses are moved, not run, and the trail starts over.
+      trail?.update(field, travel, !!drag || (editAt !== null && rate === 0), live);
       sun.target.position.copy(packCenter);
       sun.position.copy(packCenter).add(new T.Vector3(-200, 500, 180));
       controls.update();
@@ -340,6 +361,8 @@ export default function TrackScene({
       observer.disconnect();
       packCamera.dispose();
       controls.dispose();
+      grass?.dispose();
+      trail?.dispose();
       el.removeEventListener('pointerdown', onPointerDown, true);
       el.removeEventListener('pointermove', onPointerMove);
       el.removeEventListener('pointerup', onPointerUp);

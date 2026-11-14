@@ -52,8 +52,6 @@ const LEGS = [
   {x: 0.64, z: 0.43, beat: 0.4, reach: 0.55, center: 0.06},
 ] as const;
 const LEG_PIVOT_Y = 0.95;
-// STRIDE_LENGTH (race metres per stride) lives in closingKick.ts, next to the cadence that is integrated over it.
-
 /**
  * Closing-kick running form: how far each part moves from its normal gallop as the kick level goes 0 -> 1.
  * These are the numbers to tune by eye (the plush preview has a kick slider).
@@ -71,6 +69,65 @@ export const KICK_REACH = 0.8; // leg swing at full kick, on the same scale
 export const STRIDE_HOP = 0.09; // height of the suspension between strides in the normal gallop
 export const KICK_HOP = 0.035; // and at full kick: the feet barely leave the ground
 export const KICK_STREAM = 1.5; // how hard the air streams the mane and tail back, as a multiple
+
+type Leg = (typeof LEGS)[number];
+
+/** Swing of a leg from the vertical (before the gallop's ramp-up), `reach` being the stride's reach multiple. */
+function legAngle(l: Leg, phase: number, reach: number) {
+  // Foot lands at its beat reaching forward, sweeps back under the body (stance), then swings forward again.
+  // The warp makes the stance quicker than the swing, as in a real gallop.
+  const t = phase - l.beat;
+  const warped = t + 0.5 / (2 * Math.PI) * Math.sin(2 * Math.PI * (t - 0.25));
+  return l.center + l.reach * reach * Math.cos(2 * Math.PI * warped);
+}
+
+/** How far into the stride (after its beat) each leg is, when the hoof is flat under the hip and when it has swept most of the way back. */
+function stanceStage(l: Leg, share: number) {
+  // The stance runs from the leg's forward extreme to its rearmost; find the moment its swing is `share` of the way
+  // back by bisection (the swing is monotonic through the stance).
+  const forward = l.center + l.reach * STRIDE_REACH, back = l.center - l.reach * STRIDE_REACH;
+  const target = forward + (back - forward) * share;
+  let lo = 0, hi = 0.5;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (legAngle(l, l.beat + mid, STRIDE_REACH) > target) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+const HOOF_STAGES = {
+  // Flat under the hip (leg vertical): the hoof is at its lowest and presses the ground.
+  down: LEGS.map(l => stanceStage(l, (l.center + l.reach * STRIDE_REACH) / (2 * l.reach * STRIDE_REACH))),
+  // Most of the way back: the hoof drives off, throwing the ground behind it.
+  push: LEGS.map(l => stanceStage(l, 0.85)),
+};
+
+/** Hooves a horse has. */
+export const HOOF_COUNT = LEGS.length;
+/** The hind hooves push hardest; they are the first two (see LEGS). */
+export const isHindHoof = (n: number) => LEGS[n].x < 0;
+/** How far the horse's stride has come, in strides: the one number its legs, hair and hooves are all functions of. */
+export function stridePhase(distance: number, reducedMotion = false, kick: Kick = NO_KICK) {
+  return Math.max(distance, 0) / STRIDE_LENGTH + (reducedMotion ? 0 : kick.strides);
+}
+/** 0 while the horse stands, 1 once it is galloping (the legs ramp up over the first stride). */
+export function gallopAmount(distance: number, reducedMotion = false) {
+  return reducedMotion ? 0 : T.MathUtils.smoothstep(Math.max(distance, 0), 0, STRIDE_LENGTH);
+}
+/**
+ * Counts the times leg `n`'s hoof has reached `stage` of its stance by this stride phase: it goes up by one at
+ * each footfall ('down') or push-off ('push'). Compare it between two frames to find the footfalls between them;
+ * `phase - beat - stage` crosses an integer at the moment, so the fraction of the way is recoverable too.
+ */
+export function hoofCount(n: number, phase: number, stage: 'down' | 'push') {
+  return phase - LEGS[n].beat - HOOF_STAGES[stage][n];
+}
+/** Where leg `n`'s hoof is at this stride phase, in the horse's frame (x forward, z to its right), at the gallop's full swing. */
+export function hoofSpot(n: number, phase: number, kickLevel: number, out: {x: number; z: number}) {
+  const l = LEGS[n];
+  out.x = l.x + LEG_PIVOT_Y * Math.sin(legAngle(l, phase, T.MathUtils.lerp(STRIDE_REACH, KICK_REACH, kickLevel)));
+  out.z = l.z;
+}
+// STRIDE_LENGTH (race metres per stride) lives in closingKick.ts, next to the cadence that is integrated over it.
 
 export const DEFAULT_LEG_WIDTH = 0.8;
 export const HEAD_WIDTH_SCALES = [0.6, 0.7, 0.8, 0.9, 0.95] as const;
@@ -1662,19 +1719,13 @@ function addBridle(head: T.Group, leather: T.Material, settings: HeadSettings, m
 export function posePlush(g: T.Group, distance: number, reducedMotion = false, kick: Kick = NO_KICK) {
   const rig = g.userData.plushRig as PlushRig | undefined;
   if (!rig) return;
-  const amount = reducedMotion ? 0 : T.MathUtils.smoothstep(Math.max(distance, 0), 0, STRIDE_LENGTH);
+  const amount = gallopAmount(distance, reducedMotion);
   const k = reducedMotion ? 0 : T.MathUtils.clamp(kick.level, 0, 1);
   // Every motion below is a smooth periodic function of the stride phase, so strides join with no seam.
-  const phase = Math.max(distance, 0) / STRIDE_LENGTH + (reducedMotion ? 0 : kick.strides);
+  const phase = stridePhase(distance, reducedMotion, kick);
   const wave = (offset: number) => Math.cos(2 * Math.PI * (phase - offset));
   const reach = T.MathUtils.lerp(STRIDE_REACH, KICK_REACH, k);
-  const angles = LEGS.map(l => {
-    // Foot lands at its beat reaching forward, sweeps back under the body (stance), then swings forward again.
-    // The warp makes the stance quicker than the swing, as in a real gallop.
-    const t = phase - l.beat;
-    const warped = t + 0.5 / (2 * Math.PI) * Math.sin(2 * Math.PI * (t - 0.25));
-    return (l.center + l.reach * reach * Math.cos(2 * Math.PI * warped)) * amount;
-  });
+  const angles = LEGS.map(l => legAngle(l, phase, reach) * amount);
   if (rig.legs) poseLegs(rig.legs, angles);
   // Rocking: nose up while the hinds carry the body, nose down while the fores do.
   const pitch = 0.06 * (1 + (KICK_ROCK - 1) * k) * wave(0.2);
