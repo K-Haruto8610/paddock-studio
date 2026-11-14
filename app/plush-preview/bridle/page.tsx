@@ -18,7 +18,7 @@ type Note = {id: number; kind: 'pen' | 'pin'; part: string; points: Point[]; com
 const storageKey = 'paddock-bridle-notes-v1';
 const partNames: Record<string, string> = {
   'bridle-noseband': '鼻革', 'bridle-headstall': '項革・頬革', 'bridle-browband': '額革', 'bridle-joint': '革のつなぎ目', 'bridle-ring': '金具の輪',
-  'seamless-body-and-feet': '顔・体の表面', 'cupped-cloth-ear': '耳', 'felt-zigzag-mane': 'たてがみ',
+  'seamless-body-and-feet': '顔・体の表面', 'cupped-cloth-ear': '耳', 'hair-mane': 'たてがみ',
 };
 const colors = ['#d23c3c', '#2c6fd1', '#1f9c5a', '#c98a12', '#8a45c4', '#d1489a'];
 const colorOf = (id: number) => colors[(id - 1) % colors.length];

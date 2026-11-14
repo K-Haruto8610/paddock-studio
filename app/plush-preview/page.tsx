@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import {useEffect, useRef, useState} from 'react';
 import * as T from 'three';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {plush, posePlush, PREVIOUS_HEAD, CURRENT_HEAD, SAVED_HEAD, normalizeHead, type HeadSettings} from '../plushHorse';
 import './preview.css';
@@ -58,6 +59,14 @@ export default function PlushPreview() {
     const scene = new T.Scene();
     sceneRef.current = scene;
     scene.background = new T.Color('#e8e4dc');
+    // Broad studio reflections soften fibre highlights without external HDR assets.
+    const pmrem = new T.PMREMGenerator(renderer);
+    const room = new RoomEnvironment();
+    const environment = pmrem.fromScene(room, 0.06);
+    scene.environment = environment.texture;
+    scene.environmentIntensity = 0.65;
+    room.dispose();
+    pmrem.dispose();
     const camera = new T.PerspectiveCamera(36, 1, 0.1, 100);
     camera.position.set(6, 3.9, 7);
     cameraRef.current = camera;
@@ -68,15 +77,19 @@ export default function PlushPreview() {
     controls.maxDistance = 16;
     controls.maxPolarAngle = Math.PI * 0.49;
     controls.enableDamping = true;
-    scene.add(new T.HemisphereLight('#fffaf0', '#8e8272', 2.2));
-    const key = new T.DirectionalLight('#fff4e4', 3);
+    scene.add(new T.HemisphereLight('#fffaf0', '#8e8272', 0.8));
+    const key = new T.DirectionalLight('#fff4e4', 2.4);
     key.position.set(3, 7, 5);
     key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.radius = 3;
     key.shadow.camera.left = key.shadow.camera.bottom = -4;
     key.shadow.camera.right = key.shadow.camera.top = 4;
     key.shadow.normalBias = 0.025;
     scene.add(key);
+    const rim = new T.DirectionalLight('#e4edff', 1.2);
+    rim.position.set(-4, 5, -3);
+    scene.add(rim);
     const floor = new T.Mesh(new T.PlaneGeometry(200, 200), new T.MeshStandardMaterial({color: '#e8e4dc', roughness: 1}));
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = -0.015;
@@ -108,6 +121,7 @@ export default function PlushPreview() {
       observer.disconnect();
       controls.dispose();
       disposeScene(scene);
+      environment.dispose();
       renderer.dispose();
       renderer.domElement.remove();
       sceneRef.current = null; modelRef.current = null; cameraRef.current = null; controlsRef.current = null;

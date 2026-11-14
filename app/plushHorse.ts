@@ -267,17 +267,19 @@ export const SAVED_FABRIC: Required<FabricChoice> = {body: 'velour', mane: 'boa'
 type FabricLook = {
   repeat: number; bump: number; roughness: number; sheen: number; sheenRoughness: number; sheenColor: string;
   clearcoat?: number;
+  /** Length of the raised pile in body units; fabrics without it are flat cloth. */
+  pile?: number;
 };
 const FABRIC_LOOKS: Record<FabricKind, FabricLook> = {
-  current: {repeat: 5, bump: 0.018, roughness: 1, sheen: 0.65, sheenRoughness: 1, sheenColor: '#d9d1c6'},
+  current: {repeat: 5, bump: 0.018, roughness: 1, sheen: 0.65, sheenRoughness: 1, sheenColor: '#d9d1c6', pile: 0.028},
   // Dense short pile: almost no visible grain, a soft bright glow at grazing angles.
-  minky: {repeat: 4, bump: 0.004, roughness: 0.85, sheen: 1, sheenRoughness: 0.35, sheenColor: '#ffffff'},
+  minky: {repeat: 4, bump: 0.004, roughness: 0.85, sheen: 1, sheenRoughness: 0.35, sheenColor: '#ffffff', pile: 0.04},
   // Curly long pile: deep bumpy curls.
-  boa: {repeat: 2.4, bump: 0.05, roughness: 1, sheen: 0.8, sheenRoughness: 0.55, sheenColor: '#f2ece2'},
+  boa: {repeat: 2.4, bump: 0.05, roughness: 1, sheen: 0.8, sheenRoughness: 0.55, sheenColor: '#f2ece2', pile: 0.045},
   // Matted fibres, flat and dry.
   felt: {repeat: 2.4, bump: 0.012, roughness: 1, sheen: 0.15, sheenRoughness: 1, sheenColor: '#d9d1c6'},
   // Cut pile laid in one direction: smooth, with a strong shifting sheen.
-  velour: {repeat: 3, bump: 0.003, roughness: 0.7, sheen: 1, sheenRoughness: 0.22, sheenColor: '#fff6ea'},
+  velour: {repeat: 3, bump: 0.003, roughness: 0.7, sheen: 1, sheenRoughness: 0.22, sheenColor: '#fff6ea', pile: 0.038},
   // Rows of small raised loops.
   terry: {repeat: 1.5, bump: 0.035, roughness: 1, sheen: 0.35, sheenRoughness: 0.8, sheenColor: '#e8e2d8'},
   // Columns of V stitches.
@@ -456,6 +458,461 @@ function fabricMaterial(color: T.ColorRepresentation, kind: FabricKind, stretch:
   });
 }
 
+const PILE_LAYERS = 12;
+/** Shade of the cloth backing under the pile; the fibres brighten from this toward their tips. */
+const PILE_ROOT_SHADE = 0.88;
+let pileNoise: T.DataTexture | undefined;
+/** R: one random height per fibre. G: smooth patches, for the marks left where the pile is brushed. */
+function pileNoiseTexture() {
+  if (pileNoise) return pileNoise;
+  const size = 256, cells = 12;
+  let seed = 4271;
+  const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const lattice = Float32Array.from({length: cells * cells}, random);
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const fx = x / size * cells, fy = y / size * cells;
+    const x0 = Math.floor(fx), y0 = Math.floor(fy);
+    const tx = T.MathUtils.smoothstep(fx - x0, 0, 1), ty = T.MathUtils.smoothstep(fy - y0, 0, 1);
+    const at = (cx: number, cy: number) => lattice[(cx % cells) + cells * (cy % cells)];
+    const smooth = T.MathUtils.lerp(T.MathUtils.lerp(at(x0, y0), at(x0 + 1, y0), tx), T.MathUtils.lerp(at(x0, y0 + 1), at(x0 + 1, y0 + 1), tx), ty);
+    const i = (x + y * size) * 4;
+    data[i] = random() * 256;
+    data[i + 1] = smooth * 255;
+    data[i + 3] = 255;
+  }
+  pileNoise = new T.DataTexture(data, size, size, T.RGBAFormat);
+  pileNoise.wrapS = pileNoise.wrapT = T.RepeatWrapping;
+  pileNoise.magFilter = T.LinearFilter;
+  pileNoise.minFilter = T.LinearMipmapLinearFilter;
+  pileNoise.generateMipmaps = true;
+  pileNoise.needsUpdate = true;
+  return pileNoise;
+}
+
+/**
+ * Raised pile: the same surface drawn several times, each copy pushed a little further out and keeping only
+ * the fibres tall enough to reach it. This gives the cloth a soft fuzzy outline instead of a hard edge.
+ */
+function pileMaterial(color: T.ColorRepresentation, kind: FabricKind, options: {vertexColors?: boolean; seam?: boolean; length?: number} = {}) {
+  const look = FABRIC_LOOKS[kind];
+  const material = new T.MeshPhysicalMaterial({
+    color, vertexColors: !!options.vertexColors, roughness: 1,
+    sheen: look.sheen * 0.3, sheenRoughness: Math.max(look.sheenRoughness, 0.3), sheenColor: look.sheenColor,
+    alphaTest: 0.5,
+  });
+  const length = options.length ?? look.pile ?? 0.03;
+  const seam = options.seam ? 1 : 0;
+  material.onBeforeCompile = shader => {
+    shader.uniforms.pileMap = {value: pileNoiseTexture()};
+    shader.uniforms.pileLength = {value: length};
+    shader.uniforms.pileSeam = {value: seam};
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+attribute vec3 rest;
+attribute vec3 restNormal;
+attribute float pileScale;
+uniform float pileLength;
+varying float vPileScale;
+varying vec3 vRest;
+varying vec3 vRestNormal;
+varying float vPile;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+vPile = (float(gl_InstanceID) + 1.0) / ${PILE_LAYERS}.0;
+vRest = rest;
+vRestNormal = restNormal;
+vPileScale = pileScale;
+// Fibres stand along the normal and lean a little down and back, as if stroked.
+float pileHeight = pileLength * pileScale * vPile;
+transformed += objectNormal * pileHeight + vec3(-0.2, -0.45, 0.0) * (pileHeight * vPile);`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+uniform sampler2D pileMap;
+uniform float pileSeam;
+varying float vPileScale;
+varying vec3 vRest;
+varying vec3 vRestNormal;
+varying float vPile;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+{
+  // Pile pressed flat under other cloth is not drawn.
+  if (vPileScale < 0.08) discard;
+  // Project the fibre pattern along the surface's main axis, so it never stretches into streaks.
+  vec3 fp = vRest * 1.35;
+  vec3 fdx = dFdx(fp) * 0.85, fdy = dFdy(fp) * 0.85;
+  vec3 an = abs(vRestNormal);
+  vec2 fuv, gx, gy;
+  // Each fibre is drawn as a short stroke lying the way the pile is brushed: downward, and backward on top.
+  vec2 lie;
+  if (an.x > an.y && an.x > an.z) { fuv = fp.yz; gx = fdx.yz; gy = fdy.yz; lie = vec2(0.65, 1.0); }
+  else if (an.y > an.z) { fuv = fp.zx; gx = fdx.zx; gy = fdy.zx; lie = vec2(1.0, 0.65); }
+  else { fuv = fp.xy; gx = fdx.xy; gy = fdy.xy; lie = vec2(1.0, 0.65); }
+  fuv *= lie; gx *= lie; gy *= lie;
+  float fibre = textureGrad(pileMap, fuv, gx, gy).r;
+  float brushed = texture2D(pileMap, vRest.xy * 0.21 + 0.13).g + texture2D(pileMap, vRest.zy * 0.21 + 0.57).g - 1.0;
+  // The pile is pinched short along the centre seam where the two halves are sewn together.
+  float seam = pileSeam * (1.0 - smoothstep(0.004, 0.034, abs(vRest.z)));
+  float reach = (1.0 - 0.7 * seam) * (0.8 + 0.2 * brushed);
+  diffuseColor.a = fibre - 0.92 * pow(min(vPile / reach, 1.5), 1.2) + 0.5;
+  diffuseColor.rgb *= mix(${PILE_ROOT_SHADE.toFixed(2)}, 1.03, vPile) * (1.0 + 0.08 * brushed) * (1.0 - 0.15 * seam);
+}`)
+      // The soft glow at grazing angles takes the colour of the fibres, so dark cloth stays dark.
+      .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
+#ifdef USE_SHEEN
+material.sheenColor *= mix(diffuseColor.rgb, vec3(1.0), 0.08);
+#endif`);
+  };
+  return material;
+}
+
+/** Cover a mesh with pile. The layers share its geometry, so they follow the legs as they swing. */
+function addPile(mesh: T.Mesh, material: T.Material) {
+  const geometry = mesh.geometry;
+  if (!geometry.attributes.rest) {
+    geometry.setAttribute('rest', new T.BufferAttribute((geometry.attributes.position.array as Float32Array).slice(), 3));
+    geometry.setAttribute('restNormal', new T.BufferAttribute((geometry.attributes.normal.array as Float32Array).slice(), 3));
+  }
+  if (!geometry.attributes.pileScale) {
+    geometry.setAttribute('pileScale', new T.BufferAttribute(new Float32Array(geometry.attributes.position.count).fill(1), 1));
+  }
+  const pile = new T.InstancedMesh(geometry, material, PILE_LAYERS);
+  pile.name = 'pile';
+  pile.receiveShadow = true;
+  pile.frustumCulled = false;
+  pile.raycast = () => {};
+  mesh.add(pile);
+  return pile;
+}
+
+type Strand = {points: T.Vector3[]; radius: number; shade: number};
+type HairTemplate = {positions: Float32Array; normals: Float32Array; colors: Float32Array; index: Uint32Array};
+type Solid = (x: number, y: number, z: number) => number;
+
+/** Thin tapering tubes, one per hair, merged into a single mesh. */
+function strandTemplate(strands: Strand[]): HairTemplate {
+  const sides = 4;
+  const rings = strands.reduce((n, s) => n + s.points.length, 0);
+  const positions = new Float32Array(rings * sides * 3), normals = new Float32Array(rings * sides * 3), colors = new Float32Array(rings * sides * 3);
+  const index: number[] = [];
+  const tangent = new T.Vector3(), side = new T.Vector3(), across = new T.Vector3(), offset = new T.Vector3();
+  let v = 0;
+  for (const strand of strands) {
+    const last = strand.points.length - 1;
+    for (let i = 0; i <= last; i++) {
+      tangent.copy(strand.points[Math.min(i + 1, last)]).sub(strand.points[Math.max(i - 1, 0)]).normalize();
+      // Carry the frame along the hair so the tube never twists.
+      if (i === 0) side.set(tangent.y, -tangent.x, 0.3).cross(tangent);
+      side.addScaledVector(tangent, -side.dot(tangent)).normalize();
+      across.crossVectors(tangent, side);
+      const t = i / last;
+      const radius = strand.radius * (1 - 0.96 * Math.pow(t, 1.35)) * T.MathUtils.lerp(0.6, 1, T.MathUtils.smoothstep(t, 0, 0.15));
+      // Darker where the hairs crowd together at the root, lighter toward the loose tips.
+      const shade = strand.shade * T.MathUtils.lerp(0.72, 1.04, T.MathUtils.smoothstep(t, 0, 0.7));
+      const p = strand.points[i];
+      for (let j = 0; j < sides; j++) {
+        const a = j / sides * Math.PI * 2;
+        offset.copy(side).multiplyScalar(Math.cos(a)).addScaledVector(across, Math.sin(a));
+        positions.set([p.x + offset.x * radius, p.y + offset.y * radius, p.z + offset.z * radius], v * 3);
+        normals.set([offset.x, offset.y, offset.z], v * 3);
+        colors.set([shade, shade, shade], v * 3);
+        if (i < last) {
+          const next = v - j + (j + 1) % sides;
+          index.push(v, next, v + sides, next, next + sides, v + sides);
+        }
+        v++;
+      }
+    }
+  }
+  return {positions, normals, colors, index: Uint32Array.from(index)};
+}
+
+function hairGeometry(template: HairTemplate) {
+  const geometry = new T.BufferGeometry();
+  geometry.setAttribute('position', new T.BufferAttribute(template.positions, 3));
+  geometry.setAttribute('normal', new T.BufferAttribute(template.normals, 3));
+  geometry.setAttribute('color', new T.BufferAttribute(template.colors, 3));
+  geometry.setIndex(new T.BufferAttribute(template.index, 1));
+  return geometry;
+}
+
+/**
+ * Grow one hair from its root: it leaves in `direction`, bends under gravity, and is pushed back out of
+ * `solid` (the stuffed body) so it lies on the surface instead of passing through it.
+ */
+function growStrand(
+  root: T.Vector3, direction: T.Vector3, length: number, segments: number,
+  shape: {gravity: T.Vector3; droop: number; solid: Solid; clearance: number; wave: number; random: () => number},
+) {
+  const {gravity, droop, solid, clearance, wave, random} = shape;
+  const points = [root.clone()];
+  const p = root.clone(), v = direction.clone().normalize(), previous = new T.Vector3(), normal = new T.Vector3();
+  const phase = random() * Math.PI * 2, frequency = 0.7 + random() * 0.9;
+  const waveAxis = new T.Vector3(random() - 0.5, random() - 0.5, random() - 0.5).normalize();
+  const e = 0.01;
+  for (let i = 1; i <= segments; i++) {
+    previous.copy(p);
+    v.addScaledVector(gravity, droop).addScaledVector(waveAxis, wave * Math.sin(phase + i * frequency)).normalize();
+    p.addScaledVector(v, length / segments);
+    const gap = clearance * Math.min(1, i / 2);
+    let touched = false;
+    for (let pass = 0; pass < 2; pass++) {
+      const d = solid(p.x, p.y, p.z);
+      if (d >= gap) break;
+      normal.set(
+        solid(p.x + e, p.y, p.z) - solid(p.x - e, p.y, p.z),
+        solid(p.x, p.y + e, p.z) - solid(p.x, p.y - e, p.z),
+        solid(p.x, p.y, p.z + e) - solid(p.x, p.y, p.z - e),
+      );
+      if (normal.lengthSq() === 0) break;
+      p.addScaledVector(normal.normalize(), gap - d);
+      touched = true;
+    }
+    if (touched) v.copy(p).sub(previous).normalize();
+    points.push(p.clone());
+  }
+  return points;
+}
+
+const maneTemplates = new Map<string, HairTemplate>();
+/**
+ * Outline of the mane as the user drew it, in body units: seen from the side, the range of x at each height
+ * (on the centre plane); seen from behind, the range of z. The hair fills the volume inside both outlines.
+ */
+const MANE_SIDE: [number, number, number][] = [
+  [3.1, 0.24, 0.58], [3.04, 0.12, 0.63], [2.95, 0.04, 0.63], [2.9, -0.03, 0.62], [2.8, -0.09, 0.6],
+  [2.7, -0.13, 0.62], [2.6, -0.16, 0.6], [2.5, -0.17, 0.52], [2.4, -0.2, 0.46], [2.3, -0.25, 0.41],
+  [2.2, -0.34, 0.35], [2.1, -0.5, 0.27], [2.02, -0.52, 0.12],
+];
+const MANE_BACK: [number, number, number][] = [
+  [3.12, -0.08, 0.12], [3.07, -0.22, 0.26], [3.01, -0.28, 0.32], [2.95, -0.33, 0.37], [2.65, -0.33, 0.37],
+  [2.45, -0.31, 0.35], [2.35, -0.28, 0.32], [2.25, -0.24, 0.28], [2.19, -0.2, 0.24], [2.13, -0.12, 0.16], [2.03, -0.03, 0.07],
+];
+/**
+ * How far hair may stray past the drawn outline: a little front-to-back, and further sideways where it lies on the
+ * side of the head and neck. The side drawing reaches down the neck further than the rear drawing is wide; 0.2 is the
+ * measured best balance between the two.
+ */
+const MANE_SPILL = 0.05, MANE_SIDE_SPILL = 0.2;
+function outlineSpan(table: [number, number, number][], y: number): [number, number] | null {
+  if (y > table[0][0] || y < table[table.length - 1][0]) return null;
+  for (let i = 0; i + 1 < table.length; i++) {
+    const [ya, a0, a1] = table[i], [yb, b0, b1] = table[i + 1];
+    if (y <= ya && y >= yb) {
+      const t = (ya - y) / (ya - yb);
+      return [T.MathUtils.lerp(a0, b0, t), T.MathUtils.lerp(a1, b1, t)];
+    }
+  }
+  return null;
+}
+
+/** The mane, in body coordinates: locks of hair rising from the crest and swept back, from the poll to the withers. */
+function maneGeometry(settings: HeadSettings, menko: boolean) {
+  const cacheKey = JSON.stringify(settings) + menko;
+  let template = maneTemplates.get(cacheKey);
+  if (!template) {
+    const {headWidth} = settings;
+    // Taller or shorter about the crest, with the drawn outline at the saved setting.
+    const stretch = 1 + (SAVED_HEAD.maneHeight - settings.maneHeight) * 0.3;
+    const base = 2.0;
+    const side = (y: number) => outlineSpan(MANE_SIDE, base + (y - base) / stretch);
+    const back = (y: number) => outlineSpan(MANE_BACK, base + (y - base) / stretch);
+    const top = base + (MANE_SIDE[0][0] - base) * stretch;
+    const inside = (p: T.Vector3, tolerance = 0, sideways = tolerance) => {
+      const sx = side(p.y), bz = back(p.y);
+      return !!sx && !!bz && p.x >= sx[0] - tolerance && p.x <= sx[1] + tolerance && p.z >= bz[0] - sideways && p.z <= bz[1] + sideways;
+    };
+    const skin: Solid = (x, y, z) => menko
+      ? Math.min(bodyDistance(x, y, z, settings), hoodDistance(x, y, z, settings))
+      : bodyDistance(x, y, z, settings);
+    // The ears, as thin ellipsoids, so the hair parts around them instead of passing through.
+    const ear = (x: number, y: number, z: number) => {
+      const hx = (x - 0.67) / 1.18, hy = (y - 1.91) / 1.18, hz = z / 1.18;
+      const s = hz < 0 ? -1 : 1, a = -s * 0.2;
+      const ly = hy - 0.58, lz = hz - s * 0.3 * headWidth;
+      const ry = ly * Math.cos(a) - lz * Math.sin(a), rz = ly * Math.sin(a) + lz * Math.cos(a);
+      return (Math.hypot((hx + 0.06) / 0.07, (ry - 0.33) / 0.36, rz / 0.17) - 1) * 0.07 * 1.18;
+    };
+    const solid: Solid = (x, y, z) => Math.min(skin(x, y, z), ear(x, y, z));
+    const gradient = (f: Solid, p: T.Vector3) => {
+      const e = 0.01;
+      return new T.Vector3(
+        f(p.x + e, p.y, p.z) - f(p.x - e, p.y, p.z),
+        f(p.x, p.y + e, p.z) - f(p.x, p.y - e, p.z),
+        f(p.x, p.y, p.z + e) - f(p.x, p.y, p.z - e),
+      ).normalize();
+    };
+    const normalAt = (p: T.Vector3) => gradient(skin, p);
+    // Hair that meets the head or neck lies on it rather than passing through.
+    const pushOut = (p: T.Vector3, clearance: number) => {
+      for (let pass = 0; pass < 4; pass++) {
+        const d = solid(p.x, p.y, p.z);
+        if (d >= clearance) return;
+        p.addScaledVector(gradient(solid, p), clearance - d);
+      }
+    };
+    const surfaceBelow = (x: number, z: number) => {
+      let lo = 1, hi = top + 0.3;
+      if (skin(x, hi, z) < 0 || skin(x, lo, z) > 0) return null;
+      for (let k = 0; k < 22; k++) {
+        const y = (lo + hi) / 2;
+        if (skin(x, y, z) < 0) lo = y; else hi = y;
+      }
+      return new T.Vector3(x, (lo + hi) / 2, z);
+    };
+    let seed = 9157;
+    const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+    const strands: Strand[] = [];
+    const steps = 16, perLock = 40;
+    const backward = new T.Vector3(-1, 0, 0), sideways = new T.Vector3(0, 0, 1);
+    /**
+     * One guide hair per lock. It leaves the crest along the skin's normal, sweeps back toward the tail and fans a
+     * little to one side, and ends where it meets the drawn outline, so the tips of the locks trace that outline.
+     */
+    const growGuide = (root: T.Vector3, lean: number, fan: number, curl: number, drape: boolean) => {
+      const normal = normalAt(root);
+      const v = drape
+        ? normal.clone().multiplyScalar(0.35).addScaledVector(backward, 0.4).addScaledVector(sideways, fan < 0 ? -1 : 1).normalize()
+        : normal.clone().addScaledVector(backward, lean).addScaledVector(sideways, fan).normalize();
+      // Standing locks curl gently backward at the tip; draped ones fall down the side of the neck.
+      const bend = drape ? new T.Vector3(-0.25, -1, 0).multiplyScalar(0.22) : new T.Vector3(-0.8, -0.45, 0).multiplyScalar(curl);
+      const step = (drape ? 0.45 : 0.8) / steps;
+      const points = [root.clone()], p = root.clone();
+      for (let i = 1; i <= steps; i++) {
+        v.add(bend);
+        if (!drape) v.z *= 0.97;
+        p.addScaledVector(v.normalize(), step);
+        pushOut(p, 0.012);
+        if (!drape) {
+          // Slide along the side of the outline rather than stopping there: the lock keeps its length.
+          const bz = back(p.y);
+          if (bz) p.z = T.MathUtils.clamp(p.z, bz[0], bz[1]);
+        }
+        if (!inside(p, drape ? MANE_SPILL : 0.012, drape ? MANE_SIDE_SPILL : 0.012)) break;
+        points.push(p.clone());
+      }
+      return points;
+    };
+    // The crest climbs steeply from the withers to the poll: space the roots evenly along it, not along x.
+    const crestX: number[] = [], crestLength: number[] = [];
+    for (let i = 0, previous: T.Vector3 | null = null, total = 0; i <= 110; i++) {
+      const at = surfaceBelow(-0.5 + i * 0.01, 0);
+      if (!at) continue;
+      if (previous) total += at.distanceTo(previous);
+      previous = at;
+      crestX.push(at.x); crestLength.push(total);
+    }
+    const crestAt = (u: number) => {
+      const target = u * crestLength[crestLength.length - 1];
+      let i = 1;
+      while (i < crestLength.length - 1 && crestLength[i] < target) i++;
+      return T.MathUtils.mapLinear(target, crestLength[i - 1], crestLength[i], crestX[i - 1], crestX[i]);
+    };
+    for (let tries = 0; strands.length < 9000 && tries < 6000; tries++) {
+      // Roots along the sewn crest line, which widens into a patch between the ears.
+      const x = crestAt(random());
+      const poll = T.MathUtils.smoothstep(x, 0.15, 0.5);
+      const halfWidth = T.MathUtils.lerp(0.15, 0.2, poll);
+      const across = random() * 2 - 1;
+      const surface = surfaceBelow(x, across * halfWidth);
+      if (!surface || !inside(surface, 0.03)) continue;
+      const root = surface.addScaledVector(normalAt(surface), -0.01);
+      const drape = x > 0.05 && Math.abs(across) > 0.6 && random() < 0.3;
+      // Hair fans away from the centre line in proportion to how far out it is rooted, so no two locks cross;
+      // further at the poll, where the outline is widest.
+      const fan = (across + (random() - 0.5) * 0.3) * T.MathUtils.lerp(0.9, 0.7, poll);
+      // Upright at the poll to reach the top of the outline; swept further back down the neck.
+      const sweep = T.MathUtils.lerp(0.35 + random() * 0.9, random() * 0.55, poll);
+      const curl = T.MathUtils.lerp(0.05, 0.008, poll) * (0.6 + random() * 0.8);
+      let guide: T.Vector3[] = [];
+      for (let attempt = 0; attempt < 5 && guide.length < 6; attempt++) {
+        // Try the full backward sweep first; near the back edge of the outline only upright locks have room.
+        guide = growGuide(root, sweep * (1 - attempt / 5), fan, curl, drape);
+      }
+      if (guide.length < 4) continue;
+      const phase = random() * Math.PI * 2, twist = (random() - 0.5) * 2.4;
+      const shade = 0.9 + random() * 0.22;
+      for (let n = 0; n < perLock; n++) {
+        // Each hair starts a little apart from the guide and gathers toward it, so the lock tapers to a tip.
+        const angle = random() * Math.PI * 2, r = 0.055 * Math.sqrt(random());
+        const at = surfaceBelow(root.x + Math.cos(angle) * r, root.z + Math.sin(angle) * r);
+        if (!at) continue;
+        const offset = at.sub(root);
+        const reach = 0.62 + 0.38 * Math.pow(random(), 0.6);
+        const last = Math.max(3, Math.round((guide.length - 1) * reach));
+        const frizz = 0.002 + random() * 0.004, wave = random() * Math.PI * 2;
+        const points: T.Vector3[] = [];
+        for (let i = 0; i <= last; i++) {
+          const t = i / (guide.length - 1);
+          const gather = T.MathUtils.lerp(1, 0.5, Math.pow(t, 0.8));
+          // The lock turns slightly about its own axis as it rises.
+          const c = Math.cos(twist * t), s = Math.sin(twist * t);
+          const point = guide[i].clone().add(new T.Vector3(
+            (offset.x * c - offset.z * s) * gather,
+            offset.y * (1 - t),
+            (offset.x * s + offset.z * c) * gather,
+          ));
+          const ripple = Math.sin(t * 9 + phase + wave * 0.3) * frizz * t;
+          point.x += ripple;
+          point.z += Math.cos(t * 7 + wave) * frizz * t;
+          if (i > 0) pushOut(point, 0.008);
+          points.push(point);
+        }
+        strands.push({points, radius: 0.0016 + random() * 0.001, shade: shade * (0.94 + random() * 0.12)});
+      }
+    }
+    template = strandTemplate(strands);
+    if (maneTemplates.size >= 8) maneTemplates.delete(maneTemplates.keys().next().value!);
+    maneTemplates.set(cacheKey, template);
+  }
+  return hairGeometry(template);
+}
+
+const TAIL_ROOT: Point = [-1.22, 1.38, 0];
+const tailTemplates = new Map<string, HairTemplate>();
+/** The tail, in the tail group's coordinates: long hairs that leave the dock, arch, and hang clear of the hindquarters. */
+function tailGeometry(settings: HeadSettings) {
+  const cacheKey = JSON.stringify(settings);
+  let template = tailTemplates.get(cacheKey);
+  if (!template) {
+    const solid: Solid = (x, y, z) => bodyDistance(x + TAIL_ROOT[0], y + TAIL_ROOT[1], z + TAIL_ROOT[2], settings, false);
+    let seed = 2203;
+    const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+    const gravity = new T.Vector3(-0.04, -1, 0).normalize();
+    const strands: Strand[] = [];
+    // One curved centre line keeps the long hairs together at the tip.
+    const spine = growStrand(new T.Vector3(-0.15, 0, 0), new T.Vector3(-1, 0.4, 0), 1.5, 36,
+      {gravity, droop: 0.085, solid, clearance: 0.12, wave: 0, random});
+    for (let n = 0; n < 1500; n++) {
+      const angle = random() * Math.PI * 2, spread = Math.sqrt(random());
+      // Outer hairs finish earlier; only a few central hairs reach the very end.
+      const reach = 0.52 + 0.48 * Math.pow(1 - spread, 0.7);
+      const points: T.Vector3[] = [];
+      for (let i = 0; i <= 18; i++) {
+        const t = i / 18 * reach, sample = t * (spine.length - 1);
+        const k = Math.min(Math.floor(sample), spine.length - 2);
+        const center = spine[k].clone().lerp(spine[k + 1], sample - k);
+        const tangent = spine[k + 1].clone().sub(spine[k]).normalize();
+        const across = new T.Vector3(-tangent.y, tangent.x, 0);
+        // A narrow dock opens into a full middle, then closes to a tapered tip.
+        const envelope = 0.065 * (1 - t) + 0.25 * Math.pow(Math.sin(Math.PI * t), 1.1);
+        const radius = spread * envelope;
+        center.addScaledVector(across, Math.cos(angle) * radius);
+        center.z += Math.sin(angle) * radius;
+        points.push(center);
+      }
+      strands.push({
+        points,
+        radius: 0.00175 + random() * 0.001,
+        shade: 0.86 + random() * 0.3,
+      });
+    }
+    template = strandTemplate(strands);
+    if (tailTemplates.size >= 8) tailTemplates.delete(tailTemplates.keys().next().value!);
+    tailTemplates.set(cacheKey, template);
+  }
+  return hairGeometry(template);
+}
+
 /** A stuffed, slightly squared sphere avoids the old stack-of-balls silhouette. */
 function pillowGeometry() {
   const geometry = new T.SphereGeometry(1, 24, 16);
@@ -505,63 +962,6 @@ function earGeometry() {
   return geometry;
 }
 
-let tailTemplate: {positions: Float32Array; normals: Float32Array} | undefined;
-function tailGeometry() {
-  if (!tailTemplate) {
-    const paths: {points: Point[]; start: number; end: number}[] = [{points: [[0, 0, 0], [-0.2, -0.12, 0], [-0.28, -0.4, 0], [-0.32, -0.6, 0]], start: 0.16, end: 0.09}];
-    for (let i = -1; i <= 1; i++) paths.push({points: [[-0.28, -0.44, i * 0.025], [-0.34, -0.68, i * 0.075], [-0.38 + Math.abs(i) * 0.06, -0.92 + Math.abs(i) * 0.08, i * 0.14]], start: 0.1, end: 0.006});
-    const segments: {a: T.Vector3; delta: T.Vector3; length2: number; r0: number; r1: number}[] = [];
-    for (const path of paths) {
-      const curve = new T.CatmullRomCurve3(path.points.map(p => new T.Vector3(...p)));
-      for (let i = 0; i < 14; i++) {
-        const a = curve.getPoint(i / 14), b = curve.getPoint((i + 1) / 14);
-        const delta = b.sub(a);
-        segments.push({a, delta, length2: delta.lengthSq(), r0: T.MathUtils.lerp(path.start, path.end, i / 14), r1: T.MathUtils.lerp(path.start, path.end, (i + 1) / 14)});
-      }
-    }
-    const resolution = 44;
-    const material = new T.MeshBasicMaterial();
-    const field = new MarchingCubes(resolution, material, false, false, 10000);
-    field.isolation = 0;
-    for (let z = 0; z < resolution; z++) for (let y = 0; y < resolution; y++) for (let x = 0; x < resolution; x++) {
-      const px = (x / resolution - 0.5) * 1.5 - 0.2;
-      const py = (y / resolution - 0.5) * 1.5 - 0.45;
-      const pz = (z / resolution - 0.5) * 1.5;
-      let d = Infinity;
-      // Min within each strand, then soften branch unions without exposed tube caps.
-      for (let path = 0; path < paths.length; path++) {
-        let strand = Infinity;
-        for (let i = path * 14; i < (path + 1) * 14; i++) {
-          const seg = segments[i];
-          const dx = px - seg.a.x, dy = py - seg.a.y, dz = pz - seg.a.z;
-          const t = T.MathUtils.clamp((dx * seg.delta.x + dy * seg.delta.y + dz * seg.delta.z) / seg.length2, 0, 1);
-          strand = Math.min(strand, Math.hypot(dx - seg.delta.x * t, dy - seg.delta.y * t, dz - seg.delta.z * t) - T.MathUtils.lerp(seg.r0, seg.r1, t));
-        }
-        d = smoothUnion(d, strand, 0.035);
-      }
-      field.field[x + resolution * (y + resolution * z)] = -d;
-    }
-    field.update();
-    const count = field.geometry.drawRange.count;
-    const positions = new Float32Array(field.geometry.attributes.position.array.slice(0, count * 3));
-    for (let i = 0; i < positions.length; i += 3) {
-      positions[i] = positions[i] * 0.75 - 0.2;
-      positions[i + 1] = positions[i + 1] * 0.75 - 0.45;
-      positions[i + 2] *= 0.75;
-    }
-    tailTemplate = {positions, normals: new Float32Array(field.geometry.attributes.normal.array.slice(0, count * 3))};
-    field.geometry.dispose();
-    material.dispose();
-  }
-  const geometry = new T.BufferGeometry();
-  geometry.setAttribute('position', new T.BufferAttribute(tailTemplate.positions.slice(), 3));
-  geometry.setAttribute('normal', new T.BufferAttribute(tailTemplate.normals.slice(), 3));
-  const uv = new Float32Array(tailTemplate.positions.length / 3 * 2);
-  for (let i = 0; i < uv.length / 2; i++) {uv[i * 2] = tailTemplate.positions[i * 3]; uv[i * 2 + 1] = tailTemplate.positions[i * 3 + 1];}
-  geometry.setAttribute('uv', new T.BufferAttribute(uv, 2));
-  return geometry;
-}
-
 export function plush(h: Horse, options: PlushOptions = {}) {
   const settings = normalizeHead(options);
   const {headWidth} = settings;
@@ -574,6 +974,9 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   const brown = fabricMaterial(coat[h.coatCode] || '#999999', fabrics.body ?? 'current');
   const dark = cloth('#29272a');
   const hair = fabricMaterial('#29272a', fabrics.mane ?? 'current');
+  const strandMaterial = new T.MeshPhysicalMaterial({color: '#2f2b2d', vertexColors: true, roughness: 0.82, metalness: 0, sheen: 0.85, sheenRoughness: 0.72, sheenColor: '#605650', specularIntensity: 0.35});
+  const bodyFabric = fabrics.body ?? 'current';
+  const piled = !!FABRIC_LOOKS[bodyFabric].pile;
   const blue = cloth('#234b98');
   const hood = h.blinker ? fabricMaterial('#327ca6', fabrics.menko ?? 'current') : brown;
   const eye = new T.MeshStandardMaterial({color: '#151416', roughness: 0.48});
@@ -595,6 +998,22 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   shell.name = 'seamless-body-and-feet';
   shell.castShadow = shell.receiveShadow = true;
   body.add(shell);
+  const pileLength = FABRIC_LOOKS[bodyFabric].pile ?? 0;
+  if (piled) {
+    shellMaterial.color.setScalar(PILE_ROOT_SHADE);
+    if (h.blinker) {
+      // The hood presses the pile flat wherever it covers the head.
+      const at = shell.geometry.attributes.position.array as Float32Array;
+      const scale = new Float32Array(at.length / 3);
+      for (let i = 0; i < scale.length; i++) {
+        scale[i] = at[i * 3 + 1] < 1.2 ? 1 : T.MathUtils.smoothstep(hoodDistance(at[i * 3], at[i * 3 + 1], at[i * 3 + 2], settings), -0.012, 0.03);
+      }
+      shell.geometry.setAttribute('pileScale', new T.BufferAttribute(scale, 1));
+    }
+    addPile(shell, pileMaterial('#ffffff', bodyFabric, {vertexColors: true, seam: true}));
+  }
+  // Eyes, nostrils and the saddlecloth sit on top of the pile rather than sinking into it.
+  const raise = Math.max(0, pileLength - 0.02);
   const legs = legRig(shell);
 
   if (h.blinker) {
@@ -625,52 +1044,33 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     ear.name = 'cupped-cloth-ear';
     ear.castShadow = ear.receiveShadow = true;
     head.add(ear);
+    if (piled && !h.blinker) addPile(ear, pileMaterial(brown.color, bodyFabric, {length: 0.016}));
     const eyeX = T.MathUtils.lerp(0.47, 0.36, settings.eyeScale);
     const eyeY = T.MathUtils.lerp(0.26, 0.25, settings.eyeScale);
     const eyeZ = surfaceZ(eyeX, eyeY);
     const eyeSize = T.MathUtils.lerp(1.24, 1, settings.eyeScale);
-    ball(head, eye, [eyeX, eyeY, side * (eyeZ + 0.012)], [0.085 * eyeSize, 0.105 * eyeSize, 0.035], false);
-    ball(head, shine, [eyeX + 0.02, eyeY + 0.03, side * (eyeZ + 0.044)], [0.019, 0.022, 0.006], false);
+    ball(head, eye, [eyeX, eyeY, side * (eyeZ + 0.012 + raise / 1.18)], [0.085 * eyeSize, 0.105 * eyeSize, 0.035], false);
+    ball(head, shine, [eyeX + 0.02, eyeY + 0.03, side * (eyeZ + 0.044 + raise / 1.18)], [0.019, 0.022, 0.006], false);
     const noseZ = surfaceZ(1.1, -0.13);
-    ball(head, dark, [1.1, -0.13, side * (noseZ + 0.006)], [0.027, 0.039, 0.018], false);
+    ball(head, dark, [1.1, -0.13, side * (noseZ + 0.006 + raise / 1.18)], [0.027, 0.039, 0.02], false);
   }
   // Tube UVs run 0..1 along each strap, so the grain is tiled many times along its length.
   if (options.bridle) addBridle(head, fabricMaterial('#5b3826', fabrics.bridle ?? 'current', [12, 0.3]), settings, !!h.blinker);
 
-  // One thin piece of zigzag-cut felt, running along the middle of the head.
-  const maneOutline = new T.Shape();
-  maneOutline.moveTo(-0.3, -0.1);
-  maneOutline.lineTo(-0.32, 0.4);
-  maneOutline.lineTo(-0.22, 0.62);
-  maneOutline.lineTo(-0.12, 0.84);
-  maneOutline.lineTo(0.57, 0.72);
-  maneOutline.lineTo(0.76, 0.6);
-  maneOutline.lineTo(0.68, 0.94);
-  maneOutline.lineTo(0.49, 0.83);
-  maneOutline.lineTo(0.39, 1.05);
-  maneOutline.lineTo(0.2, 0.89);
-  maneOutline.lineTo(0.08, 1.1);
-  maneOutline.lineTo(-0.1, 0.91);
-  maneOutline.lineTo(-0.28, 1.04);
-  maneOutline.lineTo(-0.36, 0.81);
-  maneOutline.lineTo(-0.57, 0.86);
-  maneOutline.lineTo(-0.54, 0.61);
-  maneOutline.lineTo(-0.73, 0.6);
-  maneOutline.lineTo(-0.59, 0.36);
-  maneOutline.lineTo(-0.77, 0.3);
-  maneOutline.lineTo(-0.6, 0.1);
-  maneOutline.closePath();
-  const mane = new T.Mesh(new T.ExtrudeGeometry(maneOutline, {depth: 0.075, bevelEnabled: true, bevelSize: 0.012, bevelThickness: 0.012, bevelSegments: 1, steps: 1}), hair);
-  mane.position.z = -0.0375;
-  mane.scale.y = T.MathUtils.lerp(1, 0.78, settings.maneHeight);
-  mane.name = 'felt-zigzag-mane';
-  mane.castShadow = true;
+  // Mane and tail are real hairs. The mane is grown in body coordinates and carried by the head.
+  const mane = new T.Mesh(maneGeometry(settings, !!h.blinker), strandMaterial);
+  mane.scale.setScalar(1 / 1.18);
+  mane.position.set(-0.67 / 1.18, -1.91 / 1.18, 0);
+  mane.name = 'hair-mane';
+  mane.castShadow = mane.receiveShadow = true;
   head.add(mane);
   const tail = new T.Group();
-  tail.position.set(-1.22, 1.38, 0);
+  tail.position.set(...TAIL_ROOT);
   body.add(tail);
-  const tailMesh = new T.Mesh(tailGeometry(), hair);
-  tailMesh.name = 'seamless-forked-tail';
+  // A small stuffed dock closes the root, where the hairs are sewn in.
+  ball(tail, hair, [-0.12, 0, 0], [0.12, 0.1, 0.1]).name = 'tail-dock';
+  const tailMesh = new T.Mesh(tailGeometry(settings), strandMaterial);
+  tailMesh.name = 'hair-tail';
   tailMesh.castShadow = tailMesh.receiveShadow = true;
   tail.add(tailMesh);
 
@@ -684,7 +1084,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
       if (bodyDistance(x, 1.22 + r * Math.cos(t), r * Math.sin(t), settings, false) < 0) low = r;
       else high = r;
     }
-    const r = (low + high) / 2 + 0.025 + lift;
+    const r = (low + high) / 2 + Math.max(0.025, pileLength + 0.012) + lift;
     return [x, 1.22 + r * Math.cos(t), r * Math.sin(t)];
   };
   const clothGeometry = new T.PlaneGeometry(1.08, 2.8, 10, 24);
@@ -784,12 +1184,13 @@ function poseLegs(rig: LegRig, angles: number[]) {
   position.needsUpdate = normal.needsUpdate = true;
 }
 
-const STRAP_RADIUS = 0.026;
-const STRAP_LIFT = 0.036; // centre-line height above the shell: leaves ~0.01 of air under the strap
+const STRAP_WIDTH = 0.062;
+const STRAP_THICKNESS = 0.009;
+const STRAP_LIFT = 0.022; // Clearance for the leather backing and the short coat pile.
 
 /**
  * Leather head straps built only from plane sections ("rings") and straight runs, so they read as clean
- * loops and lines. Every open end finishes exactly on another strap's centre line under a round joint,
+ * loops and lines. Every open end finishes exactly on another strap's centre line under a flat leather joint,
  * so there are no cut ends or gaps. All coordinates are in the head group's frame.
  */
 function addBridle(head: T.Group, leather: T.Material, settings: HeadSettings, menko: boolean) {
@@ -858,18 +1259,67 @@ function addBridle(head: T.Group, leather: T.Material, settings: HeadSettings, m
   };
   const strap = (name: string, points: T.Vector3[], closed: boolean) => {
     const curve = new T.CatmullRomCurve3(points, closed, 'centripetal');
-    const mesh = new T.Mesh(new T.TubeGeometry(curve, points.length * 3, STRAP_RADIUS, 12, closed), leather);
-    mesh.castShadow = true;
+    const steps = points.length * 3;
+    const w = STRAP_WIDTH / 2, h = STRAP_THICKNESS / 2, bevel = 0.002;
+    // A broad flat face, a thin edge, and tiny bevels that catch the light.
+    // Frame the section against the head, so the leather lies flat around the nose and poll.
+    const section = [
+      [-w + bevel, h], [w - bevel, h], [w, h - bevel], [w, -h + bevel],
+      [w - bevel, -h], [-w + bevel, -h], [-w, -h + bevel], [-w, h - bevel],
+    ];
+    const positions: number[] = [], uvs: number[] = [], indices: number[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps, center = curve.getPointAt(t), tangent = curve.getTangentAt(t).normalize();
+      const outward = normalAt(center);
+      outward.addScaledVector(tangent, -outward.dot(tangent)).normalize();
+      const across = new T.Vector3().crossVectors(tangent, outward).normalize();
+      // Duplicate section corners per face to preserve the flat leather faces.
+      for (let edge = 0; edge < section.length; edge++) {
+        for (const corner of [edge, (edge + 1) % section.length]) {
+          const [x, y] = section[corner];
+          const vertex = center.clone().addScaledVector(across, x).addScaledVector(outward, y);
+          positions.push(vertex.x, vertex.y, vertex.z);
+          uvs.push(t, (x / STRAP_WIDTH + 0.5));
+        }
+        if (i < steps) {
+          const a = i * 16 + edge * 2, b = a + 1, c = a + 16, d = c + 1;
+          indices.push(a, b, c, b, d, c);
+        }
+      }
+    }
+    // Close the cut ends; the closed noseband already shares its first and last section.
+    if (!closed) for (const end of [0, steps]) {
+      const start = positions.length / 3;
+      for (let corner = 0; corner < section.length; corner++) {
+        const source = (end * 16 + corner * 2) * 3;
+        positions.push(...positions.slice(source, source + 3));
+        uvs.push(section[corner][0] / STRAP_WIDTH + 0.5, section[corner][1] / STRAP_THICKNESS + 0.5);
+      }
+      for (let j = 1; j < section.length - 1; j++) {
+        if (end === 0) indices.push(start, start + j + 1, start + j);
+        else indices.push(start, start + j, start + j + 1);
+      }
+    }
+    const geometry = new T.BufferGeometry();
+    geometry.setAttribute('position', new T.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('uv', new T.Float32BufferAttribute(uvs, 2));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    const mesh = new T.Mesh(geometry, leather);
+    mesh.castShadow = mesh.receiveShadow = true;
     mesh.name = name;
     head.add(mesh);
   };
-  // A ball the size of the strap section fills each joint and hides tube ends inside the other strap.
+  // Flatten the joining patches too, keeping the old spherical knots out of the silhouette.
   const joint = (at: T.Vector3) => {
-    const ball = new T.Mesh(new T.SphereGeometry(STRAP_RADIUS * 1.08, 16, 12), leather);
-    ball.position.copy(at);
-    ball.castShadow = true;
-    ball.name = 'bridle-joint';
-    head.add(ball);
+    const patch = new T.Mesh(new T.SphereGeometry(1, 16, 8), leather);
+    const normal = normalAt(at);
+    patch.scale.set(STRAP_WIDTH * 0.54, STRAP_WIDTH * 0.54, STRAP_THICKNESS * 0.65);
+    patch.quaternion.setFromUnitVectors(new T.Vector3(0, 0, 1), normal);
+    patch.position.copy(at).addScaledVector(normal, STRAP_THICKNESS * 0.2);
+    patch.castShadow = patch.receiveShadow = true;
+    patch.name = 'bridle-joint';
+    head.add(patch);
   };
 
   // Noseband: one ring around the muzzle, tilted to follow the user's trace of the head/nose seam.
