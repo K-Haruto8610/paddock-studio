@@ -298,6 +298,15 @@ LAST3_FEATURES = CLOSING_BASE + TRAFFIC + ENERGY
 DEFAULT_PARAMS = {'alpha': .5, 'delta': .08, 'width': 4, 'front': .35, 'hold': .06}
 PARAM_GRID = [{'alpha': a, 'delta': dl, 'width': w, 'front': f, 'hold': h}
               for a in (.5, .7) for dl in (.04, .08) for w in (4,) for f in (.25, .45) for h in (.03, .06, .1)]
+# Written to report.json as knownIssues. Checked 2026-11-17 (scripts/experiment_contention_front.py).
+KNOWN_ISSUES = [
+    '2角の馬身差（g2）はポジション争いありの方が独立予測より悪い（v1.4 3.69 → v1.5 3.92馬身、独立は3.97 → 3.90）。'
+    'v1.5の再チューニングで変わったfront（0.25→0.45）が原因ではない：同じデータで他を固定してfrontだけ0.25に戻しても、'
+    '検証（9〜12月273レース）のg2は3.817→3.826とむしろわずかに悪化し、他の指標の差も0.003以内。'
+    '6〜8月のチューニングでもfrontの差は目的関数で0.0002しかなく、ほぼ効いていない。'
+    '目的関数（全指標の誤差比の平均）は2角の内外（0.83）と上がり（0.95）の改善が大きく、馬身差（g1〜g4は1.00〜1.02）の悪化を許す形で選ばれる。'
+    'なお同じv1.5の設定でも現在のDBで再実行すると独立予測のg2は3.75になり、データ更新だけで0.15馬身動く。',
+]
 
 
 def energy_cost(first, pace, usual):
@@ -604,14 +613,18 @@ def tune_contention(d):
     models = fit_models(d, '20250601')
     races = evaluation_races(models, d, '20250601', '20250831')
     base = score(models, races, None)
-    best, best_obj = DEFAULT_PARAMS, None
+    best, best_obj, best_ratios = DEFAULT_PARAMS, None, None
     for P in PARAM_GRID:
         s = score(models, races, P)
-        obj = float(np.mean([s[k] / base[k] for k in s]))
+        ratios = {k: s[k] / base[k] for k in s}
+        obj = float(np.mean(list(ratios.values())))
         if best_obj is None or obj < best_obj:
-            best, best_obj = P, obj
+            best, best_obj, best_ratios = P, obj, ratios
     print(f'contention tuned on {len(races)} races: {best} (error ratio vs independent {best_obj:.3f})', flush=True)
-    return best
+    print('  per-metric error ratio: ' + ' '.join(f'{k}={v:.3f}' for k, v in best_ratios.items()), flush=True)
+    # Kept in report.json: which metrics the chosen setting trades against each other.
+    tuning = {'races': len(races), 'objective': best_obj, 'ratios': best_ratios}
+    return best, tuning
 
 
 def validate(d, P):
@@ -751,7 +764,8 @@ def main():
     d, raw = load_frame(today_s)
     d = add_traffic(add_history_features(add_labels(d)))
     print(d[TARGETS].notna().sum().to_string(), flush=True)
-    params = tune_moves(d, tune_contention(d))
+    contention, tuning = tune_contention(d)
+    params = tune_moves(d, contention)
     metrics = validate(d, params)
     models = fit_models(d, '20260101')
     sets = corner_sets(d)
@@ -786,7 +800,8 @@ def main():
         m.booster_.save_model(str(ROOT / 'models' / 'pace' / f'{t}.txt'))
     model = {'name': 'Paddock展開予想モデル', 'version': VERSION, 'trainingEnd': '2025-12-31', 'validation': '2025-09〜12',
              'rows': int(d.complete.sum()), 'historyRows': int(len(d)), 'excludedRows': int(raw - len(d)), 'features': FEATURES, 'closingFeatures': LAST3_FEATURES,
-             'moveFeatures': MOVE_FEATURES, 'contention': params, 'summary': metrics.pop('_summary'),
+             'moveFeatures': MOVE_FEATURES, 'contention': params, 'contentionTuning': tuning, 'knownIssues': KNOWN_ISSUES,
+             'summary': metrics.pop('_summary'),
              'moves': metrics.pop('_moves'), 'pace': {**metrics.pop('_pace'), 'giPace': gi_pace, 'giBands': list(gi_bands)}, 'paceFeatures': PACE_FEATURES, 'metrics': metrics,
              'notes': ['各角の順位・先頭からの馬身差・併走群内の内外位置と上がり3Fを個別に学習（LightGBM）。',
                        '馬身差は「順位モデルの並び × 馬ごとの差モデルの形 × レース単位の隊列の長さモデル」で再構成。',
