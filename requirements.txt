@@ -1,0 +1,9 @@
+# Python 3.14 で検証した版固定（2026-11-17）。展開予想モデル・データ生成スクリプト用。
+numpy==2.4.4
+pandas==3.0.2
+lightgbm==4.6.0
+scikit-learn==1.8.0   # LightGBM の sklearn API が必要とする
+PyMySQL==1.1.2        # mykeibadb（MySQL）への読み取り専用接続
+# コース図の取り込み（digitize_jra_courses.py / draw_route_overlays.py）だけで使う
+pillow==12.2.0
+scipy==1.17.1

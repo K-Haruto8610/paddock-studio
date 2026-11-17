@@ -11,7 +11,13 @@
     "build": "node scripts/run-framework.mjs build",
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "typecheck": "tsc --noEmit",
+    "test:node": "node scripts/check_pace.mjs && node scripts/check_replay.mjs && node scripts/check_geometry.mjs && node scripts/check_passing.mjs && node scripts/check_finish.mjs",
+    "test:py:static": "python scripts/check_dataset.py",
+    "test:py": "python scripts/check_dataset.py && python scripts/check_entries.py && python scripts/check_contention.py",
+    "test:ci": "npm run typecheck && npm run test:node && npm run test:py:static",
+    "test": "npm run typecheck && npm run test:node && npm run test:py"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
