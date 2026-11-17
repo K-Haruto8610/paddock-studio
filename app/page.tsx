@@ -116,7 +116,7 @@ export default function Home() {
     replay = replays?.races[raceId],
     // A race forecast from its entry card has no replay until a result is added (data/results).
     mode: PlaybackMode =
-      editing || (race?.historical === false && !replay) ? 'forecast' : modeChoice;
+      editing || (race && !replay && (race.historical === false || replays !== null)) ? 'forecast' : modeChoice;
   const paceFile = importedPace?.file ?? bundledPace;
   const paceMatch = useMemo(
     () => (race ? paceForRace(paceFile, race) : {pace: null}),

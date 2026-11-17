@@ -90,9 +90,16 @@ def main():
     for col in numeric: d[col] = d[col].map(number)
     d = d[(d.KYORI.between(1000,3600)) & d.SHUSSO_TOSU.between(5,18) & d.UMABAN.between(1,18)]
     d = d[d.IJO_KUBUN_CODE.fillna('0').str.strip().isin(['','0','3','4','5','6','7'])]
-    # Reject incomplete fields: positions and competition features need the whole field.
+    # Incomplete fields (partially imported races, common in older years whose
+    # umagoto rows were never fully backfilled): keep the rows so they still
+    # count as past starts when later races compute past-* features, but flag
+    # them and never train on or publish them -- race-level features and the
+    # published card need the whole field. (Diagnosed 2026-11-17: this rule
+    # previously discarded 2,679 named races / 8,799 present-horse rows.)
     counts = d.groupby('RACE_CODE').UMABAN.transform('nunique')
-    d = d[counts == d.SHUSSO_TOSU].drop_duplicates(['RACE_CODE','UMABAN']).reset_index(drop=True)
+    d['complete'] = counts == d.SHUSSO_TOSU
+    d = d.drop_duplicates(['RACE_CODE','UMABAN']).reset_index(drop=True)
+    print(f"field-complete races: {int(d.groupby('RACE_CODE')['complete'].first().sum())} / {d.RACE_CODE.nunique()}", flush=True)
     d['surface'] = (d.TRACK_CODE >= 23).astype(int)
     d['venue'] = d.KEIBAJO_CODE.astype(int)
     d['gate'] = d.UMABAN / d.SHUSSO_TOSU
@@ -121,19 +128,19 @@ def main():
     tr = d.date < '20250901'
     va = d.date.between('20250901','20251231')
     print(d.groupby('KAISAI_NEN')[targets].count().to_string(),flush=True)
-    report = {'features':features,'trainingEnd':'2025-08-31','validation':'2025-09〜12','inferenceTrainingEnd':'2025-12-31','rows':len(d),'races':d.RACE_CODE.nunique(),'excludedRows':len(rows)-len(d),'metrics':{},'notes':['過去5走の馬柱を使用。オッズ・人気・払戻は特徴量に含めない。','位置取りは通過順位を頭数で正規化して学習。馬間距離・内外の進路は演出用の補間。','2025年9〜12月を時系列検証に使用。掲載する2026年の対象レース結果は学習に含めない。','欠損・文字化け・出走頭数の不一致を検出したレースは掲載対象外。']}
+    report = {'features':features,'trainingEnd':'2025-08-31','validation':'2025-09〜12','inferenceTrainingEnd':'2025-12-31','rows':int(d.complete.sum()),'races':int(d.loc[d.complete,'RACE_CODE'].nunique()),'historyRows':len(d),'excludedRows':len(rows)-len(d),'metrics':{},'notes':['過去5走の馬柱を使用。オッズ・人気・払戻は特徴量に含めない。','位置取りは通過順位を頭数で正規化して学習。馬間距離・内外の進路は演出用の補間。','2025年9〜12月を時系列検証に使用。掲載する2026年の対象レース結果は学習に含めない。','欠損・文字化け・出走頭数の不一致を検出したレースは掲載対象外。']}
     (ROOT/'models').mkdir(exist_ok=True)
     final = {}
     for t in targets:
-        fit = tr & d[t].notna()
-        test = va & d[t].notna()
+        fit = tr & d.complete & d[t].notna()
+        test = va & d.complete & d[t].notna()
         if fit.sum()<100 or test.sum()<20: raise RuntimeError('Insufficient chronological data: '+t)
         model = LGBMRegressor(n_estimators=140,max_depth=5,num_leaves=20,learning_rate=.04,verbosity=-1,n_jobs=4,random_state=42)
         model.fit(d.loc[fit,features],d.loc[fit,t])
         pred = model.predict(d.loc[test,features])
         baseline = d.loc[test,'past_'+t].fillna(d.loc[fit,t].median())
         report['metrics'][t] = {'mae':float(np.mean(np.abs(pred-d.loc[test,t]))),'baselineMae':float(np.mean(np.abs(baseline-d.loc[test,t]))),'validationRows':int(test.sum())}
-        fit = (d.date<'20260101') & d[t].notna()
+        fit = (d.date<'20260101') & d.complete & d[t].notna()
         model.fit(d.loc[fit,features],d.loc[fit,t])
         model.booster_.save_model(str(ROOT/'models'/f'{t}.txt'))
         final[t] = model
@@ -141,7 +148,7 @@ def main():
     races=[]
     coats=COATS
     venues={r['venueCode']:r['venue'] for r in master['races']}
-    cand = d[(d.GRADE_CODE=='A') & (d.date>='20260101') & d.KEIBAJO_CODE.isin(venues)]
+    cand = d[(d.GRADE_CODE=='A') & (d.date>='20260101') & d.complete & d.KEIBAJO_CODE.isin(venues)]
     # GI selection: grade A AND a master entry agreeing on name, venue, distance and track code.
     keep, skipped = [], []
     for code,g in cand.groupby('RACE_CODE',sort=False):

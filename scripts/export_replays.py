@@ -36,6 +36,9 @@ def export():
             available=[i+1 for i in range(4) if all(h['corners'][i] is not None for h in horses.values())]
             missing=[i+1 for i in range(4) if any(h['corners'][i] is not None for h in horses.values()) and i+1 not in available]
             full_finish=all(h['finish'] is not None for h in horses.values())
+            if not available or not full_finish:
+                print(f"WARNING partial result, replay skipped: {race['id']} {race['name']} corners={available} finish={full_finish}")
+                continue
             replays[race['id']]={'horses':horses,'corners':available,'partialCorners':missing,'completeFinish':full_finish,
                 'source':'mykeibadb.umagoto_race_joho (JV-Data)','raceDate':race['date']}
             changes=[h['number'] for h in race['horses'] if len(set(v for v in horses[str(h['number'])]['corners']+[horses[str(h['number'])]['finish']] if v is not None))>1]
