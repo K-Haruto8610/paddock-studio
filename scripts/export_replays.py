@@ -28,13 +28,19 @@ def export():
                 if not row or row['BAMEI'].strip()!=h['name']:
                     raise ValueError('Replay identity mismatch: '+race['id']+' horse '+str(h['number']))
                 n=len(race['horses'])
-                last=positive(row['KOHAN_3F'],999)
+                last=positive(row['KOHAN_3F'],998)  # 999 is JV-Data's no-data value (e.g. pulled up)
                 horses[str(h['number'])]={'corners':[positive(row[f'CORNER{i}_JUNI'],n) for i in range(1,5)],
                     'finish':positive(row['NYUSEN_JUNI'],n),'officialFinish':positive(row['KAKUTEI_CHAKUJUN'],n),
                     'last3':last/10 if last else None,'abnormality':str(row['IJO_KUBUN_CODE'] or '').strip()}
             # A corner with no entries is absent on this route, not four fabricated zero ranks.
             available=[i+1 for i in range(4) if all(h['corners'][i] is not None for h in horses.values())]
             missing=[i+1 for i in range(4) if any(h['corners'][i] is not None for h in horses.values()) and i+1 not in available]
+            # A horse that pulled up (競走中止, IJO_KUBUN_CODE 4) has no arrival order by design: it is placed
+            # after every horse that finished, ties allowed. officialFinish stays empty and abnormality is kept.
+            finished = sum(h['finish'] is not None for h in horses.values())
+            for h in horses.values():
+                if h['finish'] is None and h['abnormality'] == '4':
+                    h['finish'] = finished + 1
             full_finish=all(h['finish'] is not None for h in horses.values())
             if not available or not full_finish:
                 print(f"WARNING partial result, replay skipped: {race['id']} {race['name']} corners={available} finish={full_finish}")
