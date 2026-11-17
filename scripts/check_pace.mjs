@@ -62,6 +62,31 @@ for (const race of data.races) {
       assert.ok(byRank.every(({p, g}) => g + 1e-6 >= (p.gap - byRank[0].p.gap) * HORSE_LENGTH * 1.3 + byRank[0].g), `${c.label}: gap never shortened`);
     }
   }
+  // 予想レンジ (revision 1.1, optional): whole positions within the field and closing seconds, ordered, and each
+  // range contains its published point. Ranges are only published for targets whose validation coverage passed.
+  const shownTargets = new Set(
+    Object.entries(file.model.intervals?.targets ?? {}).filter(([, v]) => v.shown).map(([k]) => k),
+  );
+  for (const h of pace.horses) {
+    for (const p of h.positions) {
+      if (!p.rankRange) continue;
+      const [lo, hi] = p.rankRange;
+      assert.ok(Number.isInteger(lo) && Number.isInteger(hi) && lo >= 1 && hi <= n && lo <= hi, `${race.name}: rank range ${lo}-${hi} in 1..${n}`);
+      assert.ok(lo <= p.rank && p.rank <= hi, `${race.name}: rank ${p.rank} inside its range ${lo}-${hi}`);
+      assert.ok(shownTargets.has(`r${p.corner}`), `${race.name}: range only for a corner whose coverage passed`);
+    }
+    if (h.last3Range) {
+      const [lo, hi] = h.last3Range;
+      assert.ok(lo <= h.last3 + 1e-9 && h.last3 <= hi + 1e-9, `${race.name}: last3 ${h.last3} inside ${lo}-${hi}`);
+      assert.ok(shownTargets.has('last3'), `${race.name}: closing range only if its coverage passed`);
+    }
+  }
+  for (const t of shownTargets) {
+    const c = t === 'last3' ? null : Number(t.slice(1));
+    if (c !== null && !pace.corners.includes(c)) continue;
+    const have = pace.horses.every((h) => (c === null ? h.last3Range : h.positions.find((p) => p.corner === c)?.rankRange));
+    assert.ok(have, `${race.name}: every horse has the published ${t} range`);
+  }
   // ポジション争い: horses whose spot was taken end up behind where they wanted to be.
   const held = pace.horses.flatMap((h) => h.positions.filter((p) => p.held));
   if (held.length) {
@@ -147,5 +172,21 @@ const ext = parsePaceForecast(minimal);
 assert.ok(ext.ok);
 const extPlan = buildPlayback(race, 'forecast', undefined, paceForRace(ext.data, race).pace);
 assert.equal(extPlan.checkpoints.length, 3, 'start, 4角, finish');
+// Revision 1.1 is backward compatible: the same file without revision and ranges (a 1.0 file) parses and plays
+// exactly the same, so the ranges are display-only.
+const plain = structuredClone(raw);
+delete plain.revision;
+for (const r of Object.values(plain.races))
+  for (const h of Object.values(r.horses)) {
+    delete h.last3Range;
+    h.positions.forEach((p) => delete p.rankRange);
+  }
+const plainParsed = parsePaceForecast(plain);
+assert.ok(plainParsed.ok, 'A 1.0 file (no ranges) still parses');
+assert.deepEqual(buildPlayback(race, 'forecast', undefined, paceForRace(plainParsed.data, race).pace),
+  buildPlayback(race, 'forecast', undefined, paceForRace(file, race).pace), 'Ranges do not change playback');
+const badRange = structuredClone(raw);
+Object.values(badRange.races)[0].horses[String(race.horses[0].number)].positions[0].rankRange = [3];
+assert.equal(parsePaceForecast(badRange).ok, false, 'A malformed range is rejected');
 assert.ok(heldCost.reduce((a, b) => a + b, 0) / heldCost.length > 0, 'Holding back costs position');
 console.log('PASS: schema, field matching, rank/gap/lane/closing parity, no result leakage, clearance, rejections');

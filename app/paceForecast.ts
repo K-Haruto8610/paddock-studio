@@ -15,6 +15,8 @@ const position = z.object({
   wantRank: z.number().positive().optional(), // where the horse wanted to be before contention
   held: z.boolean().optional(), // its spot was taken, so it tucked in behind (控えた)
   boxed: z.boolean().optional(), // horse outside and a wall under one length ahead (包まれ)
+  // Optional (revision 1.1): 50% forecast range of the position, whole positions [best, worst], containing rank.
+  rankRange: z.tuple([z.number().positive(), z.number().positive()]).optional(),
 });
 const horse = z.object({
   positions: z.array(position).min(1),
@@ -22,6 +24,8 @@ const horse = z.object({
   last3Free: z.number().min(28).max(50).optional(), // closing 3F with a clear run
   kickDelay: z.number().min(0).max(5).optional(), // seconds lost waiting for room (仕掛け遅れ)
   paceCost: z.number().min(0).max(5).optional(), // seconds lost to energy spent early (脚の消耗: pace exposure, 二の足/かかり)
+  // Optional (revision 1.1): 50% forecast range of the closing 3F in seconds [fast, slow], containing last3.
+  last3Range: z.tuple([z.number().min(28).max(50), z.number().min(28).max(50)]).optional(),
   finish: z.object({rank: z.number().positive(), gap: z.number().min(0).max(80)}).optional(),
 });
 const race = z.object({
@@ -40,6 +44,7 @@ const race = z.object({
 });
 export const paceForecastSchema = z.object({
   schema: z.literal(PACE_SCHEMA),
+  revision: z.string().optional(), // revision of the v1 format ('1.1' adds rankRange / last3Range); absent = 1.0
   generatedAt: z.string(),
   model: z
     .object({
@@ -69,6 +74,18 @@ export const paceForecastSchema = z.object({
           pastMeanCorr: z.number().optional(),
           rankError: z.number().optional(),
           rankErrorWithoutMoves: z.number().optional(),
+        })
+        .passthrough()
+        .optional(),
+      // Optional (revision 1.1): validation coverage of the forecast ranges per target (r1..r4, last3).
+      intervals: z
+        .object({
+          alpha: z.array(z.number()).length(2),
+          band: z.array(z.number()).length(2).optional(),
+          targets: z.record(
+            z.string(),
+            z.object({coverage: z.number(), meanWidth: z.number(), shown: z.boolean()}).passthrough(),
+          ),
         })
         .passthrough()
         .optional(),
@@ -126,4 +143,10 @@ export function paceForRace(
 }
 
 export const PACE_LABELS = {H: 'ハイペース', M: '平均ペース', S: 'スローペース'} as const;
+/** "3〜8番手" / "5番手" for a forecast position range. */
+export const rankRangeLabel = ([lo, hi]: readonly [number, number]) =>
+  lo === hi ? `${lo}番手` : `${lo}〜${hi}番手`;
+/** "33.8〜35.1秒" for a closing-3F range. */
+export const last3RangeLabel = ([lo, hi]: readonly [number, number]) =>
+  lo === hi ? `${lo.toFixed(1)}秒` : `${lo.toFixed(1)}〜${hi.toFixed(1)}秒`;
 export const laneLabel = (lane: number) => (lane < 0.5 ? '内' : lane < 1.5 ? '中' : '外');

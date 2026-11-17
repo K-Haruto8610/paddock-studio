@@ -24,7 +24,9 @@ from build_forecasts import settings, number, clean, load_upcoming_entries  # no
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = 'paddock.pace-forecast/v1'
-VERSION = '1.5'
+# Revision of the v1 format (README): 1.1 adds the optional rankRange / last3Range fields; v1 readers ignore them.
+SCHEMA_REVISION = '1.1'
+VERSION = '1.6'  # 1.6: forecast ranges (rankRange / last3Range); same point model, refitted and re-tuned on the current DB
 # Representative lengths for each JRA separator (midpoints of the published bands).
 GAP_LENGTHS = {'': 0.6, ',': 1.5, '-': 3.5, '=': 6.5}
 SEP_ORDER = ['', ',', '-', '=']
@@ -419,6 +421,11 @@ KNOWN_ISSUES = [
     '6〜8月のチューニングでもfrontの差は目的関数で0.0002しかなく、ほぼ効いていない。'
     '目的関数（全指標の誤差比の平均）は2角の内外（0.83）と上がり（0.95）の改善が大きく、馬身差（g1〜g4は1.00〜1.02）の悪化を許す形で選ばれる。'
     'なお同じv1.5の設定でも現在のDBで再実行すると独立予測のg2は3.75になり、データ更新だけで0.15馬身動く。',
+    'v1.6（2026-11-18）は現在のDB（行数17041→19006）で再チューニングし、frontは0.25が選ばれた（6〜8月の目的関数で0.45との差0.0002）。'
+    'v1.5比の検証誤差：g2 3.92→3.83、l2 0.429→0.416、上がり0.894→0.884は改善、g1 3.82→3.83、l3 0.523→0.534、r1/r2 +0.002は悪化（DB更新の影響を含む）。',
+    '1・2角の馬身差（g1/g2）は独立予測の時点で過去5走平均に負ける（2026-11-18、検証273レース：独立3.74/3.75、過去平均3.40/3.66）。'
+    '馬ごとの差モデル単独では過去平均に勝つ（3.33/3.44）。負けるのは隊列長で、隊列長モデルは定数予想と同程度（学習できる1・2角のレースは278/323）。'
+    '記号からの馬身差ラベルにも1頭あたり約0.8馬身の誤差がある。隊列長モデルへの特徴量追加も不採用（scripts/diagnose_margins.py, experiment_spread_features.py）。',
 ]
 
 
@@ -623,16 +630,22 @@ def prepare_race(models, x, key, corners):
     return numbers, pred, spreads, x.early_rel.fillna(.5).to_numpy()
 
 
-def closing(models, x, form, corners, pace, parts=False):
-    """Closing 3F with the traffic the formation leaves at the last corner and the energy its first-corner
-    position cost in the predicted pace; also with a clear run (traffic removed, energy kept).
-    parts=True also returns the closing with neither traffic nor energy cost (for paceCost)."""
+def closing_inputs(x, form, corners, pace):
+    """Closing-model inputs with the formation's traffic at the last corner and its first-corner energy cost."""
     last, n = form[corners[-1]], len(form[corners[-1]]['rank'])
     xt = x[CLOSING_BASE].copy()
     xt['traffic_out'], xt['traffic_close'] = np.array(last['out'], float), np.array(last['close'], float)
     first = (np.array(form[corners[0]]['rank']) - 1) / max(1, n - 1)
     for k, v in energy_cost(first, np.full(n, pace), x.early_wish.to_numpy()).items():
         xt[k] = v
+    return xt
+
+
+def closing(models, x, form, corners, pace, parts=False):
+    """Closing 3F with the traffic the formation leaves at the last corner and the energy its first-corner
+    position cost in the predicted pace; also with a clear run (traffic removed, energy kept).
+    parts=True also returns the closing with neither traffic nor energy cost (for paceCost)."""
+    xt = closing_inputs(x, form, corners, pace)
     free = xt.copy()
     free['traffic_out'], free['traffic_close'] = 0.0, 0.0
     m = models['last3_traffic']
@@ -643,6 +656,136 @@ def closing(models, x, form, corners, pace, parts=False):
             fresh[k] = 0.0
         out += (m.predict(fresh[LAST3_FEATURES]),)
     return out
+
+
+# --- Forecast intervals (追加指示4 フェーズ3, 2026-11-18) ---------------------------------------------------
+# Quantile LightGBM (alpha 0.25 / 0.75) fitted beside the point models, for the per-corner rank and the closing
+# 3F. The rank quantiles use FEATURES like the rank models; the closing quantiles use LAST3_FEATURES and get the
+# formation's traffic and energy at prediction time, like the closing (LightGBM's quantile objective does not
+# accept monotone constraints, so these trees are unconstrained).
+# What the app shows is checked, not the raw quantiles: ranks become whole positions (1 + q * (n - 1), rounded),
+# the closing is rounded to 0.1 s, and each range is widened to contain the published point.
+# Calibration: raw quantile trees are overconfident out of time (closing 3F: 30-33% of actual values inside the
+# 25-75% band). Each side is moved out (or in) by a margin chosen on Jun-Aug 2025 (models fitted before June) so the
+# SHOWN range covers 50% there (split conformal on the time split); Sep-Dec 2025 then reports the coverage.
+# A target's range is published only if its validation coverage is in COVERAGE_BAND.
+INTERVAL_Q = (0.25, 0.75)
+RANK_INTERVALS = [f'r{c}' for c in CORNERS]
+INTERVAL_TARGETS = RANK_INTERVALS + ['last3']
+COVERAGE_BAND = (0.40, 0.60)
+MARGIN_GRID = {'r': np.round(np.arange(-.08, .0801, .005), 3), 'last3': np.round(np.arange(-.2, 1.2001, .02), 2)}
+Q_LO, Q_HI = (f'q{int(a * 100)}' for a in INTERVAL_Q)
+
+
+def fit_intervals(d, end):
+    fit, models = (d.date < end) & d.complete, {}
+    for a, q in zip(INTERVAL_Q, (Q_LO, Q_HI)):
+        for t in RANK_INTERVALS:
+            rows = fit & d[t].notna()
+            models[f'{q}_{t}'] = lgbm('quantile').set_params(alpha=a).fit(d.loc[rows, FEATURES], d.loc[rows, t])
+        rows = fit & d.last3.notna()
+        models[f'{q}_last3'] = lgbm('quantile').set_params(alpha=a).fit(d.loc[rows, LAST3_FEATURES], d.loc[rows, 'last3'])
+    return models
+
+
+def raw_quantiles(models, x, form, corners, pace):
+    """{target: (lo, hi)} raw quantile predictions (normalised rank / seconds), crossing removed."""
+    out = {}
+    for c in corners:
+        t = f'r{c}'
+        if f'{Q_LO}_{t}' in models:
+            out[t] = models[f'{Q_LO}_{t}'].predict(x[FEATURES]), models[f'{Q_HI}_{t}'].predict(x[FEATURES])
+    if f'{Q_LO}_last3' in models:
+        xt = closing_inputs(x, form, corners, pace)
+        out['last3'] = models[f'{Q_LO}_last3'].predict(xt[LAST3_FEATURES]), models[f'{Q_HI}_last3'].predict(xt[LAST3_FEATURES])
+    return {t: (np.minimum(lo, hi), np.maximum(lo, hi)) for t, (lo, hi) in out.items()}
+
+
+def shown_range(t, lo, hi, point, n, margin):
+    """The range the app shows: margin applied to each side, whole positions / 0.1 s, widened to the point."""
+    lo, hi = np.asarray(lo, float) - margin, np.asarray(hi, float) + margin
+    mid = (lo + hi) / 2
+    lo, hi = np.minimum(lo, mid), np.maximum(hi, mid)  # a negative margin can shrink a side only to the middle
+    point = np.asarray(point, float)
+    if t == 'last3':
+        return np.minimum(np.round(lo, 1), point), np.maximum(np.round(hi, 1), point)
+    to_pos = lambda v: np.clip(np.rint(1 + v * (n - 1)), 1, n)
+    return np.minimum(to_pos(lo), point), np.maximum(to_pos(hi), point)
+
+
+def race_intervals(models, x, form, corners, pace, last3, margins):
+    """Shown ranges per horse: {'r<c>': [[lo, hi], ...] whole positions, 'last3': [[lo, hi], ...] seconds}."""
+    n, out = len(x), {}
+    for t, (lo, hi) in raw_quantiles(models, x, form, corners, pace).items():
+        point = np.round(last3, 1) if t == 'last3' else np.array(form[int(t[1])]['rank'], float)
+        a, b = shown_range(t, lo, hi, point, n, margins.get(t, 0.0))
+        out[t] = [[round(float(u), 1), round(float(v), 1)] if t == 'last3' else [int(u), int(v)] for u, v in zip(a, b)]
+    return out
+
+
+def interval_rows(models, races, P):
+    """Per target: raw quantiles, published point, actual value and field size of every evaluation row."""
+    rows = {t: {'lo': [], 'hi': [], 'point': [], 'actual': [], 'n': []} for t in INTERVAL_TARGETS}
+    for x, corners, numbers, pred, spreads, early in races:
+        n = len(numbers)
+        form = simulate(numbers, early, pred, spreads, corners, P)
+        last3 = closing(models, x, form, corners, pred['pace'])[0]
+        for t, (lo, hi) in raw_quantiles(models, x, form, corners, pred['pace']).items():
+            if t == 'last3':
+                ok = x.last3.notna().to_numpy()
+                point, actual = np.round(last3, 1), np.round(x.last3.to_numpy(), 1)
+            else:
+                ok = np.ones(n, bool)
+                point, actual = np.array(form[int(t[1])]['rank'], float), np.rint(x[t].to_numpy() * (n - 1)) + 1
+            r = rows[t]
+            for k, v in (('lo', lo), ('hi', hi), ('point', point), ('actual', actual), ('n', np.full(n, n))):
+                r[k].extend(np.asarray(v, float)[ok])
+    return {t: {k: np.array(v) for k, v in r.items()} for t, r in rows.items() if r['lo']}
+
+
+def coverage(t, r, margin):
+    """Coverage and mean width of the shown range for one margin (rows of mixed field sizes)."""
+    lo, hi = np.empty(len(r['lo'])), np.empty(len(r['lo']))
+    for n in np.unique(r['n']):
+        m = r['n'] == n
+        lo[m], hi[m] = shown_range(t, r['lo'][m], r['hi'][m], r['point'][m], int(n), margin)
+    eps = 1e-9
+    return float(np.mean((lo - eps <= r['actual']) & (r['actual'] <= hi + eps))), float(np.mean(hi - lo))
+
+
+def raw_coverage(t, r):
+    actual = r['actual'] if t == 'last3' else (r['actual'] - 1) / (r['n'] - 1)
+    return float(np.mean((r['lo'] <= actual) & (actual <= r['hi'])))
+
+
+def calibrate_intervals(d, P):
+    """Margins chosen on Jun-Aug 2025 with models fitted before June: the shown coverage closest to 50%."""
+    models = fit_models(d, '20250601')
+    models.update(fit_intervals(d, '20250601'))
+    rows = interval_rows(models, evaluation_races(models, d, '20250601', '20250831'), P)
+    margins, tuning = {}, {}
+    for t, r in rows.items():
+        grid = MARGIN_GRID['last3' if t == 'last3' else 'r']
+        cov = [coverage(t, r, float(m))[0] for m in grid]
+        best = int(np.argmin([abs(c - .5) for c in cov]))
+        margins[t] = float(grid[best])
+        tuning[t] = {'margin': margins[t], 'coverage': cov[best], 'coverageWithoutMargin': coverage(t, r, 0.0)[0],
+                     'rawQuantileCoverage': raw_coverage(t, r), 'rows': len(r['lo'])}
+    print('interval margins (Jun-Aug):', tuning, flush=True)
+    return margins, tuning
+
+
+def interval_report(models, races, P, margins, tuning):
+    """Validation coverage of the shown ranges per target; 'shown' decides what is published."""
+    out = {}
+    for t, r in interval_rows(models, races, P).items():
+        cov, width = coverage(t, r, margins[t])
+        out[t] = {'coverage': cov, 'coverageWithoutMargin': coverage(t, r, 0.0)[0], 'rawQuantileCoverage': raw_coverage(t, r),
+                  'meanWidth': width, 'margin': margins[t], 'tuning': tuning[t], 'rows': len(r['lo']),
+                  'shown': bool(COVERAGE_BAND[0] <= cov <= COVERAGE_BAND[1])}
+    return {'alpha': list(INTERVAL_Q), 'band': list(COVERAGE_BAND), 'margins': margins,
+            'unit': {'r': '番手（整数、公開値を含むよう拡張）', 'last3': '秒（0.1秒、公開値を含むよう拡張）', 'margin': 'r=正規化順位 / last3=秒'},
+            'targets': out}
 
 
 def evaluation_races(models, d, start, end):
@@ -740,8 +883,9 @@ def tune_contention(d):
     return best, tuning
 
 
-def validate(d, P):
+def validate(d, P, margins=None, tuning=None):
     models = fit_models(d, '20250901')
+    models.update(fit_intervals(d, '20250901'))
     races = evaluation_races(models, d, '20250901', '20251231')
     with_layer, without = score(models, races, P), score(models, races, None)
     tr = d.date < '20250901'
@@ -790,6 +934,9 @@ def validate(d, P):
                         'labelShare': {k: float(np.mean([pace_label(v) == k for v in pa[ok]])) for k in 'HMS'}, 'races': int(ok.sum()),
                         'bands': list(PACE_BANDS)}
     print(metrics['_pace'], flush=True)
+    if margins is not None:
+        metrics['_intervals'] = interval_report(models, races, P, margins, tuning)
+    print(metrics['_intervals'], flush=True)
     return metrics
 
 
@@ -804,11 +951,13 @@ def corner_sets(d):
     return lambda v, t, dist: list(exact.get((v, t, dist)) or loose.get((v, dist)) or (3, 4))
 
 
-def race_output(models, x, key, corners, P, gi_bands=PACE_BANDS):
-    """One race: contention formation per corner, traffic-aware closing, finish estimate."""
+def race_output(models, x, key, corners, P, gi_bands=PACE_BANDS, shown=(), margins=None):
+    """One race: contention formation per corner, traffic-aware closing, finish estimate.
+    shown: interval targets ('r1'..'r4', 'last3') whose validation coverage passed; only those get ranges."""
     numbers, pred, spreads, early = prepare_race(models, x, key, corners)
     form = simulate(numbers, early, pred, spreads, corners, P)
     last3, free, fresh = closing(models, x, form, corners, pred['pace'], parts=True)
+    iv = race_intervals(models, x, form, corners, pred['pace'], last3, margins or {}) if shown else {}
     n = len(numbers)
     horses = {}
     for i, num in enumerate(numbers):
@@ -818,9 +967,13 @@ def race_output(models, x, key, corners, P, gi_bands=PACE_BANDS):
             positions.append({'corner': c, 'rank': f['rank'][i], 'gap': round(f['gap'][i], 2), 'lane': float(f['lane'][i]),
                               'wantRank': f['want'][i], 'held': bool(f['held'][i]),
                               'boxed': bool(f['out'][i] > 0 and f['close'][i] > 0)})
+            if f'r{c}' in shown and f'r{c}' in iv:
+                positions[-1]['rankRange'] = iv[f'r{c}'][i]
         horses[str(num)] = {'positions': positions, 'last3': round(float(last3[i]), 1), 'last3Free': round(float(free[i]), 1),
                             'kickDelay': round(max(0.0, float(last3[i] - free[i])), 2),
                             'paceCost': round(max(0.0, float(free[i] - fresh[i])), 2)}
+        if 'last3' in shown and 'last3' in iv:
+            horses[str(num)]['last3Range'] = iv['last3'][i]
     # Finish = last-corner gap plus the closing difference over the final 3F (lengths/second rule);
     # the closing time already carries the delay from being shut in.
     gaps = form[corners[-1]]['gap']
@@ -879,8 +1032,13 @@ def main():
     print(d[TARGETS].notna().sum().to_string(), flush=True)
     contention, tuning = tune_contention(d)
     params = tune_moves(d, contention)
-    metrics = validate(d, params)
+    margins, margin_tuning = calibrate_intervals(d, params)
+    metrics = validate(d, params, margins, margin_tuning)
     models = fit_models(d, '20260101')
+    models.update(fit_intervals(d, '20260101'))
+    intervals = metrics.pop('_intervals')
+    shown = [t for t, v in intervals['targets'].items() if v['shown']]
+    print('interval ranges published for:', shown or 'none', flush=True)
     sets = corner_sets(d)
     gi_rows = d[(d.date < '20260101') & (d.grade == 'A')]
     gi_pace = float(gi_rows.drop_duplicates('RACE_CODE').pace.median())
@@ -906,7 +1064,7 @@ def main():
             continue
         corners = sets(int(x.venue.iloc[0]), int(x.track.iloc[0]), int(x.distance.iloc[0]))
         key = 'RACE_CODE' if 'RACE_CODE' in x else 'race'
-        out_races[race['id']] = race_output(models, x, key, corners, params, gi_bands)
+        out_races[race['id']] = race_output(models, x, key, corners, params, gi_bands, shown, margins)
         print(race['name'], 'corners', corners)
     (ROOT / 'models' / 'pace').mkdir(parents=True, exist_ok=True)
     for t, m in models.items():
@@ -915,7 +1073,8 @@ def main():
              'rows': int(d.complete.sum()), 'historyRows': int(len(d)), 'excludedRows': int(raw - len(d)), 'features': FEATURES, 'closingFeatures': LAST3_FEATURES,
              'moveFeatures': MOVE_FEATURES, 'contention': params, 'contentionTuning': tuning, 'knownIssues': KNOWN_ISSUES,
              'summary': metrics.pop('_summary'),
-             'moves': metrics.pop('_moves'), 'pace': {**metrics.pop('_pace'), 'giPace': gi_pace, 'giBands': list(gi_bands)}, 'paceFeatures': PACE_FEATURES, 'metrics': metrics,
+             'moves': metrics.pop('_moves'), 'pace': {**metrics.pop('_pace'), 'giPace': gi_pace, 'giBands': list(gi_bands)}, 'paceFeatures': PACE_FEATURES,
+             'intervals': {**intervals, 'published': shown}, 'metrics': metrics,
              'notes': ['各角の順位・先頭からの馬身差・併走群内の内外位置と上がり3Fを個別に学習（LightGBM）。',
                        '馬身差は「順位モデルの並び × 馬ごとの差モデルの形 × レース単位の隊列の長さモデル」で再構成。',
                        'ポジション争い：各馬の希望位置（順位モデル）と前の角の位置から押し出しの強さを決め、通常は4頭、先行型は5頭まで。前の角より位置を上げる馬は相手の外へ進み、頭数制限を受けない。4角以降も頭数制限なし。控える馬は後方へ回り、各列の左右位置は前の角から引き継ぐ。',
@@ -926,8 +1085,9 @@ def main():
                        '馬身差と内外はJRAの通過順表記から復元。記号の幅（,=1〜2馬身, -=2〜5, ==5以上）は中央値で近似。',
                        '学習用の内外は併走群内の位置。出力の内外は前の角から引き継ぐ進路スロット（0=内側）で、実測のラチ距離ではない。',
                        'ゴールは最終角の馬身差に上がり3Fの差（1秒=5馬身）を加えた推定。着順モデルではない。',
+                       '予想レンジ：各角の番手と上がり3Fに、分位点回帰（LightGBM quantile, α=0.25/0.75）による50%区間を付ける。幅は2025年6〜8月で表示上の被覆率が50%になるよう補正し、9〜12月の被覆率が40〜60%の項目だけ出す。',
                        '過去5走のみを使用。オッズ・人気・払戻・対象レースの結果は使わない。']}
-    out = {'schema': SCHEMA, 'generatedAt': datetime.now().isoformat(timespec='seconds'), 'model': model,
+    out = {'schema': SCHEMA, 'revision': SCHEMA_REVISION, 'generatedAt': datetime.now().isoformat(timespec='seconds'), 'model': model,
            'units': {'gap': '馬身（先頭から）', 'lane': '内側からの進路スロット（0=内側、列ごとのリセットなし）', 'last3': '秒'}, 'races': out_races}
     Path(args.out).write_text(json.dumps(out, ensure_ascii=False, allow_nan=False), encoding='utf-8')
     (ROOT / 'models' / 'pace' / 'report.json').write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding='utf-8')

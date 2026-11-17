@@ -87,6 +87,30 @@ export default function ModelNotes({data, pace}: {data: Dataset; pace?: PaceFore
               </tbody>
             </table>
           )}
+          {pace.model.intervals && (
+            <table data-testid="pace-intervals">
+              <thead>
+                <tr>
+                  <th>予想レンジ（50%区間、検証 {pace.model.validation ?? '—'}）</th>
+                  <th>実際が入った割合</th>
+                  <th>平均の幅</th>
+                  <th>表示</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(pace.model.intervals.targets).map(([k, v]) => (
+                  <tr key={k}>
+                    <td>{k === 'last3' ? '上がり3F' : `${k.replace(/[^0-9]/g, '')}角 番手`}</td>
+                    <td>{pct(v.coverage)}</td>
+                    <td>
+                      {k === 'last3' ? `${v.meanWidth.toFixed(2)}秒` : `${v.meanWidth.toFixed(1)}番手`}
+                    </td>
+                    <td>{v.shown ? 'あり' : 'なし（被覆率が外れる）'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
           {pace.model.moves && (
             <table data-testid="pace-moves">
               <thead>

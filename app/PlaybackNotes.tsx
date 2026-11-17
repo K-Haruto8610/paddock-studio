@@ -1,6 +1,6 @@
 import type {Race, Horse, ReplayRace, PlaybackMode} from './types';
 import type {PlaybackPlan} from './playback';
-import {laneLabel, PACE_LABELS, type RacePace} from './paceForecast';
+import {laneLabel, last3RangeLabel, PACE_LABELS, rankRangeLabel, type RacePace} from './paceForecast';
 export default function PlaybackNotes({
   race,
   horse,
@@ -21,7 +21,11 @@ export default function PlaybackNotes({
   const paced = mode !== 'replay' && pace ? pace : null,
     paceHorse = horse && paced ? paced.horses[race.horses.indexOf(horse)] : undefined;
   const actual = mode === 'replay',
-    record = horse ? replay?.horses[String(horse.number)] : undefined;
+    record = horse ? replay?.horses[String(horse.number)] : undefined,
+    // Forecast ranges (50%区間) are model outputs: shown for the model forecast only, never in the replay.
+    lastPos = paceHorse?.positions.at(-1),
+    lastRange = lastPos?.rankRange,
+    last3Range = paceHorse?.last3Range;
   const progressing =
     actual && replay
       ? race.horses
@@ -100,10 +104,33 @@ export default function PlaybackNotes({
                       {at.boxed ? ' · 包まれ' : ''}
                     </small>
                   )}
+                  {at?.rankRange && <small className="pace-detail range-detail">{rankRangeLabel(at.rankRange)}</small>}
                 </div>
               );
             })}
           </div>
+          {!actual && paceHorse && (lastRange || last3Range) && (
+            <div className="range-card" data-testid="forecast-range">
+              <h4>予想レンジ（50%区間）</h4>
+              {lastRange && lastPos && (
+                <p>
+                  <span>{lastPos.corner}角位置</span>
+                  <b>{rankRangeLabel(lastRange)}</b>
+                  <small>予想 {lastPos.rank}番手</small>
+                </p>
+              )}
+              {last3Range && (
+                <p>
+                  <span>上がり3F</span>
+                  <b>{last3RangeLabel(last3Range)}</b>
+                  <small>予想 {paceHorse.last3.toFixed(1)}秒</small>
+                </p>
+              )}
+              <small className="range-note">
+                過去の検証で、実際の値がおよそ半分の確率で入った幅です。位置や時計がこの外になることも同じくらいあります。
+              </small>
+            </div>
+          )}
           <p className="aside-note">
             {actual ? '実際の上がり3F' : '予想上がり3F'}{' '}
             <b>

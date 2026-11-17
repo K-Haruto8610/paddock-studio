@@ -359,6 +359,48 @@ aside {
   line-height: 1.9;
   color: #7a8971;
 }
+/* Forecast ranges (予想レンジ, 50% interval) in the selected-horse panel. */
+.range-card {
+  margin-top: 14px;
+  border: 1px dashed #c9d3bb;
+  border-radius: 5px;
+  padding: 10px 12px;
+}
+.range-card h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: #65755f;
+}
+.range-card p {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0 0 4px;
+  font-size: 11px;
+  color: #65755f;
+}
+.range-card p span {
+  min-width: 4.5em;
+}
+.range-card p b {
+  font-size: 15px;
+  color: #33402d;
+}
+.range-card p small {
+  color: #87917e;
+  font-size: 10px;
+}
+.range-card .range-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.7;
+  color: #8b9581;
+}
+.mini-flow .range-detail {
+  color: #8f9a84;
+}
 .data-note {
   margin-top: 24px;
   background: #f1f3e9;
