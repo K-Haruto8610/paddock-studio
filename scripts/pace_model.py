@@ -11,7 +11,7 @@ Only strictly prior starts enter the features; odds, popularity and payouts are 
 The output follows the import schema `paddock.pace-forecast/v1` (see README) so the app can load it,
 and so can any other model that writes the same file.
 """
-import sys, json, argparse, heapq
+import sys, json, argparse, heapq, re
 from pathlib import Path
 from datetime import datetime, date
 import numpy as np
@@ -116,6 +116,119 @@ def load_frame(today_s):
     d['going'] = pd.Series(going, index=d.index).where(lambda g: g.between(1, 4))
     d['grade'] = d.GRADE_CODE.fillna('').str.strip()  # only to describe GI pace, never a model input
     return d, len(rows)
+
+
+# --- Jockey / class change / last-start margin (追加指示3, 2026-11-18) -------------------------------------
+# Not used: body-weight change (announced just before the off, so a published forecast cannot contain it).
+# Columns checked against the local DB (2026-11-18):
+#   jockey : umagoto_race_joho.KISHUMEI_RYAKUSHO, whitespace removed. KISHU_CODE is NOT usable as the id: it is
+#            '00000' on about a third of 2025 rows (22380 of 61221) although the name is filled, and the same
+#            jockey appears under both a code and 00000. Names are unique enough (573 names / 269 non-zero codes).
+#   class  : race_shosai.GRADE_CODE (A=GI, B=GII, C=GIII, D=non-graded stakes, E=other special race, L=listed,
+#            blank=ordinary) + KYOSO_JOKEN_CODE_SAIJAKUNEN (the youngest-age condition; every flat race of 2020+
+#            has it filled): 701 maiden debut, 703 maiden, 005 1-win (500万下), 010 2-win, 016 3-win, 999 open.
+#   margin : umagoto_race_joho.TIME_SA, signed, in 0.1 s, to the winner (the winner holds a NEGATIVE value: the
+#            margin to the runner-up). Checked on 2025 rows: winners always <= 0, every other horse >= 0 and equal
+#            to SOHA_TIME minus the winner's time in 95% of rows (the rest are minute rollovers). '9999' = none.
+#            So no length-code table is needed: last_margin = max(TIME_SA, 0) / 10 seconds, winner = 0.
+# History is built from ALL races (named or not) since 2020: the training frame only keeps named races, and
+# class_last / last_margin / jockey stats from named races alone would skip most of a horse's career.
+CLASS_BY_CONDITION = {'701': 0, '703': 0, '005': 1, '010': 2, '016': 3, '999': 4}  # new/maiden 0, 1-win 1, 2-win 2, 3-win 3, open 4
+CLASS_BY_GRADE = {'A': 7, 'B': 6, 'C': 5, 'D': 4, 'L': 4}  # GI 7, GII 6, GIII 5, non-graded stakes / listed 4
+JMC_FEATURES = ['jockey_same', 'jockey_rides', 'jockey_mean_r1', 'jockey_mean_fin',
+                'class_today', 'class_last', 'class_diff', 'last_margin']
+JMC_VARIANTS = ['class_mean5', 'margin_mean3']
+JMC_GROUPS = {'jockey': JMC_FEATURES[:4], 'class': JMC_FEATURES[4:7], 'margin': ['last_margin']}
+
+
+def class_level(grade, condition):
+    g, k = (grade or '').strip(), (condition or '').strip()
+    return float(CLASS_BY_GRADE[g]) if g in CLASS_BY_GRADE else float(CLASS_BY_CONDITION[k]) if k in CLASS_BY_CONDITION else np.nan
+
+
+def jockey_name(s):
+    s = re.sub(r'[\s　]+', '', str(s or ''))
+    return s if s and clean(s) else None
+
+
+def load_history(today_s):
+    """One row per run of every race (named or not) since 2020 before today_s, with jockey / class / margin /
+    first-corner position / finish. Same venue, track and abnormal-result filters as load_frame."""
+    c = pymysql.connect(**settings.pymysql_kwargs, cursorclass=pymysql.cursors.DictCursor)
+    with c.cursor() as q:
+        q.execute("""SELECT r.RACE_CODE,r.KAISAI_NEN,r.KAISAI_GAPPI,r.GRADE_CODE,r.KYOSO_JOKEN_CODE_SAIJAKUNEN,r.SHUSSO_TOSU,
+          u.UMABAN,u.KETTO_TOROKU_BANGO,u.KISHUMEI_RYAKUSHO,u.CORNER1_JUNI,u.KAKUTEI_CHAKUJUN,u.TIME_SA,u.IJO_KUBUN_CODE
+          FROM race_shosai r JOIN umagoto_race_joho u USING(RACE_CODE)
+          WHERE r.KAISAI_NEN BETWEEN '2020' AND '2026'
+          AND r.KEIBAJO_CODE BETWEEN '01' AND '10' AND r.TRACK_CODE BETWEEN '10' AND '29'
+          ORDER BY r.KAISAI_NEN,r.KAISAI_GAPPI,r.RACE_CODE,u.UMABAN""")
+        h = pd.DataFrame(q.fetchall())
+    c.close()
+    h['date'] = h.KAISAI_NEN + h.KAISAI_GAPPI
+    h = h[h.date < today_s]
+    h = h[h.IJO_KUBUN_CODE.fillna('0').str.strip().isin(['', '0', '3', '4', '5', '6', '7'])]
+    h = h.drop_duplicates(['RACE_CODE', 'UMABAN']).reset_index(drop=True)
+    h['UMABAN'] = h.UMABAN.map(number)  # numeric like the training frame, so the merge keys match
+    field = h.SHUSSO_TOSU.map(number)
+    r1, fin = h.CORNER1_JUNI.map(number), h.KAKUTEI_CHAKUJUN.map(number)
+    h['jockey'] = h.KISHUMEI_RYAKUSHO.map(jockey_name)
+    h['cls'] = [class_level(g, k) for g, k in zip(h.GRADE_CODE, h.KYOSO_JOKEN_CODE_SAIJAKUNEN)]
+    h['r1'] = ((r1 - 1) / (field - 1)).where(r1.between(1, field) & (field > 1))
+    h['fin'] = ((fin - 1) / (field - 1)).where(fin.between(1, field) & (field > 1))
+    sa = h.TIME_SA.map(lambda v: number(str(v).strip()) if str(v).strip() not in ('', '9999') else np.nan)
+    h['margin'] = (sa.clip(lower=0) / 10).where(sa.abs() < 9000)  # seconds behind the winner; winner (negative) -> 0
+    return h[['RACE_CODE', 'UMABAN', 'KETTO_TOROKU_BANGO', 'date', 'jockey', 'cls', 'r1', 'fin', 'margin']]
+
+
+def jockey_stats(rides, jockey, date):
+    """(rides, mean first-corner position, mean normalised finish) over the jockey's rides strictly before `date`.
+    Unseen jockey -> all NaN (LightGBM handles the missing values)."""
+    p = rides[(rides.jockey == jockey) & (rides.date < date)] if jockey else rides.iloc[:0]
+    if p.empty:
+        return np.nan, np.nan, np.nan
+    return float(len(p)), float(p.r1.mean()) if p.r1.notna().any() else np.nan, float(p.fin.mean()) if p.fin.notna().any() else np.nan
+
+
+def add_jockey_class_margin(d, h):
+    """Attach JMC_FEATURES (+ JMC_VARIANTS) to the training frame from the all-race history h. Every value uses
+    only runs / rides on earlier dates (jockey stats exclude the same day), so nothing of the race itself leaks."""
+    h = h.sort_values(['date', 'RACE_CODE', 'UMABAN']).reset_index(drop=True)
+    g = h.groupby('KETTO_TOROKU_BANGO')
+    h['jockey_prev'] = g.jockey.shift()
+    h['class_last'] = g.cls.shift()
+    h['last_margin'] = g.margin.shift()
+    h['class_mean5'] = g.cls.transform(lambda s: s.shift().rolling(5, min_periods=1).mean())
+    h['margin_mean3'] = g.margin.transform(lambda s: s.shift().rolling(3, min_periods=1).mean())
+    h['jockey_same'] = (h.jockey == h.jockey_prev).astype(float).where(h.jockey.notna() & h.jockey_prev.notna())
+    h['class_today'] = h.cls
+    h['class_diff'] = h.cls - h.class_last
+    # Jockey history by date: cumulative sums over earlier dates only (the same day's rides are subtracted).
+    day = h.dropna(subset=['jockey']).assign(n1=lambda x: x.r1.notna().astype(float), s1=lambda x: x.r1.fillna(0),
+                                             nf=lambda x: x.fin.notna().astype(float), sf=lambda x: x.fin.fillna(0), n=1.0)
+    day = day.groupby(['jockey', 'date'])[['n', 'n1', 's1', 'nf', 'sf']].sum().sort_index()
+    prior = day.groupby(level='jockey').cumsum() - day
+    prior['jockey_rides'] = prior.n.where(prior.n > 0)
+    prior['jockey_mean_r1'] = (prior.s1 / prior.n1).where(prior.n1 > 0)
+    prior['jockey_mean_fin'] = (prior.sf / prior.nf).where(prior.nf > 0)
+    h = h.join(prior[['jockey_rides', 'jockey_mean_r1', 'jockey_mean_fin']], on=['jockey', 'date'])
+    keep = ['RACE_CODE', 'UMABAN'] + JMC_FEATURES + JMC_VARIANTS
+    return d.merge(h[keep], on=['RACE_CODE', 'UMABAN'], how='left')
+
+
+def upcoming_jmc(h, horse_id, jockey, date, class_today):
+    """Same features for a declared entry (strictly earlier runs / rides only). The pipeline only imports GI
+    cards, so the caller passes class_today = 7."""
+    runs = h[(h.KETTO_TOROKU_BANGO == horse_id) & (h.date < date)].sort_values(['date', 'RACE_CODE'])
+    jockey = jockey_name(jockey)
+    rides, r1, fin = jockey_stats(h, jockey, date)
+    last = runs.iloc[-1] if len(runs) else None
+    row = {'jockey_same': np.nan if last is None or jockey is None or last.jockey is None else float(last.jockey == jockey),
+           'jockey_rides': rides, 'jockey_mean_r1': r1, 'jockey_mean_fin': fin, 'class_today': float(class_today),
+           'class_last': np.nan if last is None else last.cls, 'last_margin': np.nan if last is None else last.margin,
+           'class_mean5': runs.cls.tail(5).mean() if len(runs) else np.nan,
+           'margin_mean3': runs.margin.tail(3).mean() if len(runs) else np.nan}
+    row['class_diff'] = row['class_today'] - row['class_last']
+    return row
 
 
 def add_labels(d):

@@ -125,6 +125,14 @@ KEIBA_SOURCE環境変数で既存mykeibaのパスを指定できる。認証情�
 - https://www.jra.go.jp/facilities/race/kyoto/course/index.html
 - https://www.jra.go.jp/facilities/race/hanshin/course/index.html
 
+## 騎手・クラス変動・前走着差の特徴量（追加指示3、2026-11-18検証 → 不採用）
+馬体重の増減は発表がレース直前のため使わない。使った列と換算（`scripts/pace_model.py` のJMCブロックにも同内容）:
+- 騎手: `umagoto_race_joho.KISHUMEI_RYAKUSHO`（空白除去）。`KISHU_CODE` は2025年でも約3割が `00000` のためIDに使えない。
+- クラス: `race_shosai.GRADE_CODE`（A=GI 7, B=GII 6, C=GIII 5, D/L=4）＋ `KYOSO_JOKEN_CODE_SAIJAKUNEN`（701/703=0, 005=1, 010=2, 016=3, 999=OP 4）。
+- 前走着差: `umagoto_race_joho.TIME_SA`（0.1秒単位、勝ち馬との差）。勝ち馬は2着との差が負で入るため0に丸める。2025年の行で、勝ち馬は常に0以下・他は0以上、SOHA_TIME差と95%一致を確認。`9999`は欠損。馬身コード表は不要。
+- 履歴は名前付きレースに限らず2020年以降の全レースから作る（学習行は従来どおり名前付きのみ）。騎手の通算は対象レース日より前の騎乗だけ。
+結果: 検証（9〜12月）の連続順位MAEの改善は+0.0008/+0.0001/-0.0003/-0.0003で採用基準（3角以上で0.002以上）に届かず、FEATURESは変更なし。詳細は `scripts/experiment_jockey_class_margin.py` 冒頭。
+
 ## 検証
 TypeScript型検査・本番ビルド成功。ブラウザーで3D描画、再生/停止、馬柱選択、ダートレース切替を確認。コンソールエラーなし。
 モデルの時系列検証値はmodels/report.jsonとWeb画面に表示。
