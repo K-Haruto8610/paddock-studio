@@ -3,8 +3,9 @@
   "version": "1.5",
   "trainingEnd": "2025-12-31",
   "validation": "2025-09〜12",
-  "rows": 16901,
-  "excludedRows": 78509,
+  "rows": 17041,
+  "historyRows": 25840,
+  "excludedRows": 69570,
   "features": [
     "distance",
     "surface",
@@ -111,63 +112,63 @@
     "alpha": 0.7,
     "delta": 0.04,
     "width": 4,
-    "front": 0.25,
-    "hold": 0.06,
+    "front": 0.45,
+    "hold": 0.03,
     "beta": 0.7,
     "k": 3
   },
   "summary": {
     "races": 273,
-    "meanKickDelay": 0.03718616493876525,
-    "delayedShare": 0.28160919540229884,
-    "heldShareFirstCorner": 0.02654625068418172
+    "meanKickDelay": 0.02693043880907425,
+    "delayedShare": 0.2287903667214012,
+    "heldShareFirstCorner": 0.014504652435686919
   },
   "moves": {
     "model": {
-      "corr": 0.1460448654881142,
-      "upHit": 0.38823529411764707,
-      "downHit": 0.43609022556390975,
-      "falseBig": 0.0665024630541872,
-      "predictedMove": 0.056564427564379266,
+      "corr": 0.1320318323989395,
+      "upHit": 0.37058823529411766,
+      "downHit": 0.39849624060150374,
+      "falseBig": 0.051450465243568694,
+      "predictedMove": 0.05282550976431977,
       "actualMove": 0.08283044681491991,
       "upRows": 170,
       "downRows": 133
     },
     "withoutMoves": {
-      "corr": 0.004543198185585906,
-      "upHit": 0.07647058823529412,
-      "downHit": 0.06015037593984962,
-      "falseBig": 0.0013683634373289546,
-      "predictedMove": 0.008280251923398839,
+      "corr": 0.02806959843694353,
+      "upHit": 0.08235294117647059,
+      "downHit": 0.09022556390977443,
+      "falseBig": 0.002736726874657909,
+      "predictedMove": 0.00839860522440451,
       "actualMove": 0.08283044681491991,
       "upRows": 170,
       "downRows": 133
     },
-    "pastMeanCorr": 0.1183474866298207,
-    "rankError": 0.2641429649501967,
-    "rankErrorWithoutMoves": 0.2628570241375598,
+    "pastMeanCorr": 0.12626660157051667,
+    "rankError": 0.2467776517065603,
+    "rankErrorWithoutMoves": 0.2456336564939478,
     "beta": 0.7,
     "k": 3
   },
   "pace": {
-    "corr": 0.44199501209653835,
-    "mae": 0.7087681273783373,
-    "constantMae": 0.7719367588932802,
-    "labelHit": 0.4189723320158103,
+    "corr": 0.4376086737714168,
+    "mae": 0.5838784391784473,
+    "constantMae": 0.6167293233082711,
+    "labelHit": 0.42105263157894735,
     "labelShare": {
-      "H": 0.33992094861660077,
-      "M": 0.21739130434782608,
-      "S": 0.4426877470355731
+      "H": 0.3157894736842105,
+      "M": 0.2706766917293233,
+      "S": 0.41353383458646614
     },
-    "races": 253,
+    "races": 266,
     "bands": [
       -0.35,
       0.2
     ],
-    "giPace": -0.7499999999999964,
+    "giPace": -0.7999999999999972,
     "giBands": [
-      -0.748402787035003,
-      -0.27902228693710684
+      -0.47478101101100734,
+      -0.30646020834584886
     ]
   },
   "paceFeatures": [
@@ -185,81 +186,81 @@
   ],
   "metrics": {
     "r1": {
-      "mae": 0.25748376904004505,
-      "independentMae": 0.2562622202733365,
-      "baselineMae": 0.2291552781265418,
+      "mae": 0.23350468514896489,
+      "independentMae": 0.23596896601759962,
+      "baselineMae": 0.22523916777663208,
       "validationRows": 1524
     },
     "g1": {
-      "mae": 3.840867825641142,
-      "independentMae": 3.7962118315060374,
-      "baselineMae": 3.416615266841645,
+      "mae": 3.8209158000386676,
+      "independentMae": 3.7350540118024362,
+      "baselineMae": 3.396034558180227,
       "validationRows": 1524
     },
     "l1": {
-      "mae": 0.6220472440944882,
-      "independentMae": 0.42900150927860653,
-      "baselineMae": 0.44568022747156605,
+      "mae": 0.4315335174099765,
+      "independentMae": 0.4315335174099765,
+      "baselineMae": 0.44538495188101485,
       "validationRows": 1524
     },
     "r2": {
-      "mae": 0.26056230562253285,
-      "independentMae": 0.25752309620478975,
-      "baselineMae": 0.23054357760884822,
+      "mae": 0.2395954644363275,
+      "independentMae": 0.24125290835400517,
+      "baselineMae": 0.22512078374106675,
       "validationRows": 1802
     },
     "g2": {
-      "mae": 3.916306204300314,
-      "independentMae": 4.131571343527629,
-      "baselineMae": 3.6759452460229376,
+      "mae": 3.919108496434802,
+      "independentMae": 3.8994620903737607,
+      "baselineMae": 3.655912874583796,
       "validationRows": 1802
     },
     "l2": {
-      "mae": 0.4322974472807991,
-      "independentMae": 0.4331502015418773,
-      "baselineMae": 0.4708934517203107,
+      "mae": 0.42948224586900885,
+      "independentMae": 0.4314149171727439,
+      "baselineMae": 0.4671383647798742,
       "validationRows": 1802
     },
     "r3": {
-      "mae": 0.26477397260924257,
-      "independentMae": 0.2582892281651662,
-      "baselineMae": 0.2350800903762253,
+      "mae": 0.2516064436876589,
+      "independentMae": 0.25110245374285556,
+      "baselineMae": 0.2307025473976878,
       "validationRows": 3645
     },
     "g3": {
-      "mae": 2.7005190936411654,
-      "independentMae": 2.6161860455662946,
-      "baselineMae": 2.6995345221764975,
+      "mae": 2.666153135150526,
+      "independentMae": 2.654189879959629,
+      "baselineMae": 2.6874549611339726,
       "validationRows": 3645
     },
     "l3": {
-      "mae": 0.6109739368998628,
-      "independentMae": 0.5152235783403398,
-      "baselineMae": 0.576026520347508,
+      "mae": 0.5228739272983474,
+      "independentMae": 0.5149300900799062,
+      "baselineMae": 0.575148605395519,
       "validationRows": 3645
     },
     "r4": {
-      "mae": 0.2737518125289662,
-      "independentMae": 0.2668819142681197,
-      "baselineMae": 0.24268644507633305,
+      "mae": 0.26240401355328996,
+      "independentMae": 0.26009765815926583,
+      "baselineMae": 0.23665976276696316,
       "validationRows": 3634
     },
     "g4": {
-      "mae": 2.401998432829945,
-      "independentMae": 2.3678951831016417,
-      "baselineMae": 2.529455145844799,
+      "mae": 2.3844642223491674,
+      "independentMae": 2.377704489240086,
+      "baselineMae": 2.5157049165290775,
       "validationRows": 3634
     },
     "l4": {
-      "mae": 0.6095211887727022,
-      "independentMae": 0.5641410228401615,
-      "baselineMae": 0.6194826637314255,
+      "mae": 0.5817281232801321,
+      "independentMae": 0.5628528223687497,
+      "baselineMae": 0.6205650339387268,
       "validationRows": 3634
     },
     "last3": {
-      "mae": 0.891224264258274,
-      "independentMae": 0.9483193635554545,
-      "baselineMae": 1.226566904631155,
+      "mae": 0.8938437089131805,
+      "independentMae": 0.9314840925151533,
+      "baselineMae": 1.2031379278784549,
       "validationRows": 3642
     }
   },

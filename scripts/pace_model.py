@@ -94,7 +94,11 @@ def load_frame(today_s):
     d = d[d.KYORI.between(1000, 3600) & d.SHUSSO_TOSU.between(5, 18) & d.UMABAN.between(1, 18)]
     d = d[d.IJO_KUBUN_CODE.fillna('0').str.strip().isin(['', '0', '3', '4', '5', '6', '7'])]
     counts = d.groupby('RACE_CODE').UMABAN.transform('nunique')
-    d = d[counts == d.SHUSSO_TOSU].drop_duplicates(['RACE_CODE', 'UMABAN']).reset_index(drop=True)
+    # Same rule as build_forecasts.py: partially imported races stay in the frame
+    # as history for past-* features, but are flagged and never trained on.
+    d['complete'] = counts == d.SHUSSO_TOSU
+    d = d.drop_duplicates(['RACE_CODE', 'UMABAN']).reset_index(drop=True)
+    print(f"field-complete races: {int(d.groupby('RACE_CODE')['complete'].first().sum())} / {d.RACE_CODE.nunique()}", flush=True)
     d['field'] = d.SHUSSO_TOSU
     d['distance'] = d.KYORI
     d['surface'] = (d.TRACK_CODE >= 23).astype(int)
@@ -319,7 +323,7 @@ def add_traffic(d):
 
 def fit_models(d, end):
     """Per-horse models (intentions), race spread models, and the traffic-aware closing model."""
-    fit, models = d.date < end, {}
+    fit, models = (d.date < end) & d.complete, {}
     for t in TARGETS:
         rows = fit & d[t].notna()
         # Gap shape: median (L1) resists tailed-off horses. Lanes, ranks, closing: mean.
@@ -455,8 +459,10 @@ def simulate(numbers, early, pred, spreads, corners, P):
         if have > 1e-6:
             row_gap = [v * target / have for v in row_gap]
         form[c] = {'rank': rank, 'gap': [row_gap[row_of[i]] for i in range(n)], 'lane': lane, 'held': held,
-                   # Observed labels describe position within a row, not the track-relative path.
-                   'localLane': [rows[row_of[i]]['m'].index(i) for i in range(n)],
+                   # Observed labels describe position within a row, not the track-relative path. At the first corner the
+                   # row index is a poor proxy (validation l1 0.58 vs 0.43 independent), so the model's own lane is used.
+                   'localLane': ([float(v) for v in np.clip(lane_want, 0, 4)] if c == corners[0] else
+                                 [rows[row_of[i]]['m'].index(i) for i in range(n)]),
                    'out': [sum(lane[j] > lane[i] for j in rows[row_of[i]]['m']) for i in range(n)],
                    'close': [float(any(0 < row_gap[row_of[i]] - row_gap[row_of[j]] < 1.0
                                        and abs(lane[j] - lane[i]) < 1.0 for j in range(n))) for i in range(n)],
@@ -467,9 +473,23 @@ def simulate(numbers, early, pred, spreads, corners, P):
     return form
 
 
+# Weight of the independent model in the rank prediction (the rest is the past-5-run mean), applied before
+# the formation is built. Chosen on Jun-Aug 2025 (scripts/experiment_rank_blend.py): 0.5 is best or within
+# 0.0002 of best at every corner. Gaps, lanes and last3 stay model-only.
+RANK_BLEND = 0.5
+
+
+def blend_ranks(pred, x):
+    for c in CORNERS:
+        past = x[f'past_r{c}'].to_numpy(float)
+        model = np.asarray(pred[f'r{c}'], float)
+        pred[f'r{c}'] = np.where(np.isnan(past), model, RANK_BLEND * model + (1 - RANK_BLEND) * past)
+    return pred
+
+
 def prepare_race(models, x, key, corners):
     numbers = [int(v) for v in x.UMABAN]
-    pred = {t: models[t].predict(x[FEATURES]) for t in TARGETS}
+    pred = blend_ranks({t: models[t].predict(x[FEATURES]) for t in TARGETS}, x)
     xm = x.assign(n_corners=len(corners))  # the course's corner count, as in the training label
     for c in MOVE_CORNERS:
         if f'move{c}' in models:
@@ -765,7 +785,7 @@ def main():
     for t, m in models.items():
         m.booster_.save_model(str(ROOT / 'models' / 'pace' / f'{t}.txt'))
     model = {'name': 'Paddock展開予想モデル', 'version': VERSION, 'trainingEnd': '2025-12-31', 'validation': '2025-09〜12',
-             'rows': int(len(d)), 'excludedRows': int(raw - len(d)), 'features': FEATURES, 'closingFeatures': LAST3_FEATURES,
+             'rows': int(d.complete.sum()), 'historyRows': int(len(d)), 'excludedRows': int(raw - len(d)), 'features': FEATURES, 'closingFeatures': LAST3_FEATURES,
              'moveFeatures': MOVE_FEATURES, 'contention': params, 'summary': metrics.pop('_summary'),
              'moves': metrics.pop('_moves'), 'pace': {**metrics.pop('_pace'), 'giPace': gi_pace, 'giBands': list(gi_bands)}, 'paceFeatures': PACE_FEATURES, 'metrics': metrics,
              'notes': ['各角の順位・先頭からの馬身差・併走群内の内外位置と上がり3Fを個別に学習（LightGBM）。',
