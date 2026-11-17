@@ -7,7 +7,7 @@ import type {TrackModel} from './trackGeometry';
 export const SURFACE_TILE = 24;
 /** Metres of ground covered by one repeat of the ground texture. */
 export const GROUND_TILE = 48;
-const GROUND_COLOR = '#c3d0ae';
+const GROUND_COLOR = '#8c9f74';
 /** The flat land beyond the modelled ground lies this far below the lowest racing surface. */
 export const FAR_GROUND_DROP = 0.6;
 
@@ -98,6 +98,47 @@ export function groundTexture() {
   );
 }
 
+/** Paved apron: pale concrete with soft stains. */
+export function apronTexture() {
+  const rand = seeded(53);
+  const n = [4, 12, 40, 96].map((k) => tileNoise(rand, k));
+  return tileTexture(
+    '#c0c6c0',
+    (u, v) => 0.02 * n[0](u, v) + 0.025 * n[1](u, v) + 0.025 * n[2](u, v) + 0.03 * n[3](u, v) +
+      0.012 * Math.tanh(6 * Math.sin(Math.PI * 24 * u)) * Math.tanh(6 * Math.sin(Math.PI * 24 * v)),
+  );
+}
+
+/**
+ * Tints a ground material by slow noise in world coordinates, so no texture tile shows as a
+ * repeat. The periods (about 240, 95 and 40m) are all longer than the 24m and 48m tiles.
+ */
+export function worldVariation<M extends T.Material>(material: M, strength = 0.1): M {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vVaryXZ;')
+      .replace('#include <project_vertex>',
+        '#include <project_vertex>\nvVaryXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec2 vVaryXZ;
+        float vHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float vNoise(vec2 p) {
+          vec2 i = floor(p), f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(vHash(i), vHash(i + vec2(1.0, 0.0)), f.x),
+                     mix(vHash(i + vec2(0.0, 1.0)), vHash(i + vec2(1.0, 1.0)), f.x), f.y) * 2.0 - 1.0;
+        }`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        {
+          float tone = 0.5 * vNoise(vVaryXZ / 240.0) + 0.3 * vNoise(vVaryXZ / 95.0 + 7.3) + 0.2 * vNoise(vVaryXZ / 40.0 + 19.1);
+          diffuseColor.rgb *= vec3(1.0 + ${strength.toFixed(3)} * tone * 1.2, 1.0 + ${strength.toFixed(3)} * tone, 1.0 + ${strength.toFixed(3)} * tone * 0.7);
+        }`);
+  };
+  material.customProgramCacheKey = () => `world-variation-${strength}`;
+  return material;
+}
+
 /** Beyond the modelled ground the same lawn carries on flat, so its edge never shows. */
 export function addFarGround(scene: T.Scene, floor: number) {
   const lawn = groundTexture();
@@ -171,6 +212,7 @@ export function addFurlongPoles(scene: T.Scene, track: TrackModel) {
     const face = new T.MeshStandardMaterial({
       map: numberBoardTexture(String(remaining / 100)),
       roughness: 0.7,
+      toneMapped: false,
     });
     for (const turn of [0, Math.PI]) {
       const board = new T.Mesh(boardGeo, face);

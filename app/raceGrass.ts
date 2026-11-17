@@ -1,7 +1,7 @@
 import * as T from 'three';
 import type {Ground, GroundHit} from './courseGround';
 import type {RaceRoute} from './raceRoutes';
-import type {TrackPoint} from './trackGeometry';
+import type {TrackModel, TrackPoint} from './trackGeometry';
 import {seeded} from './scenery';
 import {type BladeField, bladeMaterial, bladeMesh, emptyBladeField, grassUniforms, mowBand, scatterBlade} from './surfaceDetail';
 
@@ -22,12 +22,50 @@ const GRID_ALONG = 5;
 const GRID_ACROSS = 4;
 /** Stretches are grown this many metres before the blades' range reaches them. */
 const PREPARE = 40;
-/** Share of each frame's time spent growing a stretch ahead of the field. */
-const GROW_SHARE = 0.15;
-/** Blades placed between looks at the clock. */
-const BATCH = 500;
+/** Blades prepared at each 60 Hz tick, ahead of the visible range. */
+const BLADES_PER_TICK = 3200;
 
 export type RaceGrass = ReturnType<typeof addRaceGrass>;
+
+/** Sparse blades continue over the visible lap beyond the dense stand around the horses. */
+export function addDistantGrass(scene: T.Scene, track: TrackModel, ground: Ground, uniforms: ReturnType<typeof grassUniforms>) {
+  const material = bladeMaterial({...uniforms, uFrom: {value: -1e6}, uTo: {value: 1e6}});
+  const group = new T.Group();
+  scene.add(group);
+  const bounds = new T.Box3();
+  const hit: GroundHit = {y: 0, normal: new T.Vector3(), dirt: false};
+  const segmentLength = 30;
+  for (let start = 0, segment = 0; start < track.lap; start += segmentLength, segment++) {
+    const length = Math.min(segmentLength, track.lap - start);
+    const random = seeded(5689 + segment * 7919);
+    const field = emptyBladeField(Math.ceil(length * track.width * 6));
+    bounds.makeEmpty();
+    for (let i = 0; i < field.count; i++) {
+      const at = start + length * random();
+      const lane = track.width * random();
+      const {point, tangent} = track.sample(at, lane);
+      const found = ground(point.x, point.z, hit, point.y);
+      if (found) point.y = hit.y;
+      bounds.expandByPoint(point);
+      field.root.set(point.toArray(), i * 3);
+      if (found) field.up.set([hit.normal.x, hit.normal.z], i * 2);
+      const band = mowBand(lane);
+      field.lay.set([tangent.x * band, tangent.z * band, at, 0], i * 4);
+      scatterBlade(field, i, random);
+    }
+    const mesh = bladeMesh(field, material);
+    mesh.geometry.boundingSphere = bounds.getBoundingSphere(new T.Sphere());
+    mesh.geometry.boundingSphere.radius += 1;
+    mesh.frustumCulled = true;
+    mesh.renderOrder = segment + 500;
+    group.add(mesh);
+  }
+  return () => {
+    group.traverse(object => { if (object instanceof T.Mesh) object.geometry.dispose(); });
+    group.removeFromParent();
+    material.dispose();
+  };
+}
 
 /**
  * Grass over lanes 0..width of `route`, grown around the field by `update`. Each blade takes its
@@ -100,12 +138,12 @@ export function addRaceGrass(scene: T.Scene, route: RaceRoute, width: number, gr
 
   const stand = (g: Growing) => {
     const mesh = bladeMesh(g.field, material);
+    mesh.renderOrder = g.k + 1;
     stretches.set(g.k, mesh);
     group.add(mesh);
   };
   /** The stretch being grown ahead of the field, a little each frame. */
   let ahead: Growing | null = null;
-  let lastUpdate = performance.now();
 
   return {
     uniforms,
@@ -113,7 +151,7 @@ export function addRaceGrass(scene: T.Scene, route: RaceRoute, width: number, gr
      * Keeps blades standing from behind the last horse (`rear`) to ahead of the leader (`front`),
      * both distances along the route. `show` false hides them (the camera is too far to see blades).
      */
-    update(rear: number, front: number, show: boolean) {
+    update(rear: number, front: number, show: boolean, ticks: number) {
       group.visible = show;
       if (!show) return;
       const to = front + MARGIN,
@@ -127,12 +165,12 @@ export function addRaceGrass(scene: T.Scene, route: RaceRoute, width: number, gr
         // a part of them each frame; blades there have no height yet, so nothing shows.
         prepared = Math.floor((to + PREPARE) / STRETCH);
       for (const [k, mesh] of stretches)
-        if (k < first || k > prepared) {
+        if (k < first || k > last) {
           group.remove(mesh);
           mesh.geometry.dispose();
           stretches.delete(k);
         }
-      if (ahead && (ahead.k < first || ahead.k > prepared || stretches.has(ahead.k))) ahead = null;
+      if (ahead && (ahead.k < first || ahead.k > prepared)) ahead = null;
       // Anything missing where blades already stand (the start, a seek) cannot wait.
       for (let k = first; k <= last; k++)
         if (!stretches.has(k)) {
@@ -141,16 +179,8 @@ export function addRaceGrass(scene: T.Scene, route: RaceRoute, width: number, gr
           place(g, g.field.count);
           stand(g);
         }
-      for (let k = last + 1; k <= prepared && !ahead; k++) if (!stretches.has(k)) ahead = begin(k);
-      // A fixed share of the frame, so a slow frame rate grows as much grass per second as a fast one.
-      const now = performance.now(),
-        until = now + Math.min(now - lastUpdate, 100) * GROW_SHARE;
-      lastUpdate = now;
-      while (ahead && ahead.done < ahead.field.count && performance.now() < until) place(ahead, BATCH);
-      if (ahead && ahead.done === ahead.field.count) {
-        stand(ahead);
-        ahead = null;
-      }
+      if (!ahead && last < prepared && ticks > 0) ahead = begin(last + 1);
+      if (ahead) place(ahead, ticks * BLADES_PER_TICK);
     },
     dispose() {
       for (const mesh of stretches.values()) mesh.geometry.dispose();

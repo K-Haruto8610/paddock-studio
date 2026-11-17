@@ -140,7 +140,7 @@ export const PREVIOUS_HEAD: HeadSettings = {headWidth: 1, noseSize: 0, noseTaper
 export const CURRENT_HEAD: HeadSettings = {headWidth: 0.8, noseSize: 1, noseTaper: 1, foreheadSlope: 1, faceBlend: 1, chestSlope: 1, noseColor: 1, eyeScale: 1, maneHeight: 1};
 /** The head the user picked with the preview sliders; used everywhere by default. */
 export const SAVED_HEAD: HeadSettings = {headWidth: 0.95, noseSize: 0.25, noseTaper: 0.5, foreheadSlope: 0.15, faceBlend: 0.15, chestSlope: 0.25, noseColor: 0.5, eyeScale: 0, maneHeight: 0.3};
-type PlushOptions = Partial<HeadSettings> & {bridle?: boolean; fabric?: FabricChoice};
+type PlushOptions = Partial<HeadSettings> & {bridle?: boolean; fabric?: FabricChoice; labels?: boolean; pileLayers?: number};
 export function normalizeHead(options: PlushOptions = {}): HeadSettings {
   const settings = {...SAVED_HEAD};
   for (const key of Object.keys(settings) as (keyof HeadSettings)[]) {
@@ -587,7 +587,7 @@ function pileNoiseTexture() {
  * Raised pile: the same surface drawn several times, each copy pushed a little further out and keeping only
  * the fibres tall enough to reach it. This gives the cloth a soft fuzzy outline instead of a hard edge.
  */
-function pileMaterial(color: T.ColorRepresentation, kind: FabricKind, options: {vertexColors?: boolean; seam?: boolean; length?: number} = {}) {
+function pileMaterial(color: T.ColorRepresentation, kind: FabricKind, layers: number, options: {vertexColors?: boolean; seam?: boolean; length?: number} = {}) {
   const look = FABRIC_LOOKS[kind];
   const material = new T.MeshPhysicalMaterial({
     color, vertexColors: !!options.vertexColors, roughness: 1,
@@ -599,6 +599,7 @@ function pileMaterial(color: T.ColorRepresentation, kind: FabricKind, options: {
   material.onBeforeCompile = shader => {
     shader.uniforms.pileMap = {value: pileNoiseTexture()};
     shader.uniforms.pileLength = {value: length};
+    shader.uniforms.pileLayers = {value: layers};
     shader.uniforms.pileSeam = {value: seam};
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
@@ -606,12 +607,13 @@ attribute vec3 rest;
 attribute vec3 restNormal;
 attribute float pileScale;
 uniform float pileLength;
+uniform float pileLayers;
 varying float vPileScale;
 varying vec3 vRest;
 varying vec3 vRestNormal;
 varying float vPile;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
-vPile = (float(gl_InstanceID) + 1.0) / ${PILE_LAYERS}.0;
+vPile = (float(gl_InstanceID) + 1.0) / pileLayers;
 vRest = rest;
 vRestNormal = restNormal;
 vPileScale = pileScale;
@@ -663,7 +665,7 @@ material.sheenColor *= mix(diffuseColor.rgb, vec3(1.0), 0.08);
 }
 
 /** Cover a mesh with pile. The layers share its geometry, so they follow the legs as they swing. */
-function addPile(mesh: T.Mesh, material: T.Material) {
+function addPile(mesh: T.Mesh, material: T.Material, layers: number) {
   const geometry = mesh.geometry;
   if (!geometry.attributes.rest) {
     geometry.setAttribute('rest', new T.BufferAttribute((geometry.attributes.position.array as Float32Array).slice(), 3));
@@ -672,7 +674,7 @@ function addPile(mesh: T.Mesh, material: T.Material) {
   if (!geometry.attributes.pileScale) {
     geometry.setAttribute('pileScale', new T.BufferAttribute(new Float32Array(geometry.attributes.position.count).fill(1), 1));
   }
-  const pile = new T.InstancedMesh(geometry, material, PILE_LAYERS);
+  const pile = new T.InstancedMesh(geometry, material, layers);
   pile.name = 'pile';
   pile.receiveShadow = true;
   pile.frustumCulled = false;
@@ -1256,6 +1258,7 @@ function earGeometry() {
 }
 
 export function plush(h: Horse, options: PlushOptions = {}) {
+  const layers = options.pileLayers ?? PILE_LAYERS;
   const settings = normalizeHead(options);
   const {headWidth} = settings;
   const g = new T.Group();
@@ -1302,7 +1305,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
       }
       shell.geometry.setAttribute('pileScale', new T.BufferAttribute(scale, 1));
     }
-    addPile(shell, pileMaterial('#ffffff', bodyFabric, {vertexColors: true, seam: true}));
+    addPile(shell, pileMaterial('#ffffff', bodyFabric, layers, {vertexColors: true, seam: true}), layers);
   }
   // Eyes, nostrils and the saddlecloth sit on top of the pile rather than sinking into it.
   const raise = Math.max(0, pileLength - 0.02);
@@ -1338,7 +1341,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     ear.name = 'cupped-cloth-ear';
     ear.castShadow = ear.receiveShadow = true;
     head.add(ear);
-    if (piled && !h.blinker) addPile(ear, pileMaterial(brown.color, bodyFabric, {length: 0.016}));
+    if (piled && !h.blinker) addPile(ear, pileMaterial(brown.color, bodyFabric, layers, {length: 0.016}), layers);
     const eyeX = T.MathUtils.lerp(0.47, 0.36, settings.eyeScale);
     const eyeY = T.MathUtils.lerp(0.26, 0.25, settings.eyeScale);
     const eyeZ = surfaceZ(eyeX, eyeY);
@@ -1404,10 +1407,10 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   ctx.clearRect(0, 0, 256, 192);
   ctx.fillStyle = '#fff8e9';
   ctx.textAlign = 'center';
-  ctx.font = 'bold 114px sans-serif';
-  ctx.fillText(String(h.number), 128, 119);
-  ctx.font = 'bold 23px sans-serif';
-  ctx.fillText(h.name, 128, 164, 230);
+  ctx.font = 'bold 146px sans-serif';
+  ctx.fillText(String(h.number), 128, 132);
+  ctx.font = 'bold 22px sans-serif';
+  ctx.fillText(h.name, 128, 176, 230);
   const printMap = new T.CanvasTexture(canvas);
   printMap.colorSpace = T.SRGBColorSpace;
   const printMaterial = new T.MeshStandardMaterial({map: printMap, roughness: 1, transparent: true, depthWrite: false});
@@ -1423,16 +1426,18 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     const print = new T.Mesh(geometry, printMaterial);
     body.add(print);
   }
-  const plate = label(`${h.number}  ${h.name}`);
-  plate.position.set(0, 8, 0);
-  plate.scale.set(18, 4.5, 1);
-  plate.name = 'nameplate';
-  g.add(plate);
-  const num = label(String(h.number), 128);
-  num.name = 'numberplate';
-  num.position.set(0, 4.4, 0);
-  num.scale.set(2.2, 2.2, 1);
-  g.add(num);
+  if (options.labels !== false) {
+    const plate = label(`${h.number}  ${h.name}`);
+    plate.position.set(0, 8, 0);
+    plate.scale.set(18, 4.5, 1);
+    plate.name = 'nameplate';
+    g.add(plate);
+    const num = label(String(h.number), 128);
+    num.name = 'numberplate';
+    num.position.set(0, 4.4, 0);
+    num.scale.set(2.2, 2.2, 1);
+    g.add(num);
+  }
   g.userData.plushRig = {body, head, tail, legs, neck: headRig(nodding), hair: {mane: {uniforms: maneHair.uniforms, mesh: mane}, tail: {uniforms: tailHair.uniforms, mesh: tailMesh}}} satisfies PlushRig;
   return g;
 }

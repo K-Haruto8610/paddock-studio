@@ -1,14 +1,15 @@
 'use client';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import Link from 'next/link';
-import TrackScene from './TrackScene';
+import TrackScene, {type VerifyFrame} from './TrackScene';
 import type {CameraMode} from './raceCamera';
 import PlaybackNotes from './PlaybackNotes';
-import HorseTable, {frameColors, dateLabel} from './HorseTable';
+import HorseTable, {dateLabel} from './HorseTable';
+import {framePalette} from './frameColors';
 import ModelNotes from './ModelNotes';
 import {courseFor} from './courses';
-import {VERTICAL_EXAGGERATION, availableKinds} from './trackGeometry';
-import {buildPlayback, playbackFrame} from './playback';
+import {availableKinds, raceElevationScale} from './trackGeometry';
+import {buildPlayback, playbackFrame, playbackEndProgress} from './playback';
 import type {Dataset, Replays, PlaybackMode} from './types';
 import {parsePaceForecast, paceForRace, type PaceForecast} from './paceForecast';
 import EditPanel from './EditPanel';
@@ -23,16 +24,16 @@ import {
   type RaceEdits,
 } from './manualEdit';
 import type {Placement} from './raceLayout';
-import {RaceRecorder, mp4MimeType, RECORDING_SCENE_SIZE, type RecordingOverlay} from './recorder';
+import {RaceRecorder, mp4MimeType, RECORDING_SCENE_SIZE, prepareRecordingOverlay} from './recorder';
+import {completeTick, outputSeconds, progressAtTime, RACE_FPS} from './raceClock';
+import {EXPORT_QUALITY} from './sceneQuality';
+import {raceOverlay} from './raceOverlay';
 
 async function readJson<T>(url: string): Promise<T> {
   const r = await fetch(url);
   if (!r.ok) throw Error('データの読み込みに失敗しました');
   return r.json() as Promise<T>;
 }
-
-/** Estimated race speed at 1x; the dataset does not include total finishing times. */
-const RACE_METRES_PER_SECOND = 17;
 
 export default function Home() {
   const [data, setData] = useState<Dataset | null>(null),
@@ -62,9 +63,30 @@ export default function Home() {
     [editMessage, setEditMessage] = useState(''),
     // Video recording of one forecast playthrough (race view + running order) as MP4.
     [recording, setRecording] = useState(false),
-    [recordMessage, setRecordMessage] = useState('');
-  const recorder = useRef<RaceRecorder | null>(null),
-    overlay = useRef<RecordingOverlay | null>(null);
+    [recordMessage, setRecordMessage] = useState(''),
+    [recordSupport, setRecordSupport] = useState<'checking' | 'export' | 'simple' | 'unavailable'>('checking'),
+    [exportStatus, setExportStatus] = useState<{done: number; count: number} | null>(null);
+  const recorder = useRef<RaceRecorder | null>(null);
+  const exportFrame = useRef<VerifyFrame | null>(null);
+  const exportAbort = useRef<AbortController | null>(null);
+  const codec = useRef<VideoEncoderConfig | null>(null);
+  useEffect(() => {
+    let mounted = true;
+    import('./videoExport').then(module => module.h264Config()).catch(() => null).then(config => {
+      if (!mounted) return;
+      codec.current = config;
+      setRecordSupport(config ? 'export' : mp4MimeType() ? 'simple' : 'unavailable');
+    });
+    return () => {
+      mounted = false;
+      exportAbort.current?.abort();
+    };
+  }, []);
+  const progressRef = useRef(0);
+  const updateProgress = (value: number) => {
+    progressRef.current = value;
+    setProgress(value);
+  };
   useEffect(() => {
     Promise.allSettled([
       readJson<Dataset>('/data/forecasts.json'),
@@ -88,27 +110,7 @@ export default function Home() {
     });
   }, []);
   const race = data?.races.find((r) => r.id === raceId);
-  const playbackMs = race ? (race.distance / RACE_METRES_PER_SECOND) * 1000 : 0;
-  useEffect(() => {
-    if (!playing || playbackMs <= 0) return;
-    let last = performance.now(),
-      id = 0;
-    const tick = (now: number) => {
-      const dt = Math.min(now - last, 100);
-      last = now;
-      setProgress((p) => {
-        const next = p + (dt / playbackMs) * speed;
-        if (next >= 1) {
-          setPlaying(false);
-          return 1;
-        }
-        return next;
-      });
-      id = requestAnimationFrame(tick);
-    };
-    id = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(id);
-  }, [playing, speed, playbackMs]);
+  const distance = race?.distance ?? 0;
   const horse = race?.horses.find((h) => h.number === selected),
     course = race ? courseFor(race) : null,
     replay = replays?.races[raceId],
@@ -127,6 +129,34 @@ export default function Home() {
     const base = buildPlayback(race, mode, replay, pace);
     return editing ? applyEdits(race, base, raceEdits ?? {}) : base;
   }, [race, mode, replay, pace, editing, raceEdits]);
+  const endProgress = useMemo(
+    () => (race && plan ? playbackEndProgress(race, plan) : 1),
+    [race, plan],
+  );
+  useEffect(() => {
+    if (!playing || distance <= 0) return;
+    const started = performance.now();
+    const from = outputSeconds(progressRef.current * distance, speed);
+    const endTime = outputSeconds(endProgress * distance, speed);
+    let previousTick = completeTick(from);
+    let id = 0;
+    const tick = (now: number) => {
+      const seconds = from + Math.max(0, now - started) / 1000;
+      if (seconds >= endTime) {
+        updateProgress(endProgress);
+        setPlaying(false);
+        return;
+      }
+      const targetTick = completeTick(seconds);
+      if (targetTick > previousTick) {
+        previousTick = targetTick;
+        updateProgress(progressAtTime(targetTick / RACE_FPS, distance, speed));
+      }
+      id = requestAnimationFrame(tick);
+    };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, [playing, speed, distance, endProgress]);
   const updateEdits = (change: (e: RaceEdits) => RaceEdits) =>
     setAllEdits((all) => {
       const next = {...all, [raceId]: change(all[raceId] ?? {})};
@@ -205,7 +235,7 @@ export default function Home() {
   const actual = mode === 'replay',
     seek = (p: number) => {
       setPlaying(false);
-      setProgress(p);
+      updateProgress(p);
     };
   // The edit point the race is paused on, if any: horses can be dragged only there.
   const editPoint = editing && !playing ? frame?.exact?.edit : undefined;
@@ -215,49 +245,77 @@ export default function Home() {
     const number = String(race.horses[index].number);
     updateEdits((e) => ({...e, [editPoint]: {...e[editPoint], [number]: clampPlacement(placement)}}));
   };
-  // What the video shows besides the scene; read by the recorder on every frame.
-  if (race && course && plan && frame)
-    overlay.current = {
-      title: `${race.name}　${dateLabel(race.date)} ${race.venue}${race.surface}${race.distance}m`,
-      status: `● ${editing ? '手動エディット' : `モデル予想${pace ? ` ${pace.model}` : ''}`} · ${frame.label}`,
-      orderTitle: progress === 0 ? 'ゲート配置' : '現在の隊列',
-      orderNote: progress === 0 ? '左から馬番順' : '先頭 → 後方',
-      order: frame.order.map(({horse: h}) => ({
-        number: h.number,
-        background: frameColors[h.gate - 1],
-        color: h.gate === 1 ? '#333' : '#fff',
-      })),
-      seek: {
-        progress,
-        reversed,
-        profileImage: course!.profileImage,
-        lapFraction: course!.lap / race.distance,
-        checkpoints: plan!.checkpoints.map((c) => ({
-          label: c.label,
-          at: c.distance / race.distance,
-          active: frame.exact === c,
-          edit: !!c.edit,
-          edited: !!c.edited,
-        })),
-      },
-    };
+  const saveVideo = (blob: Blob, name: string) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+
+  const startExport = async (config: VideoEncoderConfig) => {
+    if (!race || !plan || !course || exportAbort.current) return;
+    const abort = new AbortController();
+    exportAbort.current = abort;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const wasPlaying = playing;
+    setPlaying(false);
+    setExportStatus({done: 0, count: 0});
+    setRecordMessage('');
+    try {
+      const {encodeRaceVideo, videoTimeline} = await import('./videoExport');
+      const timeline = videoTimeline(race.distance, speed, endProgress);
+      setExportStatus({done: 0, count: timeline.count});
+      await prepareRecordingOverlay(course.profileImage);
+      abort.signal.throwIfAborted();
+      if (!exportFrame.current) throw Error('3D書き出しを開始できません');
+      const debug = process.env.NODE_ENV === 'development'
+        ? window as Window & {paddockExportHashes?: string[]; paddockFailAt?: number}
+        : null;
+      if (debug?.paddockExportHashes) debug.paddockExportHashes.length = 0;
+      const blob = await encodeRaceVideo({
+        config, timeline, signal: abort.signal,
+        draw: frame => exportFrame.current!({
+          ...RECORDING_SCENE_SIZE, progress: frame.progress, cameraMode, speed, selected, reduced,
+          outputTime: frame.seconds, sequential: true,
+        }),
+        overlay: position => raceOverlay(race, plan, position, editing, pace?.model),
+        progress: (done, count) => setExportStatus({done, count}),
+        hash: debug?.paddockExportHashes ? hash => debug.paddockExportHashes!.push(hash) : undefined,
+        failAt: debug?.paddockFailAt,
+      });
+      const name = `${editing ? '手動エディット' : 'モデル予想'}_${race.date}_${race.name}.mp4`;
+      saveVideo(blob, name);
+      setRecordMessage(`${name} を保存しました`);
+    } catch (error) {
+      setRecordMessage(abort.signal.aborted ? '書き出しを中止しました。' : `MP4を書き出せませんでした（${String(error)}）`);
+    } finally {
+      exportAbort.current = null;
+      setExportStatus(null);
+      setPlaying(wasPlaying);
+    }
+  };
+  const overlay = useRef<() => ReturnType<typeof raceOverlay>>(() => { throw Error('No race'); });
+  if (race && plan) overlay.current = () => raceOverlay(race, plan, progressRef.current, editing, pace?.model);
   const startRecording = () => {
-    if (!race || recording) return;
+    if (!race || recording || exportStatus || exportAbort.current) return;
+    if (codec.current) return void startExport(codec.current);
     const type = mp4MimeType();
     if (!type)
       return setRecordMessage(
         'このブラウザーはMP4の録画に対応していません。Chrome・Edge（最新版）またはSafariでお試しください。',
       );
     try {
-      recorder.current = new RaceRecorder(type, () => overlay.current!);
+      recorder.current = new RaceRecorder(type, () => overlay.current());
     } catch (e) {
       return setRecordMessage(`録画を開始できません（${String(e)}）`);
     }
     const name = `${editing ? '手動エディット' : 'モデル予想'}_${race.date}_${race.name}.mp4`;
     recorder.current.name = name;
     setRecording(true);
-    setRecordMessage('録画中…スタートからゴールまで再生します。一時停止すると録画を終えて保存します。');
-    setProgress(0);
+    setRecordMessage('簡易録画中。上位6頭（6頭未満なら全頭）がゴールするまで再生します。一時停止すると録画を終了します。');
+    updateProgress(0);
     setPlaying(true);
   };
   // A recording is one playthrough: it ends when playback stops (the finish, a pause, a seek
@@ -272,27 +330,29 @@ export default function Home() {
         rec
           ?.stop()
           .then((blob) => {
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = rec.name;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+            saveVideo(blob, rec.name);
             setRecordMessage(`${rec.name} を保存しました`);
           })
           .catch((e) => setRecordMessage(`録画を保存できませんでした（${String(e)}）`));
       },
-      progress >= 1 ? 1000 : 0,
+      progress >= endProgress ? 1000 : 0,
     );
     return () => clearTimeout(timer);
-  }, [recording, playing, progress]);
+  }, [recording, playing, progress, endProgress]);
   const startEditing = () => {
     if (!race) return;
     setEditing(true);
     setPlaying(false);
-    setProgress(0);
+    updateProgress(0);
   };
   return (
     <main>
+      {exportStatus && (
+        <div className="export-status" role="status">
+          <span>{exportStatus.count ? `MP4書き出し中　${exportStatus.done.toLocaleString()} / ${exportStatus.count.toLocaleString()} コマ` : 'MP4書き出しを準備中'}</span>
+          <button onClick={() => exportAbort.current?.abort()}>中止</button>
+        </div>
+      )}
       <header>
         <Link className="brand" href="/">
           <span className="brand-icon">♞</span>
@@ -330,7 +390,7 @@ export default function Home() {
       )}
       {!data && !err && <p className="notice">馬柱と展開データを読み込んでいます…</p>}
       {race && course && data && plan && frame && (
-        <>
+        <div inert={!!exportStatus}>
           <section className="race-bar">
             <div>
               <span className="pill">GⅠ</span>
@@ -465,12 +525,19 @@ export default function Home() {
           )}
           <div className="workspace">
             <section className="theater">
+              {exportStatus && (
+                <div className="export-renderer" aria-hidden="true">
+                  <TrackScene race={race} plan={plan} progress={0} selected={selected} followKey={0}
+                    onSelect={() => {}} quality={EXPORT_QUALITY} verification={exportFrame} />
+                </div>
+              )}
               <div className="stage">
                 <TrackScene
                   race={race}
                   plan={plan}
                   progress={progress}
-                  rate={playing && playbackMs > 0 ? speed / playbackMs : 0}
+                  playing={playing}
+                  speed={speed}
                   selected={selected}
                   followKey={followKey}
                   cameraMode={cameraMode}
@@ -479,6 +546,7 @@ export default function Home() {
                   onEdit={moveHorse}
                   onRendered={recording ? (c) => recorder.current?.drawFrame(c) : undefined}
                   recordingSize={recording ? RECORDING_SCENE_SIZE : undefined}
+                  suspended={!!exportStatus}
                 />
                 <div className="scene-top">
                   <span
@@ -512,7 +580,7 @@ export default function Home() {
                       : 'ドラッグで回転 · スクロールで拡大 · 馬を選択'}
                   </span>
                   <span>
-                    JRA公式図面ベース · 馬は約1.7倍 · 高低差は{VERTICAL_EXAGGERATION}倍で表示
+                    JRA公式図面ベース · 馬は約1.7倍 · 高低差は{raceElevationScale(race.venueCode)}倍で表示
                   </span>
                 </div>
               </div>
@@ -522,7 +590,7 @@ export default function Home() {
                   disabled={!plan.available}
                   aria-label={playing ? '一時停止' : '展開を再生'}
                   onClick={() => {
-                    if (progress >= 1) setProgress(0);
+                    if (progress >= endProgress) updateProgress(0);
                     setPlaying(!playing);
                   }}
                 >
@@ -533,7 +601,7 @@ export default function Home() {
                 </button>
                 <div className={reversed ? 'timeline reversed' : 'timeline'}>
                   <div className="profile-track" aria-hidden="true" style={profileStyle}>
-                    <span className="profile-done" style={{width: `${progress * 100}%`}} />
+                    <span className="profile-done" style={{width: `${Math.min(1, progress) * 100}%`}} />
                     {plan.checkpoints.map((c) => (
                       <span
                         key={`${c.label}-${c.distance}`}
@@ -541,7 +609,7 @@ export default function Home() {
                         style={{left: `${(c.distance / race.distance) * 100}%`}}
                       />
                     ))}
-                    <span className="profile-now" style={{left: `${progress * 100}%`}} />
+                    <span className="profile-now" style={{left: `${Math.min(1, progress) * 100}%`}} />
                   </div>
                   <input
                     aria-label="展開の進行"
@@ -549,7 +617,7 @@ export default function Home() {
                     min="0"
                     max="1"
                     step="any"
-                    value={progress}
+                    value={Math.min(1, progress)}
                     onChange={(e) => seek(Number(e.target.value))}
                   />
                   <div className="phases">
@@ -584,16 +652,19 @@ export default function Home() {
                 {!actual && (
                   <button
                     className={`record ${recording ? 'recording' : ''}`}
-                    disabled={!plan.available || recording}
+                    disabled={!plan.available || recording || recordSupport === 'checking' || recordSupport === 'unavailable'}
                     aria-label={recording ? '録画中' : '予想を録画（MP4）'}
                     title="レース画面と隊列をMP4で録画"
                     onClick={startRecording}
                   >
                     <i aria-hidden="true" />
-                    {recording ? '録画中' : '録画'}
+                    {recording ? '録画中' : recordSupport === 'simple' ? '簡易録画' : 'MP4書き出し'}
                   </button>
                 )}
               </div>
+              {!actual && recordSupport === 'unavailable' && (
+                <p className="notice record-message">このブラウザーはMP4の録画に対応していません。Chrome・Edge（最新版）またはSafariでお試しください。</p>
+              )}
               {!actual && recordMessage && (
                 <p className="notice record-message" role="status">
                   {recordMessage}
@@ -650,8 +721,7 @@ export default function Home() {
                       title={`${h.name}${actual && frame.exact?.observed ? '：' + frame.exact.ranks[index] + '番手' : ''}`}
                       onClick={() => setSelected(h.number)}
                       style={{
-                        background: frameColors[h.gate - 1],
-                        color: h.gate === 1 ? '#333' : '#fff',
+                        ...framePalette(h.gate),
                       }}
                     >
                       {h.number}
@@ -699,7 +769,7 @@ export default function Home() {
               </div>
               <p className="caption">
                 {race.venue}：JRA公式平面図・周長・高低断面図を基に立体化（{course.label}
-                ）。図面読取誤差を含みます。高低差は{VERTICAL_EXAGGERATION}
+                ）。図面読取誤差を含みます。高低差は{raceElevationScale(race.venueCode)}
                 倍、馬は見やすさのため約1.7倍で表示しています。
                 観測地点間の追い抜き位置・時刻、馬間距離と内外の進路は補間です。地点ボタンで通過順位を確認できます。
               </p>
@@ -736,7 +806,7 @@ export default function Home() {
               <ModelNotes data={data} pace={paceFile} />
             )}
           </section>
-        </>
+        </div>
       )}
       <footer>
         <span>PADDOCK STUDIO</span>

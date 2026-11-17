@@ -1,0 +1,23 @@
+{
+ "venue": "09",
+ "courses": {
+  "turf": {
+   "lap": 1689,
+   "railLength": 1689.01,
+   "planMean": 1.3,
+   "planMax": 4.84,
+   "over3px": 23,
+   "points": 180,
+   "scale": 1.7769
+  },
+  "outer": {
+   "lap": 2089,
+   "railLength": 2089,
+   "planMean": 1.91,
+   "planMax": 5.02,
+   "over3px": 53,
+   "points": 180,
+   "scale": 1.7769
+  }
+ }
+}

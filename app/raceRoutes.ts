@@ -278,7 +278,7 @@ export function makeRoute(race: Race, track: TrackModel): RaceRoute {
     side = courseFor(race).left ? 1 : -1,
     phaseDistances = checkpointDistances(race);
   // Plan pixels share the scale of the turf rail (Tokyo calibrates each rail on its own).
-  const turf = track.kind === 'turf' ? track : makeTrack(race, 'turf');
+  const turf = track.kind === 'turf' ? track : makeTrack(race, 'turf', track.elevationScale);
   const out = (
     sample: RaceRoute['sample'],
     source: RouteSource,
@@ -309,7 +309,7 @@ export function makeRoute(race: Race, track: TrackModel): RaceRoute {
     // The pocket takes the height of the courses it runs on or beside, weighted by
     // how close each one's centre is, so it meets every surface it overlaps
     // without a step (Hanshin's 2,200m pocket lies under the outer course's 4コーナー).
-    const courses = availableKinds(race).map((k) => (k === track.kind ? track : makeTrack(race, k)));
+    const courses = availableKinds(race).map((k) => (k === track.kind ? track : makeTrack(race, k, track.elevationScale)));
     const heights: number[] = [];
     for (let i = 0; i <= 64; i++) {
       // Centre of the pocket (the branch itself is its lane 0).
@@ -328,6 +328,10 @@ export function makeRoute(race: Race, track: TrackModel): RaceRoute {
       }
       heights.push(num / den);
     }
+    // Where the neighbouring courses' graphs disagree with the main rail's, the pocket still has to
+    // arrive at the rail's own height at the join.
+    const railHeight = track.height(join.distance);
+    for (let i = 0; i <= 64; i++) heights[i] = T.MathUtils.lerp(heights[i], railHeight, T.MathUtils.smoothstep(i / 64, 0, 1));
     const height = (u: number) => {
       const f = T.MathUtils.clamp(u, 0, 1) * 64,
         i = Math.min(63, Math.floor(f));
@@ -357,7 +361,7 @@ export function makeRoute(race: Race, track: TrackModel): RaceRoute {
   // 外→内 / 内→外: first course until the winning post, then the finishing course.
   const first = spec?.first ?? mixedFirst(race, track);
   if (first && first !== track.kind) {
-    const firstTrack = makeTrack(race, first),
+    const firstTrack = makeTrack(race, first, track.elevationScale),
       start = spec ? nearestOnTrack(firstTrack, turf.pixel(...spec.mark)).distance : null,
       natural = start === null ? 0 : firstTrack.lap - start,
       laps = Math.max(1, start === null ? Math.ceil(D / lap) - 1 : Math.round((D - natural) / lap)),

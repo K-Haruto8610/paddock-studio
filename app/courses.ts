@@ -1,5 +1,6 @@
 import type {Race} from './types';
 import {COURSE_DATA, type Pixel} from './courseData';
+import {alignmentCorners, alignmentFor} from './alignment';
 // Official numerical specifications, retrieved 2026-11-08. Geometry is a schematic,
 // not survey-grade coordinates. Inner/outer and rail configurations are explicit.
 const specs: Record<
@@ -107,6 +108,8 @@ function cornersFromRail(pixels: Pixel[], lap: number) {
 export function cornerPositions(race: Race) {
   const c = courseFor(race),
     rails = COURSE_DATA[race.venueCode]?.rails;
+  const aligned = alignmentFor(race.venueCode);
+  if (aligned) return alignmentCorners(aligned, c.kind, c.lap);
   if (!rails) return null;
   // Courses without a drawn rail (non-GⅠ) fall back to the inner turf rail.
   return cornersFromRail(rails[c.kind] ?? rails.turf, c.lap);

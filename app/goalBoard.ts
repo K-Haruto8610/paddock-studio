@@ -273,7 +273,7 @@ function flowerTexture() {
 /** The same face on both sides of a flat sign, `gap` apart, so its text never reads mirrored. */
 function twoSided(geometry: T.BufferGeometry, map: T.Texture, gap: number) {
   const group = new T.Group();
-  const material = new T.MeshStandardMaterial({map, roughness: 0.65});
+  const material = new T.MeshStandardMaterial({map, roughness: 0.65, toneMapped: false});
   for (const turn of [0, Math.PI]) {
     const face = new T.Mesh(geometry, material);
     face.rotation.y = turn;

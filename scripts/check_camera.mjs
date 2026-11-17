@@ -8,7 +8,7 @@ import {G1_RACES} from './g1_races.mjs';
 
 const out = path.resolve('outputs/camera-check');
 await fs.mkdir(out, {recursive: true});
-for (const name of ['courseData', 'courses', 'trackGeometry', 'raceRoutes', 'raceCamera']) {
+for (const name of ['courseData', 'alignmentData', 'alignment', 'courses', 'trackGeometry', 'raceRoutes', 'raceCamera']) {
   const source = await fs.readFile(`app/${name}.ts`, 'utf8');
   const js = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022}})
     .outputText.replace(/from '(\.\/[^']+)'/g, "from '$1.js'");

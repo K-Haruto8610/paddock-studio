@@ -4,7 +4,7 @@ import type {TrackPoint} from './trackGeometry';
 import {createShotTransition, fitRaceShot, type CameraMode, type RaceShot} from './raceCamera';
 
 /** Where the leading horse sits by default: this fraction of the way from the screen centre to the edge. */
-const LEADER_AT_EDGE = 0.72;
+const LEADER_AT_EDGE = 0.52;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 3;
 
@@ -17,12 +17,13 @@ const MAX_ZOOM = 3;
 export function createPackCamera(
   camera: T.PerspectiveCamera,
   controls: OrbitControls,
-  canvas: HTMLCanvasElement,
+  canvas?: HTMLCanvasElement,
 ) {
   let following = true;
   let lastFollowKey = -1;
   let first = true;
   let zoom = 1;
+  let adjusted = false;
   let dragging = false;
   let lastProgress = Number.NaN;
   let lastMode: CameraMode = 'pack';
@@ -44,8 +45,9 @@ export function createPackCamera(
     dragging = false;
   };
   const onWheel = (e: WheelEvent) => {
-    if (!following || !frame) return;
+    if (!canvas || !following || !frame) return;
     e.preventDefault();
+    adjusted = true;
     const next = T.MathUtils.clamp(zoom * Math.exp(e.deltaY * 0.001), MIN_ZOOM, MAX_ZOOM);
     const r = next / zoom;
     zoom = next;
@@ -65,13 +67,18 @@ export function createPackCamera(
   };
   const fromOffset = (f: TrackPoint) =>
     f.tangent.clone().multiplyScalar(offset.x).addScaledVector(f.outward, offset.y);
-  controls.addEventListener('start', onControlStart);
-  canvas.addEventListener('pointerdown', onDown);
-  window.addEventListener('pointerup', onUp);
-  canvas.addEventListener('wheel', onWheel, {passive: false});
+  if (canvas) {
+    controls.addEventListener('start', onControlStart);
+    canvas.addEventListener('pointerdown', onDown);
+    window.addEventListener('pointerup', onUp);
+    canvas.addEventListener('wheel', onWheel, {passive: false});
+  }
   controls.zoomToCursor = true;
 
   return {
+    get automatic() {
+      return following && !adjusted;
+    },
     /** Moves the camera towards its frame for this frame (or leaves it alone when dragged away). */
     update(opts: {
       dt: number;
@@ -93,13 +100,14 @@ export function createPackCamera(
         lastMode = mode;
         lastFollowKey = followKey;
         zoom = 1;
+        adjusted = false;
         offset.set(0, 0);
       }
       if (Number.isNaN(lastProgress)) lastProgress = progress;
       controls.enableZoom = !following;
       const aspect = Math.max(camera.aspect, 0.7);
       // Fit the field, but never pull back so far that the horses become specks.
-      const fitted = T.MathUtils.clamp((spread + 12) / (aspect * 0.8), 30, 90);
+      const fitted = T.MathUtils.clamp((spread + 12) / (aspect * 0.8), 30, 76);
       const distance = fitted * zoom;
       // The frame is measured unzoomed, so zooming only scales the view about the cursor.
       const halfWidth = fitted * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * aspect;
@@ -114,8 +122,8 @@ export function createPackCamera(
         .clone()
         .multiplyScalar(distance)
         .addScaledVector(frame.tangent, distance * 0.12);
-      packOffset.y = distance * 0.62;
-      controls.maxPolarAngle = mode === 'broadcast' ? Math.PI * 0.55 : Math.PI * 0.48;
+      packOffset.y = distance * T.MathUtils.lerp(0.19, 0.34, 1 - T.MathUtils.smoothstep(progress, 0.001, 0.08));
+      controls.maxPolarAngle = mode === 'broadcast' ? Math.PI * 0.55 : Math.PI * 0.49;
       controls.maxDistance = mode === 'broadcast' ? 5000 : 900;
       if (mode === 'broadcast' && horses.length) {
         frame = leader;
@@ -146,9 +154,11 @@ export function createPackCamera(
     },
     dispose() {
       controls.removeEventListener('start', onControlStart);
-      canvas.removeEventListener('pointerdown', onDown);
-      window.removeEventListener('pointerup', onUp);
-      canvas.removeEventListener('wheel', onWheel);
+      if (canvas) {
+        canvas.removeEventListener('pointerdown', onDown);
+        window.removeEventListener('pointerup', onUp);
+        canvas.removeEventListener('wheel', onWheel);
+      }
     },
   };
 }

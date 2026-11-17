@@ -6,7 +6,7 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {G1_RACES} from './g1_races.mjs';
 const out=path.resolve('outputs/geometry-check');await fs.mkdir(out,{recursive:true});
-for(const name of ['courseData','courses','trackGeometry','raceRoutes','raceLayout']){
+for(const name of ['courseData','alignmentData','alignment','courses','trackGeometry','raceRoutes','raceLayout']){
  const src=await fs.readFile(`app/${name}.ts`,'utf8');
  const js=ts.transpileModule(src,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.js'");
  await fs.writeFile(path.join(out,name+'.js'),js);

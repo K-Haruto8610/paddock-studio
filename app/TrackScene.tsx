@@ -2,6 +2,7 @@
 import {useEffect, useRef, useSyncExternalStore} from 'react';
 import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import type {Race} from './types';
 import {makeTrack, availableKinds} from './trackGeometry';
 import {makeRoute, type RaceRoute} from './raceRoutes';
@@ -9,15 +10,22 @@ import {interpolateLayouts, sampleLayouts, separateLayouts, type Placement} from
 import {clampPlacement} from './manualEdit';
 import type {PlaybackPlan} from './playback';
 import {createPackCamera} from './packCamera';
-import {raceShot, type CameraMode} from './raceCamera';
+import type {CameraMode} from './raceCamera';
+import {completeTick, outputSeconds, RACE_FPS} from './raceClock';
+import {cameraFrame, createSceneTimeline} from './sceneTimeline';
+import {createRaceRenderer, PREVIEW_QUALITY, type SceneQuality} from './sceneQuality';
+import {addHorseLabels} from './horseLabels';
+import {addRaceLandscape, addRaceSky} from './raceLandscape';
 import {courseFor} from './courses';
 import {posePlush} from './plushHorse';
 import {kickAt, NO_KICK, type Kick, type KickPlan} from './closingKick';
 import {addFarGround} from './scenery';
 import {
   addCourseSurfaces,
+  tokyoChutes,
   addGround,
   addHorses,
+  addContactShadows,
   addLights,
   addMarkers,
   addRails,
@@ -25,22 +33,39 @@ import {
   buildCourseSet,
   disposeScene,
 } from './sceneBuilders';
-import {addRaceGrass} from './raceGrass';
+import {addDistantGrass, addRaceGrass} from './raceGrass';
 import {addDirtTrail} from './dirtTrail';
 import {raceSunOffset} from './raceLighting';
-const Z_AXIS = new T.Vector3(0, 0, 1);
 /** Beyond this distance from the field a blade of grass is smaller than a pixel, so none are drawn. */
 const GRASS_SIGHT = 320;
 
+export type FixedCamera = {position: [number, number, number]; target: [number, number, number]};
+export type VerifyFrame = (input: {
+  progress: number;
+  speed: number;
+  cameraMode: CameraMode;
+  selected: number | null;
+  width: number;
+  height: number;
+  reduced?: boolean;
+  fixed?: FixedCamera;
+  history?: number[];
+  outputTime?: number;
+  sequential?: boolean;
+}) => Promise<HTMLCanvasElement>;
+type VerificationRef = {current: VerifyFrame | null};
+
 type LiveState = {
   progress: number;
-  rate: number;
+  playing: boolean;
+  speed: number;
   selected: number | null;
   followKey: number;
   cameraMode: CameraMode;
   plan: PlaybackPlan;
   /** Manual edit mode: distance of the edit point the race is paused on (null elsewhere). */
   editAt: number | null;
+  suspended: boolean;
 };
 
 // WebGL support is a property of the browser, not of the race: check it once, without
@@ -87,15 +112,11 @@ function placeHorses(
     );
     g.position.copy(here.point);
     g.rotation.set(0, -Math.atan2(here.tangent.z, here.tangent.x), pitch);
-    // The number floats straight above the horse: undo the slope pitch so it does not sway.
-    const number = g.getObjectByName('numberplate')!;
-    number.position.set(0, 4.4, 0).applyAxisAngle(Z_AXIS, -pitch);
     // The closing kick depends on the horse's own distance, so seeking and recording reproduce the same form.
     const kick = reducedMotion ? NO_KICK : kickAt(at, kicks[i]);
     posePlush(g, at, reducedMotion, kick);
     pose.at[i] = at;
     pose.kick[i] = kick;
-    g.getObjectByName('nameplate')!.visible = selected === race.horses[i].number;
     if (selected === race.horses[i].number) {
       ring.position.copy(g.position);
       ring.position.y += 0.12;
@@ -107,7 +128,8 @@ export default function TrackScene({
   race,
   plan,
   progress,
-  rate = 0,
+  playing = false,
+  speed = 2,
   selected,
   followKey,
   cameraMode = 'pack',
@@ -116,12 +138,16 @@ export default function TrackScene({
   onEdit,
   onRendered,
   recordingSize,
+  quality = PREVIEW_QUALITY,
+  verification,
+  suspended = false,
+  elevationScale,
 }: {
   race: Race;
   plan: PlaybackPlan;
   progress: number;
-  /** Progress per millisecond while playing (0 when paused). The scene advances on its own frame clock. */
-  rate?: number;
+  playing?: boolean;
+  speed?: number;
   selected: number | null;
   followKey: number;
   cameraMode?: CameraMode;
@@ -132,16 +158,20 @@ export default function TrackScene({
   /** Called right after each frame renders, while the canvas still holds it (video recording). */
   onRendered?: (canvas: HTMLCanvasElement) => void;
   recordingSize?: {width: number; height: number};
+  quality?: SceneQuality;
+  verification?: VerificationRef;
+  suspended?: boolean;
+  elevationScale?: number;
 }) {
   const host = useRef<HTMLDivElement>(null);
   // The animation loop lives outside React's render cycle: it reads the latest props from refs.
-  const state = useRef<LiveState>({progress, rate, selected, followKey, cameraMode, plan, editAt});
+  const state = useRef<LiveState>({progress, playing, speed, selected, followKey, cameraMode, plan, editAt, suspended});
   const select = useRef(onSelect);
   const edit = useRef(onEdit);
   const rendered = useRef(onRendered);
   const captureSize = useRef(recordingSize);
   useEffect(() => {
-    state.current = {progress, rate, selected, followKey, cameraMode, plan, editAt};
+    state.current = {progress, playing, speed, selected, followKey, cameraMode, plan, editAt, suspended};
     select.current = onSelect;
     edit.current = onEdit;
     rendered.current = onRendered;
@@ -154,20 +184,16 @@ export default function TrackScene({
     const el = host.current!;
     let renderer: T.WebGLRenderer;
     try {
-      renderer = new T.WebGLRenderer({antialias: true});
+      renderer = createRaceRenderer(quality, !!verification);
     } catch {
       return;
     }
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = T.PCFSoftShadowMap;
-    renderer.setClearColor('#e8eddf');
     el.appendChild(renderer.domElement);
 
     const scene = new T.Scene();
     const camera = new T.PerspectiveCamera(40, 1, 0.3, 6000);
     camera.position.set(0, 800, 800);
-    scene.fog = new T.Fog('#e8eddf', 500, 1600);
+    scene.fog = new T.Fog(quality.clearColor, 500, 1600);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.minDistance = 12;
@@ -175,34 +201,54 @@ export default function TrackScene({
     controls.maxPolarAngle = Math.PI * 0.48;
     const sunOffset = raceSunOffset(race.date);
     const sun = addLights(scene, sunOffset);
+    sun.shadow.mapSize.setScalar(quality.shadowSize);
+    addRaceSky(scene, sunOffset);
+    const room = new RoomEnvironment();
+    const pmrem = new T.PMREMGenerator(renderer);
+    const environment = pmrem.fromScene(room, 0.08);
+    room.dispose();
+    pmrem.dispose();
+    scene.environment = environment.texture;
+    scene.environmentIntensity = 0.32;
 
     // Course geometry and everything drawn on it.
     const tokyo = race.venueCode === '05';
-    const track = makeTrack(race);
+    const track = makeTrack(race, undefined, elevationScale);
     const route = makeRoute(race, track);
     const straight = courseFor(race).straight;
     const courses = buildCourseSet(race, track, availableKinds(race));
     const terrain = addGround(scene, courses.tracks, route);
-    const surface = addCourseSurfaces(scene, courses, terrain, tokyo, route);
-    addRails(scene, track, courses.turf, route, race.distance);
+    const surface = addCourseSurfaces(scene, courses, terrain, tokyo, route, tokyo ? tokyoChutes(race) : []);
+    addRails(scene, courses, track.width, route, race.distance);
     const gate = addMarkers(scene, race, track, route);
-    addFarGround(scene, Math.min(...terrain.samples.map((s) => s.y)));
+    const floor = Math.min(...terrain.samples.map(s => s.y));
+    addFarGround(scene, floor);
+    addRaceLandscape(scene, track, terrain, floor - 1);
     // Blades of grass stand around the field when the race is run on turf.
     const grass = track.kind === 'dirt' ? null : addRaceGrass(scene, route, track.width, surface);
+    const disposeDistantGrass = grass && quality.extendedGrass ? addDistantGrass(scene, track, surface, grass.uniforms) : null;
     const gateBox = new T.Box3().setFromObject(gate);
-    const frustum = new T.Frustum();
-    const view = new T.Matrix4();
 
     // Horses and click-to-select; in edit mode, drag a horse to move it.
-    const horses = addHorses(scene, race);
+    const horses = addHorses(scene, race, quality.pileLayers);
+    const labels = addHorseLabels(scene, race, horses);
+    const contact = addContactShadows(scene, horses);
+    if (quality.fullAnisotropy) {
+      const anisotropy = renderer.capabilities.getMaxAnisotropy();
+      scene.traverse(object => {
+        if (!(object instanceof T.Mesh || object instanceof T.Sprite)) return;
+        for (const material of Array.isArray(object.material) ? object.material : [object.material])
+          for (const value of Object.values(material)) if (value instanceof T.Texture) value.anisotropy = anisotropy;
+      });
+    }
     const pose = {at: horses.map(() => 0), kick: horses.map(() => NO_KICK)};
-    const field = {horses, ...pose};
+
     const ring = addSelectionRing(scene);
     const ray = new T.Raycaster();
     const mouse = new T.Vector2();
     let down = [0, 0];
     const aim = (e: PointerEvent) => {
-      const b = el.getBoundingClientRect();
+      const b = renderer.domElement.getBoundingClientRect();
       mouse.set(
         ((e.clientX - b.left) / b.width) * 2 - 1,
         -((e.clientY - b.top) / b.height) * 2 + 1,
@@ -291,14 +337,18 @@ export default function TrackScene({
     el.addEventListener('pointercancel', onPointerCancel);
 
     let sizeKey = '';
-    const resize = () => {
-      const capture = captureSize.current;
+    let outputWidth = 1;
+    let outputHeight = 1;
+    const resize = (size?: {width: number; height: number}) => {
+      const capture = size ?? captureSize.current;
       const width = capture?.width ?? Math.max(1, el.clientWidth);
       const height = capture?.height ?? Math.max(1, el.clientHeight);
-      const pixelRatio = capture ? 1 : Math.min(devicePixelRatio, 2);
+      const pixelRatio = capture ? 1 : Math.min(devicePixelRatio, quality.maxPixelRatio);
       const key = `${width}:${height}:${pixelRatio}:${el.clientWidth}:${el.clientHeight}`;
       if (key === sizeKey) return;
       sizeKey = key;
+      outputWidth = width;
+      outputHeight = height;
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setPixelRatio(pixelRatio);
@@ -308,102 +358,272 @@ export default function TrackScene({
       renderer.domElement.style.width = `${width * scale}px`;
       renderer.domElement.style.height = `${height * scale}px`;
     };
-    const observer = new ResizeObserver(resize);
+    const observer = new ResizeObserver(() => resize());
     observer.observe(el);
     resize();
 
     const packCamera = createPackCamera(camera, controls, renderer.domElement);
     const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let verificationMotion: boolean | undefined;
     // Hoofprints and kicked-up sand on a dirt course.
-    const trail = track.kind === 'dirt' ? addDirtTrail(scene, surface, () => motionPreference.matches) : null;
+    const trail = track.kind === 'dirt' ? addDirtTrail(scene, surface, () => verificationMotion ?? motionPreference.matches) : null;
+    const timeline = createSceneTimeline(race, route, straight, gateBox, trail);
     let frame = 0;
-    let lastTime = performance.now();
-    let shown = state.current.progress;
-    function draw(now = performance.now()) {
-      resize();
-      const dt = Math.min((now - lastTime) / 1000, 0.1);
-      lastTime = now;
-      const {progress: target, rate, selected, followKey, cameraMode, plan: live, editAt} = state.current;
-      // React state updates on its own clock, so its steps don't line up with this frame's time.
-      // Advance by this frame's own time and only ease towards the React value, so motion stays even.
-      // A seek (a large difference) jumps straight there.
-      if (rate > 0 && Math.abs(target - shown) < 0.01) {
-        shown = Math.min(1, shown + rate * dt * 1000);
-        shown += (target - shown) * (1 - Math.exp(-dt * 0.5));
-      } else {
-        shown = target;
-      }
-      const p = shown;
-      const travel = p * race.distance;
-      // Stopped on an edit point the field is shown exactly as placed (and follows the drag);
-      // otherwise the horses run the simulated lanes, where a pass never trades sides.
+    let previousTick = -1;
+    let lastFollowKey = state.current.followKey;
+    let lastMode = state.current.cameraMode;
+    let previousTime = performance.now();
+    let transition: {position: T.Vector3; target: T.Vector3; elapsed: number} | null = null;
+    let lastInput: LiveState | undefined;
+    let lastSize = '';
+    let lastReduced: boolean | undefined;
+    let lastDrag: Placement | undefined;
+    let interactionChanged = true;
+    const markInteraction = () => { interactionChanged = true; };
+    controls.addEventListener('change', markInteraction);
+    renderer.domElement.addEventListener('wheel', markInteraction);
+
+    function update(input: LiveState, fixed?: FixedCamera, verificationFrame = false, prepare = true, outputTime?: number) {
+      const {progress, speed, plan: live, selected, cameraMode, followKey, playing, editAt} = input;
+      const travel = progress * race.distance;
+      const seconds = outputSeconds(travel, speed);
+      const tick = completeTick(seconds);
+      const reduced = verificationMotion ?? motionPreference.matches;
+      const canonical = timeline.advanceTo(tick, {speed, plan: live, aspect: camera.aspect, mode: cameraMode, reduced});
+      if (!prepare) return;
+      const editing = !verificationFrame && (drag || (editAt !== null && !playing));
       let placements: Placement[];
-      if (drag || (editAt !== null && rate === 0)) {
+      if (editing) {
         const raw = interpolateLayouts(live.layouts, travel, live.knots);
         if (drag) raw[drag.index] = drag.now;
         placements = separateLayouts(raw);
       } else placements = sampleLayouts(live.layouts, travel, live.knots);
-      placeHorses(horses, race, route, ring, placements, travel, selected, motionPreference.matches, live.kicks, pose);
+      placeHorses(horses, race, route, ring, placements, travel, selected, reduced, live.kicks, pose);
 
-      const packCenter = new T.Box3()
-        .setFromPoints(horses.map((g) => g.position))
-        .getCenter(new T.Vector3());
-      const gaps = placements.map((v) => v.gap);
-      const leaderAt = travel - Math.min(...gaps);
-      const meanLane = placements.reduce((sum, v) => sum + v.lane, 0) / placements.length;
-      const order = placements.map((_, i) => i).sort((a, b) => gaps[a] - gaps[b]);
-      packCamera.update({
-        dt,
-        progress: p,
-        followKey,
-        mode: cameraMode,
-        shot: raceShot(route, Math.max(0, leaderAt), race.distance, straight),
-        horses: order.map((i) => horses[i].position),
-        leader: route.sample(Math.max(0, leaderAt), placements[order[0]].lane),
-        spread: Math.max(...gaps) - Math.min(...gaps),
-        behindLeader: (metres) => route.sample(Math.max(0, leaderAt - metres), meanLane),
-      });
-      // The starting gate goes once the race is under way and the camera has left it behind.
-      if (travel < 1) gate.visible = true;
-      else if (gate.visible) {
-        camera.updateMatrixWorld();
-        frustum.setFromProjectionMatrix(
-          view.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
-        );
-        if (!frustum.intersectsBox(gateBox)) gate.visible = false;
+      if (fixed) {
+        camera.position.fromArray(fixed.position);
+        camera.lookAt(new T.Vector3().fromArray(fixed.target));
+      } else if (verificationFrame || (packCamera.automatic && followKey === lastFollowKey && cameraMode === lastMode && !transition)) {
+        camera.position.copy(canonical.position);
+        camera.lookAt(canonical.target);
+        if (!verificationFrame) {
+          controls.target.copy(canonical.target);
+          // Keep the interaction camera's wheel anchor current.
+          packCamera.update({
+            dt: 0, progress, followKey, mode: cameraMode,
+            ...cameraFrame(route, race.distance, straight, travel, placements, horses.map(h => h.position)),
+          });
+          camera.position.copy(canonical.position);
+          camera.lookAt(canonical.target);
+        }
+      } else {
+        const changed = followKey !== lastFollowKey || cameraMode !== lastMode;
+        packCamera.update({
+          dt: !changed && playing ? Math.max(0, tick - previousTick) / RACE_FPS : 0, progress, followKey, mode: cameraMode,
+          ...cameraFrame(route, race.distance, straight, travel, placements, horses.map(h => h.position)),
+        });
+        controls.update();
       }
+      if (!verificationFrame && !fixed) {
+        if (followKey !== lastFollowKey || cameraMode !== lastMode) {
+          transition = {
+            position: camera.position.clone().sub(canonical.position),
+            target: controls.target.clone().sub(canonical.target), elapsed: 0,
+          };
+        }
+        if (transition && packCamera.automatic) {
+          const t = Math.min(1, transition.elapsed / 2.6);
+          const remaining = 1 - t * t * t * (t * (t * 6 - 15) + 10);
+          camera.position.copy(canonical.position).addScaledVector(transition.position, remaining);
+          controls.target.copy(canonical.target).addScaledVector(transition.target, remaining);
+          camera.lookAt(controls.target);
+          if (t === 1) transition = null;
+        } else if (!packCamera.automatic) transition = null;
+        if (packCamera.automatic) {
+          controls.maxPolarAngle = canonical.maxPolarAngle;
+          controls.maxDistance = canonical.maxDistance;
+        }
+        lastFollowKey = followKey;
+        lastMode = cameraMode;
+      }
+
+      const packCenter = new T.Box3().setFromPoints(horses.map(g => g.position)).getCenter(new T.Vector3());
+      const gaps = placements.map(v => v.gap);
+      labels.update(camera, outputWidth, outputHeight, travel, gaps, selected);
+      gate.visible = canonical.gate;
       if (grass) {
-        if (!motionPreference.matches) grass.uniforms.uTime.value += dt;
-        grass.update(travel - Math.max(...gaps), leaderAt, camera.position.distanceTo(packCenter) < GRASS_SIGHT);
+        grass.uniforms.uTime.value = reduced ? 0 : outputTime ?? seconds;
+        const ticks = verificationFrame ? 0 : Math.min(4, Math.max(0, tick - previousTick));
+        grass.update(travel - Math.max(...gaps), travel - Math.min(...gaps),
+          camera.position.distanceTo(packCenter) < GRASS_SIGHT, ticks);
       }
-      // A hand edit is not a replay of the race: its horses are moved, not run, and the trail starts over.
-      trail?.update(field, travel, !!drag || (editAt !== null && rate === 0), live);
+      trail?.setTime(travel, pose.at);
+      contact.place();
+      // Keep the shadow map on the field: its texel size follows the pack's spread, not a fixed 220m.
+      const shadowHalf = T.MathUtils.clamp(Math.max(...gaps) / 2 - Math.min(...gaps) / 2 + 55, 75, 110);
+      if (sun.shadow.camera.right !== shadowHalf) {
+        const shadowCamera = sun.shadow.camera;
+        shadowCamera.left = -shadowHalf; shadowCamera.bottom = -shadowHalf;
+        shadowCamera.right = shadowHalf; shadowCamera.top = shadowHalf;
+        shadowCamera.updateProjectionMatrix();
+      }
       sun.target.position.copy(packCenter);
       sun.position.copy(packCenter).add(sunOffset);
-      controls.update();
-      renderer.render(scene, camera);
-      rendered.current?.(renderer.domElement);
-      frame = requestAnimationFrame(draw);
+      if (!verificationFrame) previousTick = tick;
     }
-    draw();
 
+    // A very faint darkening toward the corners, drawn over the finished picture.
+    const vignette = {
+      scene: new T.Scene(),
+      camera: new T.OrthographicCamera(-1, 1, 1, -1, 0, 1),
+      geometry: new T.PlaneGeometry(2, 2),
+      material: new T.ShaderMaterial({
+        transparent: true, depthTest: false, depthWrite: false, toneMapped: false,
+        vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+        fragmentShader: `varying vec2 vUv;
+          void main() {
+            vec2 d = (vUv - 0.5) * vec2(1.0, 0.9);
+            gl_FragColor = vec4(0.04, 0.06, 0.05, 0.16 * smoothstep(0.28, 0.78, length(d)));
+          }`,
+      }),
+    };
+    vignette.scene.add(new T.Mesh(vignette.geometry, vignette.material));
+    const render = () => {
+      renderer.render(scene, camera);
+      const autoClear = renderer.autoClear;
+      renderer.autoClear = false;
+      renderer.render(vignette.scene, vignette.camera);
+      renderer.autoClear = autoClear;
+    };
+    // Read the single-sample framebuffer directly. Chrome's multisample resolve can
+    // round individual edge pixels differently even with identical scene state.
+    const readback = verification ? new T.WebGLRenderTarget(1, 1, {
+      colorSpace: quality.colorSpace, internalFormat: 'RGBA8',
+    }) : null;
+    // Three r180 otherwise treats render targets as linear intermediate passes. Select
+    // its display-target path so the same material-level tone mapping applies as on screen.
+    if (readback) Object.assign(readback, {isXRRenderTarget: true});
+    const downsample = verification && quality.renderScale > 1 ? {
+      scene: new T.Scene(),
+      camera: new T.OrthographicCamera(-1, 1, 1, -1, 0, 1),
+      geometry: new T.PlaneGeometry(2, 2),
+      target: new T.WebGLRenderTarget(1, 1, {depthBuffer: false, colorSpace: T.LinearSRGBColorSpace}),
+      material: new T.RawShaderMaterial({
+        uniforms: {picture: {value: readback!.texture}},
+        vertexShader: `precision highp float;
+          attribute vec3 position; attribute vec2 uv; varying vec2 vUv;
+          void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+        fragmentShader: `precision highp float;
+          uniform sampler2D picture; varying vec2 vUv;
+          void main() { gl_FragColor = texture2D(picture, vUv); }`,
+        toneMapped: false, depthTest: false,
+      }),
+    } : null;
+    if (downsample) downsample.scene.add(new T.Mesh(downsample.geometry, downsample.material));
+    function draw(now = performance.now()) {
+      frame = requestAnimationFrame(draw);
+      if (state.current.suspended) {
+        previousTime = now;
+        return;
+      }
+      resize();
+      const input = state.current;
+      if (input === lastInput && sizeKey === lastSize && lastReduced === motionPreference.matches &&
+        lastDrag === drag?.now && !transition && !interactionChanged && !rendered.current &&
+        packCamera.automatic) return;
+      if (transition) transition.elapsed += Math.min((now - previousTime) / 1000, 0.1);
+      previousTime = now;
+      interactionChanged = false;
+      update(input);
+      lastInput = input;
+      lastSize = sizeKey;
+      lastReduced = motionPreference.matches;
+      lastDrag = drag?.now;
+      render();
+      rendered.current?.(renderer.domElement);
+    }
+
+    let firstCapture = true;
+    const copy = verification ? document.createElement('canvas') : null;
+    let pixels: Uint8Array<ArrayBuffer>;
+    let outputPixels: ImageData;
+    if (verification) verification.current = async ({progress, cameraMode, selected, speed, width, height, reduced, fixed, history, outputTime, sequential}) => {
+      resize({width, height});
+      verificationMotion = reduced;
+      try {
+        if (!sequential || firstCapture) timeline.reset();
+        const input = {...state.current, progress, cameraMode, selected, speed, playing: false};
+        for (const at of history ?? []) update({...input, progress: at}, fixed, true, false);
+        update(input, fixed, true, true, outputTime);
+        const scale = quality.renderScale;
+        readback!.setSize(width * scale, height * scale);
+        renderer.setRenderTarget(readback);
+        if (firstCapture) {
+          await renderer.compileAsync(scene, camera);
+          render();
+          renderer.getContext().finish();
+          firstCapture = false;
+        }
+        render();
+        if (downsample) {
+          // The high-resolution target contains display-space pixels. Average them once.
+          if (downsample.target.width !== width || downsample.target.height !== height)
+            downsample.target.setSize(width, height);
+          renderer.setRenderTarget(downsample.target);
+          renderer.render(downsample.scene, downsample.camera);
+        }
+        const row = width * 4;
+        if (!outputPixels || outputPixels.width !== width || outputPixels.height !== height) {
+          pixels = new Uint8Array(row * height);
+          outputPixels = new ImageData(width, height);
+        }
+        renderer.readRenderTargetPixels(downsample?.target ?? readback!, 0, 0, width, height, pixels!);
+        for (let y = 0; y < height; y++) {
+          const offset = (height - 1 - y) * row;
+          outputPixels.data.set(pixels!.subarray(offset, offset + row), y * row);
+        }
+        if (copy!.width !== width) copy!.width = width;
+        if (copy!.height !== height) copy!.height = height;
+        copy!.getContext('2d')!.putImageData(outputPixels, 0, 0);
+        return copy!;
+      } finally {
+        renderer.setRenderTarget(null);
+        verificationMotion = undefined;
+      }
+    };
+    if (!verification) draw();
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      if (verification) verification.current = null;
+      timeline.dispose();
       packCamera.dispose();
+      controls.removeEventListener('change', markInteraction);
+      renderer.domElement.removeEventListener('wheel', markInteraction);
       controls.dispose();
       grass?.dispose();
+      disposeDistantGrass?.();
       trail?.dispose();
+      labels.dispose();
       el.removeEventListener('pointerdown', onPointerDown, true);
       el.removeEventListener('pointermove', onPointerMove);
       el.removeEventListener('pointerup', onPointerUp);
       el.removeEventListener('pointercancel', onPointerCancel);
+      sun.shadow.dispose();
+      environment.dispose();
+      vignette.geometry.dispose();
+      vignette.material.dispose();
+      readback?.dispose();
+      downsample?.geometry.dispose();
+      downsample?.material.dispose();
+      downsample?.target.dispose();
       disposeScene(scene);
       renderer.dispose();
+      renderer.forceContextLoss();
       renderer.domElement.remove();
     };
     // The plan is read live from state, so a hand edit does not rebuild the scene or move the camera.
-  }, [race, webgl]);
+  }, [race, webgl, quality, verification, elevationScale]);
 
   return (
     <div

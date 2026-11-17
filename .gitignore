@@ -43,3 +43,7 @@ yarn-error.log*
 
 # OS metadata
 .DS_Store
+
+# Claude Code local state
+/.claude/
+__pycache__/

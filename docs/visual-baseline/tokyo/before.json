@@ -1,0 +1,50 @@
+{
+ "courses": {
+  "turf": {
+   "lap": 2083.1,
+   "railLength": 2083.1000000000054
+  },
+  "dirt": {
+   "lap": 1899,
+   "railLength": 1898.9999999999993
+  }
+ },
+ "g1": [
+  {
+   "name": "Feb.S",
+   "surface": "ダート",
+   "trackCode": 24,
+   "distance": 1600,
+   "source": "chute",
+   "lap": 1899,
+   "markError": 0
+  },
+  {
+   "name": "Tokyo mile (NHK/Victoria/Yasuda)",
+   "surface": "芝",
+   "trackCode": 11,
+   "distance": 1600,
+   "source": "main-rail",
+   "lap": 2083.1,
+   "markError": 3.8297106933596297
+  },
+  {
+   "name": "Oaks/Derby/JC",
+   "surface": "芝",
+   "trackCode": 11,
+   "distance": 2400,
+   "source": "main-rail",
+   "lap": 2083.1,
+   "markError": 18.80661865234333
+  },
+  {
+   "name": "Tenno Sho Autumn",
+   "surface": "芝",
+   "trackCode": 11,
+   "distance": 2000,
+   "source": "chute",
+   "lap": 2083.1,
+   "markError": 0
+  }
+ ]
+}

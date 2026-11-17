@@ -47,7 +47,10 @@ export function raceShot(route: RaceRoute, travel: number, distance: number, str
   const heading = route.sample(Math.min(distance, travel + 20)).point.clone()
     .sub(route.sample(Math.max(0, travel - 20)).point).setY(0).normalize();
   const home = route.sample(distance).tangent.clone().setY(0).normalize();
-  return Math.abs(heading.dot(home)) < 0.88 ? 'corner' : 'wide';
+  // Begin the low shot before the final bend so the transition has settled by 3角.
+  const onBend = (at: number) => Math.abs(route.sample(at).tangent.clone().setY(0).normalize().dot(home)) < 0.88;
+  const finalBendAhead = travel >= distance - straight - 550 && onBend(Math.min(distance - straight, travel + 105));
+  return Math.abs(heading.dot(home)) < 0.88 || finalBendAhead ? 'corner' : 'wide';
 }
 
 /** Fit horse-sized bounds in camera space, including lane width and exaggerated terrain heights. */

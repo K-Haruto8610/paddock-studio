@@ -294,8 +294,17 @@ export function buildPlayback(
   };
 }
 
+/** Keep running until the sixth horse (or the whole smaller field) is beyond the line. */
+export function playbackEndProgress(race: Race, plan: PlaybackPlan) {
+  const gaps = sampleLayouts(plan.layouts, race.distance, plan.knots)
+    .map((p) => p.gap)
+    .sort((a, b) => a - b);
+  const gap = gaps[Math.min(6, gaps.length) - 1] ?? 0;
+  return 1 + (Math.max(0, gap) + 1) / race.distance;
+}
+
 export function playbackFrame(race: Race, plan: PlaybackPlan, progress: number) {
-  const travel = Math.max(0, Math.min(1, progress)) * race.distance;
+  const travel = Math.max(0, Math.min(playbackEndProgress(race, plan), progress)) * race.distance;
   const placements = sampleLayouts(plan.layouts, travel, plan.knots);
   const exact = plan.checkpoints.find((c) => Math.abs(c.distance - travel) < 0.05);
   let previous = 0;

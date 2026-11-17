@@ -3,7 +3,7 @@ import type {Race} from './types';
 import type {PlaybackPlan} from './playback';
 import {editPoints, editCount, type EditKey, type RaceEdits} from './manualEdit';
 import {HORSE_LENGTH, LANE_PITCH, type Placement} from './raceLayout';
-import {frameColors} from './HorseTable';
+import {framePalette} from './frameColors';
 
 /** Controls for manual edit mode: jump to one of the four edit points, nudge the selected horse, undo. */
 export default function EditPanel({
@@ -84,7 +84,7 @@ export default function EditPanel({
         <div className="edit-horse">
           <span
             className="edit-badge"
-            style={{background: frameColors[horse.gate - 1], color: horse.gate === 1 ? '#333' : '#fff'}}
+            style={framePalette(horse.gate)}
           >
             {horse.number}
           </span>

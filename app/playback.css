@@ -479,3 +479,26 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+.export-renderer {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  pointer-events: none;
+}
+
+.export-status {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: #fffef8;
+  color: #2d3a2a;
+  border: 1px solid #aebaa7;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}

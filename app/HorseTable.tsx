@@ -1,15 +1,6 @@
 import type {Race, Horse, ReplayRace, PlaybackMode} from './types';
 import {laneLabel, type RacePace} from './paceForecast';
-export const frameColors = [
-  '#fff',
-  '#303534',
-  '#d96859',
-  '#4f7bab',
-  '#e3bf58',
-  '#55977e',
-  '#d79653',
-  '#ca88a6',
-];
+import {framePalette} from './frameColors';
 export const dateLabel = (d: string) => `${d.slice(0, 4)}.${d.slice(4, 6)}.${d.slice(6, 8)}`;
 export default function HorseTable({
   race,
@@ -125,8 +116,7 @@ export default function HorseTable({
                     <span
                       className="number"
                       style={{
-                        background: frameColors[h.gate - 1],
-                        color: h.gate === 1 ? '#333' : '#fff',
+                        ...framePalette(h.gate),
                       }}
                     >
                       {h.number}

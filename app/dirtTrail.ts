@@ -3,14 +3,14 @@ import type {Ground, GroundHit} from './courseGround';
 import {HOOF_COUNT, gallopAmount, hoofCount, hoofSpot, isHindHoof, stridePhase} from './plushHorse';
 import type {Kick} from './closingKick';
 import {seeded} from './scenery';
+import {raceSeconds} from './raceClock';
 
 // What the horses leave on a dirt course: hoofprints that stay behind the field, and sand thrown
 // back from the hooves as they push off. Both come from the same footfalls the legs are posed with
 // (plushHorse.ts), and both rest on the drawn surface (courseGround.ts), so they follow the slope.
 //
-// The prints are history (where a horse's feet were), so they are state that is cleared whenever the
-// race is not running forward continuously: a seek, a restart, a hand edit. The sand is a function
-// of the race clock alone, so it freezes when playback stops.
+// The scene rebuilds the footfalls from fixed ticks after a seek. Sand already in the air is
+// evaluated against the race clock, so it freezes when playback stops.
 
 /** Hoofprints kept; the oldest are overwritten (about 300m of a full field's trail). */
 const PRINTS = 1536;
@@ -18,8 +18,10 @@ const PRINTS = 1536;
 const KEEP = 240;
 /** Grains of sand in flight or settling at most. */
 const GRAINS = 4096;
-/** Race metres per second of the sand's flight: the race clock runs with the race, not the wall. */
-const SPEED = 17;
+const PRINT_SEED = 77;
+const SAND_SEED = 4101;
+const footfallSeed = (seed: number, horse: number, hoof: number, step: number) =>
+  seed ^ Math.imul(horse + 1, 73856093) ^ Math.imul(hoof + 1, 19349663) ^ Math.imul(step, 83492791);
 const GRAVITY = 9.8;
 /** Seconds a grain rests on the ground before it is gone. */
 const SETTLE = 0.4;
@@ -44,7 +46,7 @@ export type DirtTrail = ReturnType<typeof addDirtTrail>;
 
 /** The field as the trail needs it: a group per horse, and its distance along the route and closing-kick state. */
 export type TrailField = {
-  horses: T.Group[];
+  horses: readonly Pick<T.Group, 'position' | 'rotation'>[];
   at: ArrayLike<number>;
   kick: ArrayLike<Kick>;
 };
@@ -147,6 +149,14 @@ function makePrints(scene: T.Scene) {
       made = 0;
       mesh.count = 0;
     },
+    save: () => ({made, matrices: mesh.instanceMatrix.array.slice(), born: born.array.slice()}),
+    restore(snapshot: {made: number; matrices: T.TypedArray; born: T.TypedArray}) {
+      made = snapshot.made;
+      mesh.count = Math.min(made, PRINTS);
+      mesh.instanceMatrix.array.set(snapshot.matrices);
+      born.array.set(snapshot.born);
+      mesh.instanceMatrix.needsUpdate = born.needsUpdate = true;
+    },
     /** Presses a print at `at` (route distance) on the surface point `p`, its toe towards `heading`. */
     press(p: T.Vector3, normal: T.Vector3, heading: T.Vector3, turn: number, at: number) {
       forward.copy(heading).addScaledVector(normal, -heading.dot(normal)).normalize();
@@ -166,6 +176,7 @@ function makePrints(scene: T.Scene) {
     },
     dispose() {
       scene.remove(mesh);
+      mesh.dispose();
       geometry.dispose();
       material.dispose();
       textures.map.dispose();
@@ -241,7 +252,6 @@ function makeSand(scene: T.Scene) {
   mesh.raycast = () => {};
   scene.add(mesh);
 
-  const rand = seeded(4101);
   const back = new T.Vector3(),
     side = new T.Vector3(),
     v = new T.Vector3();
@@ -259,8 +269,17 @@ function makeSand(scene: T.Scene) {
       thrown = 0;
       empty();
     },
+    save: () => ({thrown, data: [from, vel, grain, up].map(a => a.array.slice())}),
+    restore(snapshot: {thrown: number; data: T.TypedArray[]}) {
+      thrown = snapshot.thrown;
+      [from, vel, grain, up].forEach((a, i) => {
+        a.array.set(snapshot.data[i]);
+        a.needsUpdate = true;
+      });
+    },
     /** Throws `count` grains from the surface point `p` (normal `normal`) back along `-heading`, at the given race clock. */
-    throwSand(p: T.Vector3, normal: T.Vector3, heading: T.Vector3, count: number, hind: boolean, now: number) {
+    throwSand(p: T.Vector3, normal: T.Vector3, heading: T.Vector3, count: number, hind: boolean, now: number, seed: number) {
+      const rand = seeded(seed);
       back.copy(heading).addScaledVector(normal, -heading.dot(normal)).normalize().negate();
       side.crossVectors(back, normal);
       for (let k = 0; k < count; k++) {
@@ -302,7 +321,6 @@ export function addDirtTrail(scene: T.Scene, ground: Ground, reducedMotion: () =
   const spot = {x: 0, z: 0},
     where = new T.Vector3(),
     heading = new T.Vector3();
-  const turn = seeded(77);
 
   // What the last frame looked like, per horse (and per leg for the footfall counts).
   let epoch: unknown = null;
@@ -324,11 +342,36 @@ export function addDirtTrail(scene: T.Scene, ground: Ground, reducedMotion: () =
   return {
     /** Forgets every print and grain. */
     clear,
+    save: () => ({
+      prints: prints.save(), sand: sand.save(), lastClock, epoch, armed, seen,
+      at: lastAt.slice(), phase: lastPhase.slice(), x: lastX.slice(), z: lastZ.slice(),
+    }),
+    restore(snapshot: {
+      prints: ReturnType<typeof prints.save>; sand: ReturnType<typeof sand.save>;
+      lastClock: number; epoch: unknown; armed: boolean; seen: number;
+      at: Float64Array; phase: Float64Array; x: Float64Array; z: Float64Array;
+    }) {
+      prints.restore(snapshot.prints);
+      sand.restore(snapshot.sand);
+      ({lastClock, epoch, armed, seen} = snapshot);
+      lastAt = snapshot.at.slice();
+      lastPhase = snapshot.phase.slice();
+      lastX = snapshot.x.slice();
+      lastZ = snapshot.z.slice();
+    },
     /** Shows or hides what the trail has made (it keeps its history while hidden). */
     show(on: boolean) {
       shown = on;
       prints.mesh.visible = on;
       sand.mesh.visible = on;
+    },
+    setTime(travel: number, at: ArrayLike<number>) {
+      prints.mesh.visible = shown;
+      sand.mesh.visible = shown && !reducedMotion();
+      sand.uniforms.uClock.value = raceSeconds(travel);
+      let rear = Infinity;
+      for (let i = 0; i < at.length; i++) rear = Math.min(rear, at[i]);
+      prints.uniforms.uRear.value = rear;
     },
     /**
      * `travel` is the race's progress in metres. `scrubbing` is true while the horses are being moved by hand
@@ -342,12 +385,7 @@ export function addDirtTrail(scene: T.Scene, ground: Ground, reducedMotion: () =
         clear();
       }
       const reduced = reducedMotion();
-      prints.mesh.visible = shown;
-      sand.mesh.visible = shown && !reduced;
-      sand.uniforms.uClock.value = travel / SPEED;
-      let rear = Infinity;
-      for (let i = 0; i < horses.length; i++) rear = Math.min(rear, at[i]);
-      prints.uniforms.uRear.value = rear;
+      this.setTime(travel, at);
 
       if (scrubbing) {
         armed = false;
@@ -398,7 +436,10 @@ export function addDirtTrail(scene: T.Scene, ground: Ground, reducedMotion: () =
                 // A dirt race starts on a turf pocket and crosses turf: only dirt takes marks.
                 if (!ground(where.x, where.z, hit, g.position.y) || !hit.dirt) continue;
                 where.y = hit.y;
-                if (stage === 'down') prints.press(where, hit.normal, heading, (turn() - 0.5) * 0.3, at[i]);
+                if (stage === 'down') {
+                  const turn = seeded(footfallSeed(PRINT_SEED, i, n, c))();
+                  prints.press(where, hit.normal, heading, (turn - 0.5) * 0.3, at[i]);
+                }
                 else
                   sand.throwSand(
                     where,
@@ -407,6 +448,7 @@ export function addDirtTrail(scene: T.Scene, ground: Ground, reducedMotion: () =
                     Math.round((isHindHoof(n) ? GRAINS_HIND : GRAINS_FORE) * (0.8 + 0.4 * kick[i].level)),
                     isHindHoof(n),
                     lastClock + (now - lastClock) * f,
+                    footfallSeed(SAND_SEED, i, n, c),
                   );
               }
             }

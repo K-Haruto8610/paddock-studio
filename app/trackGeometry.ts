@@ -1,3 +1,4 @@
+import {alignmentFor, alignmentCurve} from './alignment';
 import * as T from 'three';
 import type {Race} from './types';
 import {courseFor, lapFor, G1_COURSES, type CourseKind} from './courses';
@@ -6,6 +7,10 @@ import {COURSE_DATA} from './courseData';
 // Official elevation differences are only 2-5m over ~2km: at true scale the
 // course looks flat. Heights are drawn exaggerated by this factor (shown in UI).
 export const VERTICAL_EXAGGERATION = 8;
+const KYOTO_VERTICAL_EXAGGERATION = 4;
+
+export const raceElevationScale = (venueCode: Race['venueCode']) =>
+  venueCode === '08' ? KYOTO_VERTICAL_EXAGGERATION : VERTICAL_EXAGGERATION;
 
 // Digitized INNER RAIL from JRA's 568 x 385 Tokyo plan (not an aerial survey).
 // Origin is the winning post. Order follows the official left-handed direction.
@@ -114,6 +119,42 @@ export function linearProfile(points: number[][], x: number) {
   }
   return points.at(-1)![1];
 }
+
+/** Periodic, slope-continuous interpolation without overshoot between measured heights. */
+export function smoothProfile(input: number[][], lap: number) {
+  const points = input.filter(([x]) => x > 0 && x < lap);
+  const edge = linearProfile(input, lap);
+  const knots = [[0, edge], ...points, [lap, edge]];
+  const last = knots.length - 1;
+  const intervals = knots.slice(1).map(([x], i) => x - knots[i][0]);
+  const secants = intervals.map((width, i) => (knots[i + 1][1] - knots[i][1]) / width);
+  const slopes = knots.map((_, i) => {
+    const before = (i + last - 1) % last;
+    const after = i % last;
+    const a = secants[before], b = secants[after];
+    if (a * b <= 0) return 0;
+    const w1 = 2 * intervals[after] + intervals[before];
+    const w2 = intervals[after] + 2 * intervals[before];
+    return (w1 + w2) / (w1 / a + w2 / b);
+  });
+  return (x: number) => {
+    let low = 0, high = last;
+    while (high - low > 1) {
+      const mid = (low + high) >>> 1;
+      if (knots[mid][0] <= x) low = mid;
+      else high = mid;
+    }
+    const width = intervals[low];
+    const t = T.MathUtils.clamp((x - knots[low][0]) / width, 0, 1);
+    const blend = t * t * (3 - 2 * t);
+    return T.MathUtils.lerp(knots[low][1], knots[high][1], blend)
+      + width * t * (1 - t) * ((1 - t) * slopes[low] - t * slopes[high]);
+  };
+}
+/** Venues rebuilt with slope-continuous heights (Kyoto trial, Tokyo). */
+/** Venues whose outer course takes the inner's heights over a long distance (the graphs disagree there). */
+const SPREAD_BLEND_VENUES = ['09', '06'];
+const SMOOTH_VENUES = ['08', '05', '07', '09', '06'];
 const mod = (v: number, n: number) => ((v % n) + n) % n;
 export type TrackPoint = {point: T.Vector3; tangent: T.Vector3; outward: T.Vector3};
 export type TrackModel = {
@@ -125,6 +166,7 @@ export type TrackModel = {
   sample: (distance: number, lane?: number) => TrackPoint;
   pixel: (x: number, y: number) => T.Vector3;
   height: (distance: number) => number;
+  elevationScale: number;
   profile: (remaining: number) => number;
 };
 
@@ -157,6 +199,7 @@ export function availableKinds(race: Race): CourseKind[] {
 export function makeTrack(
   race: Race,
   kindOrDirt: CourseKind | boolean = courseFor(race).kind,
+  elevationScale = raceElevationScale(race.venueCode),
 ): TrackModel {
   const kind: CourseKind =
     typeof kindOrDirt === 'boolean' ? (kindOrDirt ? 'dirt' : 'turf') : kindOrDirt;
@@ -170,46 +213,61 @@ export function makeTrack(
       const a = (i / 48) * Math.PI * 2;
       return [280 + 200 * Math.cos(a), 170 + 100 * Math.sin(a)];
     });
-  const raw = new T.CatmullRomCurve3(
-    pixels.map(([x, z]) => new T.Vector3(x - cx, 0, z - cy)),
-    true,
-    'centripetal',
-  );
-  raw.arcLengthDivisions = 4096;
-  // Digitized venues share one plan scale (calibrated on the inner turf lap), so
-  // rails that coincide on the plan coincide in 3D. Each course is still
-  // parameterized by its official lap; the drawn length differs by a few %.
-  const shared = race.venueCode !== '05' && kind !== 'turf' && drawing?.rails.turf;
-  const scale = shared
-    ? lapFor(race.venueCode, 'turf') /
-      new T.CatmullRomCurve3(
-        drawing!.rails.turf.map(([x, z]) => new T.Vector3(x - cx, 0, z - cy)),
-        true,
-        'centripetal',
-      ).getLength()
-    : lap / raw.getLength();
-  const curve = new T.CatmullRomCurve3(
-    raw.points.map((p) => p.clone().multiplyScalar(scale)),
-    true,
-    'centripetal',
-  );
-  curve.arcLengthDivisions = 4096;
+  const aligned = alignmentFor(race.venueCode);
+  let scale: number;
+  let curve: T.CatmullRomCurve3;
+  if (aligned) {
+    // Venues with a defined alignment: lines, clothoids and arcs, sized by the official figures.
+    scale = aligned.scale;
+    curve = alignmentCurve(aligned, kind);
+  } else {
+    const raw = new T.CatmullRomCurve3(
+      pixels.map(([x, z]) => new T.Vector3(x - cx, 0, z - cy)),
+      true,
+      'centripetal',
+    );
+    raw.arcLengthDivisions = 4096;
+    // Digitized venues share one plan scale (calibrated on the inner turf lap), so
+    // rails that coincide on the plan coincide in 3D. Each course is still
+    // parameterized by its official lap; the drawn length differs by a few %.
+    const shared = race.venueCode !== '05' && kind !== 'turf' && drawing?.rails.turf;
+    scale = shared
+      ? lapFor(race.venueCode, 'turf') /
+        new T.CatmullRomCurve3(
+          drawing!.rails.turf.map(([x, z]) => new T.Vector3(x - cx, 0, z - cy)),
+          true,
+          'centripetal',
+        ).getLength()
+      : lap / raw.getLength();
+    curve = new T.CatmullRomCurve3(
+      raw.points.map((p) => p.clone().multiplyScalar(scale)),
+      true,
+      'centripetal',
+    );
+    curve.arcLengthDivisions = 4096;
+  }
+  const smooth = SMOOTH_VENUES.includes(race.venueCode);
   const points = drawing?.profiles[kind] ?? drawing?.profiles.turf;
-  let profile = (remaining: number) => (points ? linearProfile(points, remaining) : 0);
+  const measuredProfile = points && smooth ? smoothProfile(points, lap)
+    : (remaining: number) => points ? linearProfile(points, remaining) : 0;
+  let profile = measuredProfile;
   if (kind === 'outer' && drawing?.rails.outer) {
     // Where the outer course runs on (or overlaps) the inner course it takes the
     // inner course's heights, blending smoothly to its own section graph as it
     // bulges away. Two graphs read independently never agree exactly; without this the
     // shared stretch showed a ledge between the two ribbons.
-    const inner = makeTrack(race, 'turf'),
+    const inner = makeTrack(race, 'turf', elevationScale),
       innerPts: {x: number; z: number; d: number}[] = [];
     for (let d = 0; d < inner.lap; d += 1) {
       const p = inner.curve.getPointAt(d / inner.lap);
       innerPts.push({x: p.x, z: p.z, d});
     }
     const table: number[][] = [];
-    for (let d = 0; d <= lap; d += 2) {
-      const p = curve.getPointAt(Math.min(d, lap) / lap);
+    const steps = Math.floor(lap / 2) + 1,
+      near: {d: number; w: number}[] = [];
+    for (let i = 0; i < steps; i++) {
+      const d = Math.min(i * 2, lap);
+      const p = curve.getPointAt(d / lap);
       let best = innerPts[0],
         e = Infinity;
       for (const q of innerPts) {
@@ -221,14 +279,27 @@ export function makeTrack(
       }
       // The two strips overlap until the rails are a course width apart; keep the
       // shared heights until the outer course is clear of the lanes horses use.
-      const w = T.MathUtils.smoothstep(Math.sqrt(e), 18, 34),
-        own = points ? linearProfile(points, lap - d) : 0;
-      table.push([lap - d, T.MathUtils.lerp(inner.profile(inner.lap - best.d), own, w)]);
+      near.push({d: best.d, w: T.MathUtils.smoothstep(Math.sqrt(e), 6, 16)});
+    }
+    // The two section graphs can disagree where the outer leaves the inner's line, so the change
+    // from the inner's heights to the outer's own is spread over at least 150 m of travel.
+    // (A change of height of at most 0.006 per metre of travel.)
+    const rateAt = (i: number) => {
+      const gap = Math.abs(inner.profile(inner.lap - near[i].d) - measuredProfile(lap - Math.min(i * 2, lap)));
+      return Math.min(1, 2 * 0.006 / Math.max(gap, 1e-6));
+    };
+    if (SPREAD_BLEND_VENUES.includes(race.venueCode)) {
+      for (let i = 1; i < steps; i++) near[i].w = Math.min(near[i].w, near[i - 1].w + rateAt(i));
+      for (let i = steps - 2; i >= 0; i--) near[i].w = Math.min(near[i].w, near[i + 1].w + rateAt(i));
+    }
+    for (let i = 0; i < steps; i++) {
+      const d = Math.min(i * 2, lap);
+      table.push([lap - d, T.MathUtils.lerp(inner.profile(inner.lap - near[i].d), measuredProfile(lap - d), near[i].w)]);
     }
     table.reverse();
-    profile = (remaining: number) => linearProfile(table, remaining);
+    profile = smooth ? smoothProfile(table, lap) : (remaining: number) => linearProfile(table, remaining);
   }
-  const height = (distance: number) => profile(lap - mod(distance, lap)) * VERTICAL_EXAGGERATION;
+  const height = (distance: number) => profile(lap - mod(distance, lap)) * elevationScale;
   const width = race.venueCode === '05' ? (kind === 'dirt' ? 25 : 36) : kind === 'dirt' ? 25 : 30;
   // Positive lanes always point away from the infield: the left normal for a
   // left-handed course, the right normal for a right-handed one.
@@ -250,6 +321,7 @@ export function makeTrack(
     curve,
     sample,
     height,
+    elevationScale,
     profile,
     pixel: (x, y) => new T.Vector3((x - cx) * scale, 0, (y - cy) * scale),
   };

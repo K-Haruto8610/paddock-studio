@@ -1,0 +1,71 @@
+{
+ "courses": {
+  "inner": {
+   "lap": 1782.8,
+   "railLength": 1782.7705011828882,
+   "corners": [
+    195.45385597751869,
+    412.1814702322544,
+    1076.6653609008251,
+    1312.6212582484045
+   ]
+  },
+  "outer": {
+   "lap": 1894.3,
+   "railLength": 1894.2968144754338,
+   "corners": [
+    195.44800316229856,
+    412.16410143637995,
+    1116.426733617406,
+    1383.496603050839
+   ]
+  }
+ },
+ "g1": [
+  {
+   "name": "Shuka",
+   "surface": "芝",
+   "trackCode": 17,
+   "distance": 2000,
+   "source": "main-rail",
+   "lap": 1782.8,
+   "markError": 0.8788085937501364
+  },
+  {
+   "name": "Tenno Sho Spring",
+   "surface": "芝",
+   "trackCode": 18,
+   "distance": 3200,
+   "source": "main-rail",
+   "lap": 1894.3,
+   "markError": 1.2791296386715203
+  },
+  {
+   "name": "Kikuka",
+   "surface": "芝",
+   "trackCode": 18,
+   "distance": 3000,
+   "source": "main-rail",
+   "lap": 1894.3,
+   "markError": 5.490090332031059
+  },
+  {
+   "name": "Queen Elizabeth",
+   "surface": "芝",
+   "trackCode": 18,
+   "distance": 2200,
+   "source": "main-rail",
+   "lap": 1894.3,
+   "markError": 3.395557861327916
+  },
+  {
+   "name": "Mile CS",
+   "surface": "芝",
+   "trackCode": 18,
+   "distance": 1600,
+   "source": "chute",
+   "lap": 1894.3,
+   "markError": 0
+  }
+ ]
+}
