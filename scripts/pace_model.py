@@ -90,7 +90,7 @@ def load_frame(today_s):
           r.KYORI,r.TRACK_CODE,r.SHUSSO_TOSU,r.ZENHAN_3F,r.GRADE_CODE,r.SHIBA_BABAJOTAI_CODE,r.DIRT_BABAJOTAI_CODE,
           r.CORNER1,r.KAKU_TSUKA_JUNI1,r.CORNER2,r.KAKU_TSUKA_JUNI2,r.CORNER3,r.KAKU_TSUKA_JUNI3,r.CORNER4,r.KAKU_TSUKA_JUNI4,
           u.UMABAN,u.WAKUBAN,u.KETTO_TOROKU_BANGO,u.BAMEI,u.BLINKER_SHIYO_KUBUN,u.BAREI,u.FUTAN_JURYO,
-          u.CORNER1_JUNI,u.CORNER2_JUNI,u.CORNER3_JUNI,u.CORNER4_JUNI,u.KOHAN_3F,u.IJO_KUBUN_CODE
+          u.CORNER1_JUNI,u.CORNER2_JUNI,u.CORNER3_JUNI,u.CORNER4_JUNI,u.KOHAN_3F,u.IJO_KUBUN_CODE,u.SOHA_TIME,u.TIME_SA
           FROM race_shosai r JOIN umagoto_race_joho u USING(RACE_CODE)
           WHERE r.KAISAI_NEN BETWEEN '2020' AND '2026'
           AND r.KEIBAJO_CODE BETWEEN '01' AND '10' AND r.TRACK_CODE BETWEEN '10' AND '29'
@@ -123,6 +123,10 @@ def load_frame(today_s):
     d['weight'] = d.FUTAN_JURYO / 10
     d['age'] = d.BAREI
     d['last3'] = (d.KOHAN_3F / 10).where(d.KOHAN_3F.between(280, 500))
+    # Finish time and margin (E2): labels / checks only, never features of the race itself.
+    d['soha'] = d.SOHA_TIME.map(soha_seconds)
+    sa = d.TIME_SA.map(lambda v: number(str(v).strip()) if str(v).strip() not in ('', '9999') else np.nan)
+    d['finish_gap'] = (sa.clip(lower=0) / 10).where(sa.abs() < 9000)  # seconds behind the winner (winner 0)
     # Race-level: early 3F of the leader (label for the pace model) and going (known before the off).
     z3 = d.ZENHAN_3F.map(number)
     d['early3'] = (z3 / 10).where(z3.between(300, 450))
@@ -130,6 +134,36 @@ def load_frame(today_s):
     d['going'] = pd.Series(going, index=d.index).where(lambda g: g.between(1, 4))
     d['grade'] = d.GRADE_CODE.fillna('').str.strip()  # only to describe GI pace, never a model input
     return d, len(rows)
+
+
+def soha_seconds(v):
+    """JV-Data SOHA_TIME (MSSs, e.g. 1345 = 1:34.5) -> seconds; 0000 / 9999 / malformed -> NaN."""
+    s = str(v or '').strip()
+    if len(s) != 4 or not s.isdigit() or s in ('0000', '9999'):
+        return np.nan
+    return int(s[0]) * 60 + int(s[1:3]) + int(s[3]) / 10
+
+
+def add_time_labels(d):
+    """t600: the horse's own time at the 600 m-to-go mark = finish time - its own last 3F (the per-horse last 3F is
+    timed from the horse's own pass of the mark). gap600: seconds behind the first horse to pass the mark, only for
+    full-field races where every horse has t600. The mark is not a corner (Nakayama: about the 3rd corner, Tokyo: late
+    in the 4th): used to calibrate the corner labels and as a second truth near corners 3-4, never as a corner label (E2)."""
+    d['t600'] = d.soha - d.last3
+    by_race = d.groupby('RACE_CODE').t600
+    ok = by_race.transform(lambda s: s.notna().all()).astype(bool) & d.complete
+    d['gap600'] = (d.t600 - by_race.transform('min')).where(ok)
+    return d
+
+
+def add_past_gap600(d):
+    """past_gap600: the history summary (HISTORY_ALPHA) of the horse's earlier gap600 (E2 candidate feature). d sorted by date."""
+    by_horse = d.groupby('KETTO_TOROKU_BANGO').gap600
+    if HISTORY_ALPHA is None:
+        d['past_gap600'] = by_horse.transform(lambda s: s.shift().rolling(5, min_periods=1).mean())
+    else:
+        d['past_gap600'] = by_horse.transform(lambda s: s.shift().ewm(alpha=HISTORY_ALPHA, ignore_na=True).mean())
+    return d
 
 
 # --- Jockey / class change / last-start margin (追加指示3, 2026-11-18) -------------------------------------
