@@ -1054,6 +1054,13 @@ def validate(d, P, margins=None, tuning=None):
                 base.extend(np.abs(x[col].fillna(d.loc[tr, t].median()) - x[t]))
         metrics[t] = {'mae': with_layer[t], 'independentMae': without[t], 'baselineMae': float(np.mean(base)),
                       'validationRows': len(base)}
+        if t[0] == 'g':
+            # independentMae of a gap is the RECONSTRUCTED independent formation (reconstruct: order x shape x spread).
+            # The per-horse gap model on its own is listed beside it as a reference: it is not a formation (E3).
+            c = int(t[1:])
+            direct = [np.abs(np.asarray(pred[t], float) - x[t].to_numpy())
+                      for x, corners, numbers, pred, *_ in races if c in corners and labelled(x, c)]
+            metrics[t]['directMae'] = float(np.mean(np.concatenate(direct)))
         print(f"{t}: contention={with_layer[t]:.3f} independent={without[t]:.3f} past-mean={metrics[t]['baselineMae']:.3f}", flush=True)
     # How much traffic costs, as the closing model learned it (validation races, simulated formations).
     delays, held = [], []
@@ -1322,6 +1329,7 @@ def main():
              'intervals': {**intervals, 'published': shown}, 'metrics': metrics,
              'notes': ['各角の順位・先頭からの馬身差・併走群内の内外位置と上がり3Fを個別に学習（LightGBM）。',
                        '馬身差は「順位モデルの並び × 馬ごとの差モデルの形 × レース単位の隊列の長さモデル」で再構成。',
+                       '馬身差の「ポジション争いなし」（independentMae）は、独立予測を順位で並べ直して再構成した隊列の値。馬別の直接予測（directMae）は隊列にならない参考値として report に併記。',
                        'ポジション争い：各馬の希望位置（順位モデル）と前の角の位置から押し出しの強さを決め、通常は4頭、先行型は5頭まで。前の角より位置を上げる馬は相手の外へ進み、頭数制限を受けない。4角以降も頭数制限なし。控える馬は後方へ回り、各列の左右位置は前の角から引き継ぐ。',
                        '前半のペース：出走馬の先行型の頭数・過去に逃げた割合・その馬たちが走ったレースの前半の速さ・馬場状態から、前半3Fがコースの標準より何秒速いかを予想（H/M/S）。隊列の長さモデルに使う（予想値で学習）。上がりモデルには馬場状態を入れる。',
                        '道中の位置変化：最初の角からの累積移動量を角ごとに学習（過去走の移動・最大の上げ幅・出走馬中の動く馬の割合・角の数）。2角以降は「最初の角の位置＋予想移動量」と希望位置を混ぜて並べ直す。強さは2025年6〜8月で、順位誤差の悪化を0.2%以内に抑える範囲で移動の相関が最大になる値を選ぶ。',
