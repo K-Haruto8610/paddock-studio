@@ -26,7 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = 'paddock.pace-forecast/v1'
 # Revision of the v1 format (README): 1.1 adds the optional rankRange / last3Range fields; v1 readers ignore them.
 SCHEMA_REVISION = '1.1'
-VERSION = '1.8'  # 1.8: no code change; refitted and re-tuned after 2022 was imported (追加指示8; 1.7: 2023+, 追加指示5)
+VERSION = '1.9'  # 1.9: past_<target> = EWM of all earlier runs (alpha 0.2), RANK_BLEND 0.75, E0 validation procedure (E1)
+# 1.8: no code change; refitted and re-tuned after 2022 was imported (追加指示8; 1.7: 2023+, 追加指示5)
 # 1.6: forecast ranges (rankRange / last3Range); same point model, refitted and re-tuned on the current DB# Representative lengths for each JRA separator (midpoints of the published bands).
 GAP_LENGTHS = {'': 0.6, ',': 1.5, '-': 3.5, '=': 6.5}
 SEP_ORDER = ['', ',', '-', '=']
@@ -331,11 +332,42 @@ def add_move_labels(d):
     return d
 
 
+# Summary of a horse's earlier runs for the per-target history columns past_<target> (E1, 2026-11-18): None = mean of
+# the last 5 runs (v1.8 and earlier); a float = exponentially weighted mean of ALL earlier runs with that alpha (weights
+# 1, 1 - alpha, (1 - alpha)^2, ... from the latest run back; runs without the label are skipped). Moves, pace and led stay
+# 5-run means. The 5-run means are always kept as past5_<target>: the report's past-mean baseline.
+# 0.2 chosen on Jun-Aug 2025 among {None, 0.2, 0.3, 0.5} together with RANK_BLEND (scripts/experiment_ewm_history.py, E1).
+HISTORY_ALPHA = 0.2
+
+
+def summarize_history(d):
+    """past_<target> / past5_<target> for TARGETS; d sorted by date, one row per run (the race itself excluded by shift)."""
+    by_horse = d.groupby('KETTO_TOROKU_BANGO')
+    for t in TARGETS:
+        d['past5_' + t] = by_horse[t].transform(lambda s: s.shift().rolling(5, min_periods=1).mean())
+        if HISTORY_ALPHA is None:
+            d['past_' + t] = d['past5_' + t]
+        else:
+            d['past_' + t] = by_horse[t].transform(lambda s: s.shift().ewm(alpha=HISTORY_ALPHA, ignore_na=True).mean())
+    return d
+
+
+def runs_summary(runs, t):
+    """The same summary for a pre-race card: `runs` are the horse's earlier runs in date order."""
+    v = runs[t]
+    if not v.notna().any():
+        return np.nan
+    if HISTORY_ALPHA is None:
+        return float(v.tail(5).mean()) if v.tail(5).notna().any() else np.nan
+    return float(v.ewm(alpha=HISTORY_ALPHA, ignore_na=True).mean().iloc[-1])
+
+
 def add_history_features(d):
     d = add_move_labels(d.sort_values(['date', 'RACE_CODE', 'UMABAN']).reset_index(drop=True))
     by_horse = d.groupby('KETTO_TOROKU_BANGO')
-    for t in TARGETS + MOVE_LABELS:
+    for t in MOVE_LABELS:
         d['past_' + t] = by_horse[t].transform(lambda s: s.shift().rolling(5, min_periods=1).mean())
+    d = summarize_history(d)
     d['past_up'] = by_horse['mall'].transform(lambda s: s.shift().rolling(5, min_periods=1).min())
     d['past_down'] = by_horse['mall'].transform(lambda s: s.shift().rolling(5, min_periods=1).max())
     d['starts'] = by_horse.cumcount()
@@ -444,6 +476,14 @@ KNOWN_ISSUES = [
     '同じ検証273レースで、順位 r1〜r4 0.2304/0.2345/0.2477/0.2574→0.2290/0.2328/0.2470/0.2541（シード7では1・2・4角で0.002超の改善、シード42では4角のみ）、'
     '馬身差 g3/g4 2.59/2.37→2.49/2.21、g1 3.41→3.49（シード7では3.45→3.42）、上がり0.814→0.823秒（許容0.01以内）。'
     '4角のポジション争いあり（g4 2.21）は独立予測（2.19）よりなお悪いが、差は0.17→0.01馬身に縮んだ。2020・2021年はまだ一部しかない。',
+    '評価の監査（E0、2026-11-18）：公開の内外は全角で「全頭0」に MAE・クラス正解率とも負ける（定数0比 1.20/1.02/1.10/1.09）。'
+    '採点は localLane（行内の番号）、画面の lane は進路スロットで、表示している lane は採点されていない。'
+    'ポジション争いは順位を良くしておらず（選定期間では独立より悪い）、上がりの改善はポジション争いではなく上がりモデル自体による。'
+    '天皇賞（春）2026 の角の組は全データの最頻値（1〜4角）で、当日より前のレースだけなら1・2角になる（自分の結果が角の組を決めている）。',
+    'v1.9（2026-11-18）：各角の順位・馬身差・内外と上がりの過去走要約を、直近5走の平均から全過去走の指数加重平均（α=0.2）に替え、順位の混合を0.5→0.75にした'
+    '（6〜8月で選定、scripts/experiment_ewm_history.py）。検証は E0 の手順（コースの角の組、前方のみのペース交差予測）。'
+    '同じ273レース・再チューニングありで、公開隊列の τ は1〜4角 +0.015/+0.018/+0.023/+0.011（シード7 +0.010/+0.006/+0.011/+0.006）、'
+    '整数順位MAE −0.007/−0.007/−0.007/−0.003、上がり −0.009秒、馬身差・内外は許容内。',
 ]
 
 
@@ -649,10 +689,11 @@ def simulate(numbers, early, pred, spreads, corners, P):
     return form
 
 
-# Weight of the independent model in the rank prediction (the rest is the past-5-run mean), applied before
-# the formation is built. Chosen on Jun-Aug 2025 (scripts/experiment_rank_blend.py): 0.5 is best or within
-# 0.0002 of best at every corner. Gaps, lanes and last3 stay model-only.
-RANK_BLEND = 0.5
+# Weight of the independent model in the rank prediction (the rest is the horse's past summary past_r<c>), applied
+# before the formation is built. Gaps, lanes and last3 stay model-only. v1.9: 0.75, re-chosen on Jun-Aug 2025 with
+# HISTORY_ALPHA by the tau of the published formation (scripts/experiment_ewm_history.py). Before: 0.5 by the
+# continuous MAE (scripts/experiment_rank_blend.py, pre-import frame).
+RANK_BLEND = 0.75
 
 
 def blend_ranks(pred, x):
@@ -971,11 +1012,12 @@ def validate(d, P, margins=None, tuning=None):
     for t in with_layer:
         base = []
         for x, corners, *_ in races:
+            col = past5(x, t)  # the past-5-run mean, whatever summary the model uses (HISTORY_ALPHA)
             if t == 'last3':
                 ok = x.last3.notna()
-                base.extend(np.abs(x.loc[ok, 'past_last3'].fillna(d.loc[tr, 'last3'].median()) - x.loc[ok, 'last3']))
+                base.extend(np.abs(x.loc[ok, col].fillna(d.loc[tr, 'last3'].median()) - x.loc[ok, 'last3']))
             elif int(t[1:]) in corners and labelled(x, int(t[1:])):
-                base.extend(np.abs(x['past_' + t].fillna(d.loc[tr, t].median()) - x[t]))
+                base.extend(np.abs(x[col].fillna(d.loc[tr, t].median()) - x[t]))
         metrics[t] = {'mae': with_layer[t], 'independentMae': without[t], 'baselineMae': float(np.mean(base)),
                       'validationRows': len(base)}
         print(f"{t}: contention={with_layer[t]:.3f} independent={without[t]:.3f} past-mean={metrics[t]['baselineMae']:.3f}", flush=True)
@@ -1023,6 +1065,11 @@ def validate(d, P, margins=None, tuning=None):
     return metrics
 
 
+def past5(x, t):
+    """Column of the past-5-run mean of target t (past5_<t>; frames built before E1 only have past_<t>)."""
+    return 'past5_' + t if 'past5_' + t in x else 'past_' + t
+
+
 def standard_metrics(models, races, P, d, end):
     """E0 standard measures (scripts/eval_standard.py) for one evaluation window; models fitted before `end`.
     ranks : tau and integer MAE of the published (contention) formation, of the independent formation and of the
@@ -1049,7 +1096,7 @@ def standard_metrics(models, races, P, d, end):
             if not labelled(x, c):
                 continue
             y = x[f'r{c}'].to_numpy()
-            past = x[f'past_r{c}'].fillna(d.loc[tr, f'r{c}'].median()).to_numpy()
+            past = x[past5(x, f'r{c}')].fillna(d.loc[tr, f'r{c}'].median()).to_numpy()
             past_rank = np.argsort(np.argsort(past + 1e-9 * nums, kind='stable'), kind='stable') / (n - 1)
             forms = {'contention': (np.array(con[c]['rank']) - 1) / (n - 1), 'independent': (np.array(ind[c]['rank']) - 1) / (n - 1),
                      'pastMean': past_rank}
@@ -1164,12 +1211,15 @@ def upcoming_rows(snap, d):
     hist = d[d.KETTO_TOROKU_BANGO.isin([h['horseId'] for h in active]) & (d.date < race['date'])]
     rows = []
     for h in active:
-        past = hist[hist.KETTO_TOROKU_BANGO == h['horseId']].tail(5)
+        runs = hist[hist.KETTO_TOROKU_BANGO == h['horseId']]  # d is sorted by date (add_history_features)
+        past = runs.tail(5)
         row = {'distance': race['distance'], 'surface': int(race['surface'] == 'ダート'), 'venue': int(race['venueCode']),
                'track': int(race['trackCode']), 'gate': h['number'] / len(active), 'weight': h['weight'], 'age': h['age'],
                'field': len(active), 'blinker': np.nan if h['blinker'] is None else int(h['blinker']),
                'starts': int((hist.KETTO_TOROKU_BANGO == h['horseId']).sum()), 'race': snap['raceId'], 'UMABAN': h['number']}
-        for t in TARGETS + MOVE_LABELS:
+        for t in TARGETS:
+            row['past_' + t] = runs_summary(runs, t)  # same summary as training (HISTORY_ALPHA)
+        for t in MOVE_LABELS:
             row['past_' + t] = float(past[t].mean()) if past[t].notna().any() else np.nan
         row['going'] = GOING.get((snap.get('conditions') or {}).get('going'), np.nan)  # absent on fetched cards
         for t in ('pace', 'led'):
@@ -1247,7 +1297,8 @@ def main():
                        '学習用の内外は併走群内の位置。出力の内外は前の角から引き継ぐ進路スロット（0=内側）で、実測のラチ距離ではない。',
                        'ゴールは最終角の馬身差に上がり3Fの差（1秒=5馬身）を加えた推定。着順モデルではない。',
                        '予想レンジ：各角の番手と上がり3Fに、分位点回帰（LightGBM quantile, α=0.25/0.75）による50%区間を付ける。幅は2025年6〜8月で表示上の被覆率が50%になるよう補正し、9〜12月の被覆率が40〜60%の項目だけ出す。',
-                       '過去5走のみを使用。オッズ・人気・払戻・対象レースの結果は使わない。']}
+                       '過去走は対象日より前だけ。各角の順位・馬身差・内外と上がりは全過去走の指数加重平均（α=0.2、新しい走ほど重い）、道中の移動・ペース・逃げ率は直近5走の平均。',
+                       'オッズ・人気・払戻・対象レースの結果は使わない。']}
     out = {'schema': SCHEMA, 'revision': SCHEMA_REVISION, 'generatedAt': datetime.now().isoformat(timespec='seconds'), 'model': model,
            'units': {'gap': '馬身（先頭から）', 'lane': '内側からの進路スロット（0=内側、列ごとのリセットなし）', 'last3': '秒'}, 'races': out_races}
     Path(args.out).write_text(json.dumps(out, ensure_ascii=False, allow_nan=False), encoding='utf-8')
