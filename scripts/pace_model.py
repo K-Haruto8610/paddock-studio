@@ -26,11 +26,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = 'paddock.pace-forecast/v1'
 # Revision of the v1 format (README): 1.1 adds the optional rankRange / last3Range fields; v1 readers ignore them.
 SCHEMA_REVISION = '1.1'
-VERSION = '1.6'  # 1.6: forecast ranges (rankRange / last3Range); same point model, refitted and re-tuned on the current DB
-# Representative lengths for each JRA separator (midpoints of the published bands).
+VERSION = '1.7'  # 1.7: no code change; refitted and re-tuned on the re-imported DB (2023+ complete, 追加指示5)
+# 1.6: forecast ranges (rankRange / last3Range); same point model, refitted and re-tuned on the current DB# Representative lengths for each JRA separator (midpoints of the published bands).
 GAP_LENGTHS = {'': 0.6, ',': 1.5, '-': 3.5, '=': 6.5}
 SEP_ORDER = ['', ',', '-', '=']
 LENGTHS_PER_SECOND = 5.0  # JRA rule of thumb: 1 length is about 0.2 s
+# 5.7 (least squares of the official margins on TIME_SA) was tested on 2026-11-18 and NOT adopted: finish-gap MAE
+# -0.07 lengths but finish-order correlation -0.002 to -0.010 (scripts/experiment_spread_after_expansion.py).
 CORNERS = (1, 2, 3, 4)
 TARGETS = [f'{kind}{c}' for c in CORNERS for kind in ('r', 'g', 'l')] + ['last3']
 
@@ -423,9 +425,12 @@ KNOWN_ISSUES = [
     'なお同じv1.5の設定でも現在のDBで再実行すると独立予測のg2は3.75になり、データ更新だけで0.15馬身動く。',
     'v1.6（2026-11-18）は現在のDB（行数17041→19006）で再チューニングし、frontは0.25が選ばれた（6〜8月の目的関数で0.45との差0.0002）。'
     'v1.5比の検証誤差：g2 3.92→3.83、l2 0.429→0.416、上がり0.894→0.884は改善、g1 3.82→3.83、l3 0.523→0.534、r1/r2 +0.002は悪化（DB更新の影響を含む）。',
-    '1・2角の馬身差（g1/g2）は独立予測の時点で過去5走平均に負ける（2026-11-18、検証273レース：独立3.74/3.75、過去平均3.40/3.66）。'
-    '馬ごとの差モデル単独では過去平均に勝つ（3.33/3.44）。負けるのは隊列長で、隊列長モデルは定数予想と同程度（学習できる1・2角のレースは278/323）。'
-    '記号からの馬身差ラベルにも1頭あたり約0.8馬身の誤差がある。隊列長モデルへの特徴量追加も不採用（scripts/diagnose_margins.py, experiment_spread_features.py）。',
+    'v1.7（2026-11-18）はコード無変更で、取り込み直したDB（2023年以降の全レース。学習対象の全頭そろう名前付きレース1426→3442）で再学習・再チューニングした（frontは0.45）。'
+    '同じ検証273レースで、順位 r1〜r4 0.236/0.242/0.252/0.262→0.230/0.235/0.248/0.257、上がり0.884→0.814秒、馬身差 g1/g2 3.83/3.83→3.41/3.39。'
+    '内外の1角・4角は0.004/0.007悪化（許容0.01以内）。2020〜2022年はまだ一部しかない（scripts/experiment_data_expansion.py）。',
+    '1・2角の馬身差（g1/g2）は拡充前は過去5走平均に負けていた（3.83/3.83 対 3.40/3.66）。拡充後は同一データの過去平均3.30/3.46に対し3.41/3.39で、'
+    'g1はなお0.10馬身負け、g2は勝つが差はシード差（0.03/0.05）並み。どちらも記号からの馬身差ラベルの誤差（1頭あたり約0.8馬身）より小さい。'
+    '隊列長モデルは1・2角の学習レースが278/323→1214/1421になり、定数予想をわずかに上回るようになった（scripts/experiment_spread_after_expansion.py）。',
 ]
 
 
@@ -864,8 +869,8 @@ def score(models, races, P):
 
 
 def tune_contention(d):
-    """Pick contention parameters on Jun-Aug 2025 with models fitted on data before June (usable history
-    starts in 2025); the Sep-Dec validation period is never seen while tuning."""
+    """Pick contention parameters on Jun-Aug 2025 with models fitted on data before June (complete history
+    starts in 2023 since the 2026-11-18 re-import; before it, in 2025); the Sep-Dec validation period is never seen while tuning."""
     models = fit_models(d, '20250601')
     races = evaluation_races(models, d, '20250601', '20250831')
     base = score(models, races, None)

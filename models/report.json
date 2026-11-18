@@ -19,34 +19,34 @@
   "trainingEnd": "2025-08-31",
   "validation": "2025-09〜12",
   "inferenceTrainingEnd": "2025-12-31",
-  "rows": 17041,
-  "races": 1280,
-  "historyRows": 25840,
-  "excludedRows": 69570,
+  "rows": 46401,
+  "races": 3442,
+  "historyRows": 48729,
+  "excludedRows": 135209,
   "metrics": {
     "c1": {
-      "mae": 0.22398634465336678,
-      "baselineMae": 0.22389557512128375,
+      "mae": 0.2154489710101876,
+      "baselineMae": 0.22084090776334384,
       "validationRows": 1571
     },
     "c2": {
-      "mae": 0.22322380584896326,
-      "baselineMae": 0.22343965353164422,
+      "mae": 0.21559448274457324,
+      "baselineMae": 0.21938487790164687,
       "validationRows": 1864
     },
     "c3": {
-      "mae": 0.22800629458415134,
-      "baselineMae": 0.23043609255770192,
+      "mae": 0.22227507588664697,
+      "baselineMae": 0.22661409861574464,
       "validationRows": 3730
     },
     "c4": {
-      "mae": 0.2310767732995151,
-      "baselineMae": 0.23648459367848731,
+      "mae": 0.22606934370731765,
+      "baselineMae": 0.23311348102445897,
       "validationRows": 3729
     },
     "last3": {
-      "mae": 0.8999595407963069,
-      "baselineMae": 1.20716640155532,
+      "mae": 0.8953766980767178,
+      "baselineMae": 1.1786289324849772,
       "validationRows": 3772
     }
   },
@@ -56,5 +56,5 @@
     "2025年9〜12月を時系列検証に使用。掲載する2026年の対象レース結果は学習に含めない。",
     "欠損・文字化け・出走頭数の不一致を検出したレースは掲載対象外。"
   ],
-  "publishedRaces": 14
+  "publishedRaces": 17
 }

@@ -25,6 +25,17 @@ class ContentionTests(unittest.TestCase):
         self.assertTrue(any(normal['held']))
         self.assertGreater(normal['gap'][4], normal['gap'][0])
 
+    def test_held_horse_loses_the_position_it_wanted(self):
+        # Row of four at 0; horse 5 (0.035, not a front-runner) wants 5th but the row is full, so it tucks in by
+        # `hold` (-> 0.095) and horse 6 (0.04, a new row) goes past it before it finds a place (0.095 is more than
+        # `delta` behind horse 6's row, so it does not run abreast of it). A held horse that is not passed within
+        # `hold` keeps its rank, which is why the published races can show a held cost of 0.
+        form = self.formation({1: [0, 0, 0, 0, .035, .04]})[1]
+        self.assertTrue(form['held'][4])
+        self.assertEqual(form['want'][4], 5)
+        self.assertEqual(form['rank'][4], 6)
+        self.assertEqual(form['rank'][5], 5)
+
     def test_fourth_corner_has_no_headcount_limit(self):
         form = self.formation({4: [0] * 12})[4]
         self.assertEqual(max(form['lane']), 11)
