@@ -61,10 +61,12 @@ ORIG = {k: getattr(pm, k) for k in ('lgbm', 'pace_lgbm', 'move_lgbm')}
 PINNED = None  # set of RACE_CODE the validation window is restricted to
 
 
-def evaluation_races(models, d, start, end):
+def evaluation_races(models, d, start, end, codes=None):
+    # The pin restricts the window's races, not the frame: pace_model's course corner sets (E0) need the history before
+    # the window. With the legacy label rule this is the same as filtering the frame, as before.
     if PINNED is not None and (start, end) == VAL:
-        d = d[d.RACE_CODE.isin(PINNED)]
-    return ORIG_EVAL(models, d, start, end)
+        codes = PINNED if codes is None else set(codes) & PINNED
+    return ORIG_EVAL(models, d, start, end, codes=codes)
 
 
 pm.evaluation_races = evaluation_races

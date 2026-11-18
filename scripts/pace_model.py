@@ -35,6 +35,15 @@ LENGTHS_PER_SECOND = 5.0  # JRA rule of thumb: 1 length is about 0.2 s
 # -0.07 lengths but finish-order correlation -0.002 to -0.010 (scripts/experiment_spread_after_expansion.py).
 CORNERS = (1, 2, 3, 4)
 TARGETS = [f'{kind}{c}' for c in CORNERS for kind in ('r', 'g', 'l')] + ['last3']
+# Evaluation / validation procedure (E0 audit, 2026-11-18; README「評価の監査（E0）」). The defaults are the audited
+# procedure. The legacy values reproduce the v1.8 report and the earlier experiment records exactly.
+EVAL_CORNERS = 'course'  # corners a validation race is formed on: 'course' = the course's usual corner set from races
+#                          before the window (what race_output does before a race); 'labels' (legacy) = the corners whose
+#                          labels happen to be complete in the race itself. Scoring always needs complete labels.
+PACE_OOF = 'forward'     # pace input of the spread models' training rows: 'forward' = predicted by a pace model fitted
+#                          on earlier races only; 'kfold' (legacy) = fitted on the other three date chunks, later races too
+PACE_OOF_CHUNKS = 8      # date chunks of the forward scheme; the first chunk has no earlier races and stays out of the
+#                          spread models' training rows
 
 
 def parse_passing(text):
@@ -475,13 +484,11 @@ def fit_models(d, end):
     train = d[fit].copy()
     races = race_level(train, 'RACE_CODE', 1).dropna(subset=['pace']).sort_values('date')
     models['pace'] = pace_lgbm().fit(races[PACE_FEATURES], races['pace'])
-    oof = pd.Series(np.nan, index=races.index)
-    for part in np.array_split(races.index, 4):
-        rest = races.index.difference(part)
-        oof[part] = pace_lgbm().fit(races.loc[rest, PACE_FEATURES], races.loc[rest, 'pace']).predict(races.loc[part, PACE_FEATURES])
+    oof, skip = pace_oof(races)
     train['pace_pred'] = train.RACE_CODE.map(oof)
     for c in CORNERS:
         races = race_level(train, 'RACE_CODE', c).dropna(subset=['spread'])
+        races = races[~races.index.isin(skip)]
         models[f'spread{c}'] = lgbm('l1').fit(races[SPREAD_FEATURES], races['spread'])
     for c in MOVE_CORNERS:
         # Cumulative move since the first corner, learned directly (not chained corner to corner, which
@@ -495,6 +502,37 @@ def fit_models(d, end):
 def pace_lgbm():
     return LGBMRegressor(n_estimators=200, max_depth=3, num_leaves=7, learning_rate=.03, min_child_samples=30, subsample=.8,
                          subsample_freq=5, colsample_bytree=.8, reg_lambda=5, verbosity=-1, n_jobs=4, random_state=42)
+
+
+def pace_oof(races):
+    """Out-of-sample pace predictions for the training races (index = RACE_CODE, sorted by date), as noisy as the ones a
+    spread model gets before a race. Returns (predictions, races left out of the spread models' training rows).
+    'forward': each date chunk is predicted by a pace model fitted on the earlier chunks only (the first chunk has no
+    earlier races, so it gets no prediction and is left out). 'kfold' (legacy): the other three chunks, later races too."""
+    oof = pd.Series(np.nan, index=races.index)
+    if PACE_OOF == 'kfold':
+        for part in np.array_split(races.index, 4):
+            rest = races.index.difference(part)
+            oof[part] = pace_lgbm().fit(races.loc[rest, PACE_FEATURES], races.loc[rest, 'pace']).predict(races.loc[part, PACE_FEATURES])
+        return oof, pd.Index([])
+    parts = np.array_split(races.index.to_numpy(), PACE_OOF_CHUNKS)
+    for k in range(1, len(parts)):
+        rest = np.concatenate(parts[:k])
+        oof[parts[k]] = pace_lgbm().fit(races.loc[rest, PACE_FEATURES], races.loc[rest, 'pace']).predict(races.loc[parts[k], PACE_FEATURES])
+    return oof, pd.Index(parts[0])
+
+
+def pace_sigma(d, end):
+    """Spread of the forward out-of-sample pace errors on the training races before `end` (seconds): the scale of the
+    normal predictive distribution used for the H/M/S probabilities (RPS). Uses the forward scheme whatever PACE_OOF is."""
+    races = race_level(d[(d.date < end) & d.complete], 'RACE_CODE', 1).dropna(subset=['pace']).sort_values('date')
+    parts = np.array_split(races.index.to_numpy(), PACE_OOF_CHUNKS)
+    err = []
+    for k in range(1, len(parts)):
+        rest = np.concatenate(parts[:k])
+        pred = pace_lgbm().fit(races.loc[rest, PACE_FEATURES], races.loc[rest, 'pace']).predict(races.loc[parts[k], PACE_FEATURES])
+        err.extend(pred - races.loc[parts[k], 'pace'].to_numpy())
+    return float(np.std(err)), races['pace'].to_numpy()
 
 
 def pace_label(v, bands=PACE_BANDS):
@@ -621,6 +659,7 @@ def blend_ranks(pred, x):
     for c in CORNERS:
         past = x[f'past_r{c}'].to_numpy(float)
         model = np.asarray(pred[f'r{c}'], float)
+        pred[f'model_r{c}'] = model  # kept for the pre-blend continuous MAE (E0 standard)
         pred[f'r{c}'] = np.where(np.isnan(past), model, RANK_BLEND * model + (1 - RANK_BLEND) * past)
     return pred
 
@@ -744,6 +783,8 @@ def interval_rows(models, races, P):
                 ok = x.last3.notna().to_numpy()
                 point, actual = np.round(last3, 1), np.round(x.last3.to_numpy(), 1)
             else:
+                if not labelled(x, int(t[1])):
+                    continue  # formed (course corner) but not scorable
                 ok = np.ones(n, bool)
                 point, actual = np.array(form[int(t[1])]['rank'], float), np.rint(x[t].to_numpy() * (n - 1)) + 1
             r = rows[t]
@@ -797,11 +838,29 @@ def interval_report(models, races, P, margins, tuning):
             'targets': out}
 
 
-def evaluation_races(models, d, start, end):
-    """Cached per-race predictions for a period: only corners where every horse has all labels."""
+def labelled(x, c):
+    """Every horse of the race has the rank, gap and lane label at corner c (needed to score that corner)."""
+    return bool(x[f'r{c}'].notna().all() and x[f'g{c}'].notna().all() and x[f'l{c}'].notna().all())
+
+
+def evaluation_races(models, d, start, end, codes=None):
+    """Cached per-race predictions for a period (only the race codes in `codes` when given).
+    EVAL_CORNERS 'course': every full-field race is formed on its course's usual corner set, taken from the races before
+    `start` like race_output does before a race; corners without complete labels are formed but not scored.
+    'labels' (legacy): only the corners where every horse has all labels, and races with two or more of them."""
+    window = d[d.date.between(start, end)]
+    if codes is not None:
+        window = window[window.RACE_CODE.isin(codes)]
+    sets = corner_sets(d[d.date < start]) if EVAL_CORNERS == 'course' else None
     out = []
-    for _, x in d[d.date.between(start, end)].groupby('RACE_CODE'):
-        corners = [c for c in CORNERS if x[f'r{c}'].notna().all() and x[f'g{c}'].notna().all() and x[f'l{c}'].notna().all()]
+    for _, x in window.groupby('RACE_CODE'):
+        if sets is None:
+            corners = [c for c in CORNERS if labelled(x, c)]
+        elif not x.complete.all():
+            continue
+        else:
+            r0 = x.iloc[0]
+            corners = sets(int(r0.venue), int(r0.track), int(r0.distance))
         if len(corners) < 2:
             continue
         out.append((x, corners, *prepare_race(models, x, 'RACE_CODE', corners)))
@@ -818,8 +877,11 @@ def move_metrics(races, P):
     falseBig: share of all horses predicted to move 15%+ that actually moved under 10%."""
     mp, ma = [], []
     for x, corners, numbers, pred, spreads, early in races:
+        seen = [c for c in corners if labelled(x, c)]
+        if len(seen) < 2:
+            continue
         form, n = simulate(numbers, early, pred, spreads, corners, P), len(numbers)
-        a, b = corners[0], corners[-1]
+        a, b = seen[0], seen[-1]
         mp.extend((np.array(form[b]['rank']) - np.array(form[a]['rank'])) / (n - 1))
         ma.extend(x[f'r{b}'].to_numpy() - x[f'r{a}'].to_numpy())
     mp, ma = np.array(mp), np.array(ma)
@@ -862,6 +924,8 @@ def score(models, races, P):
         n = len(numbers)
         form = independent(numbers, pred, spreads, corners) if P is None else simulate(numbers, early, pred, spreads, corners, P)
         for c in corners:
+            if not labelled(x, c):
+                continue
             err.setdefault(f'r{c}', []).extend(np.abs((np.array(form[c]['rank']) - 1) / (n - 1) - x[f'r{c}'].to_numpy()))
             err.setdefault(f'g{c}', []).extend(np.abs(np.array(form[c]['gap']) - x[f'g{c}'].to_numpy()))
             local_lane = form[c].get('localLane', form[c]['lane'])
@@ -882,14 +946,19 @@ def tune_contention(d):
     for P in PARAM_GRID:
         s = score(models, races, P)
         ratios = {k: s[k] / base[k] for k in s}
-        obj = float(np.mean(list(ratios.values())))
+        obj = float(np.mean([v for k, v in ratios.items() if k not in OBJECTIVE_EXCLUDES]))
         if best_obj is None or obj < best_obj:
             best, best_obj, best_ratios = P, obj, ratios
     print(f'contention tuned on {len(races)} races: {best} (error ratio vs independent {best_obj:.3f})', flush=True)
     print('  per-metric error ratio: ' + ' '.join(f'{k}={v:.3f}' for k, v in best_ratios.items()), flush=True)
     # Kept in report.json: which metrics the chosen setting trades against each other.
-    tuning = {'races': len(races), 'objective': best_obj, 'ratios': best_ratios}
+    tuning = {'races': len(races), 'objective': best_obj, 'ratios': best_ratios, 'objectiveExcludes': list(OBJECTIVE_EXCLUDES)}
     return best, tuning
+
+
+# l1 is left out of the contention objective and only listed (E0): at the first corner the scored lane is the model's
+# own lane with and without the layer, so its ratio is 1.0 for every setting and adds nothing to the choice.
+OBJECTIVE_EXCLUDES = ('l1',)
 
 
 def validate(d, P, margins=None, tuning=None):
@@ -905,7 +974,7 @@ def validate(d, P, margins=None, tuning=None):
             if t == 'last3':
                 ok = x.last3.notna()
                 base.extend(np.abs(x.loc[ok, 'past_last3'].fillna(d.loc[tr, 'last3'].median()) - x.loc[ok, 'last3']))
-            elif int(t[1:]) in corners:
+            elif int(t[1:]) in corners and labelled(x, int(t[1:])):
                 base.extend(np.abs(x['past_' + t].fillna(d.loc[tr, t].median()) - x[t]))
         metrics[t] = {'mae': with_layer[t], 'independentMae': without[t], 'baselineMae': float(np.mean(base)),
                       'validationRows': len(base)}
@@ -924,7 +993,10 @@ def validate(d, P, margins=None, tuning=None):
     still = {**P, 'k': 0.0}
     past, actual = [], []
     for x, corners, *_ in races:
-        a, b = corners[0], corners[-1]
+        seen = [c for c in corners if labelled(x, c)]
+        if len(seen) < 2:
+            continue
+        a, b = seen[0], seen[-1]
         past.extend((x[f'past_r{b}'] - x[f'past_r{a}']).fillna(0))
         actual.extend(x[f'r{b}'] - x[f'r{a}'])
     metrics['_moves'] = {'model': move_metrics(races, P), 'withoutMoves': move_metrics(races, still),
@@ -946,7 +1018,87 @@ def validate(d, P, margins=None, tuning=None):
     if margins is not None:
         metrics['_intervals'] = interval_report(models, races, P, margins, tuning)
     print(metrics['_intervals'], flush=True)
+    metrics['_standard'] = standard_metrics(models, races, P, d, '20250901')
+    print(json.dumps(metrics['_standard'], ensure_ascii=False), flush=True)
     return metrics
+
+
+def standard_metrics(models, races, P, d, end):
+    """E0 standard measures (scripts/eval_standard.py) for one evaluation window; models fitted before `end`.
+    ranks : tau and integer MAE of the published (contention) formation, of the independent formation and of the
+            past mean turned into integer ranks; continuous MAE of the model BEFORE the blend, of the blend and of the
+            past mean (secondary).
+    lanes : the scored lane (localLane) and the independent lane against the constant-0 forecast, class accuracy over
+            0 / 1 / 2+, and the displayed lane (track-relative path slot, `lane` in the output) on the same label: the
+            app shows `lane`, the scores use `localLane`.
+    gaps  : the per-horse gap model on its own (a reference only: not a formation, so not drawable) next to the
+            published and the independent formation (independentMae is the RECONSTRUCTED independent formation).
+    last3 : the same closing model on the independent and the contention formation, with and without the traffic
+            input, and the FEATURES-only closing model (independentMae in metrics).
+    pace  : seconds MAE / correlation, H/M/S hit and ranked probability score against the climatology and the majority
+            class (bands = PACE_BANDS, the training terciles of the actual pace; the screen's GI label uses other bands)."""
+    import eval_standard as es
+    tr = (d.date < end) & d.complete
+    tab, lanes = es.RaceTable(), {}
+    for x, corners, numbers, pred, spreads, early in races:
+        race, n = x.RACE_CODE.iloc[0], len(numbers)
+        nums = np.array(numbers, float)
+        con = simulate(numbers, early, pred, spreads, corners, P)
+        ind = independent(numbers, pred, spreads, corners)
+        for c in corners:
+            if not labelled(x, c):
+                continue
+            y = x[f'r{c}'].to_numpy()
+            past = x[f'past_r{c}'].fillna(d.loc[tr, f'r{c}'].median()).to_numpy()
+            past_rank = np.argsort(np.argsort(past + 1e-9 * nums, kind='stable'), kind='stable') / (n - 1)
+            forms = {'contention': (np.array(con[c]['rank']) - 1) / (n - 1), 'independent': (np.array(ind[c]['rank']) - 1) / (n - 1),
+                     'pastMean': past_rank}
+            for k, v in forms.items():
+                tab.add(f'r{c}.integer', k, race, np.abs(v - y))
+                tab.add_value(f'r{c}.tau', k, race, es.kendall(v, y))
+            for k, v in (('model', pred[f'model_r{c}']), ('blend', pred[f'r{c}']), ('pastMean', past)):
+                tab.add(f'r{c}.continuous', k, race, np.abs(np.asarray(v, float) - y))
+            g = x[f'g{c}'].to_numpy()
+            for k, v in (('contention', con[c]['gap']), ('independent', ind[c]['gap']), ('gapModel', pred[f'g{c}'])):
+                tab.add(f'g{c}', k, race, np.abs(np.asarray(v, float) - g))
+            lab = x[f'l{c}'].to_numpy()
+            lane = lanes.setdefault(f'l{c}', {'label': [], 'contention': [], 'independent': [], 'displayed': []})
+            lane['label'].extend(lab)
+            lane['contention'].extend(np.asarray(con[c].get('localLane', con[c]['lane']), float))
+            lane['independent'].extend(np.clip(pred[f'l{c}'], 0, 4))
+            lane['displayed'].extend(np.asarray(con[c]['lane'], float))
+        ok = x.last3.notna().to_numpy()
+        if ok.any():
+            l3 = x.last3.to_numpy()[ok]
+            t3_con, free_con = closing(models, x, con, corners, pred['pace'])
+            t3_ind = closing(models, x, ind, corners, pred['pace'])[0]  # the independent formation carries no traffic
+            for k, v in (('contention', t3_con), ('contentionNoTraffic', free_con), ('independentFormation', t3_ind),
+                         ('featuresOnlyModel', pred['last3'])):
+                tab.add('last3', k, race, np.abs(np.asarray(v)[ok] - l3))
+    out = {'ranks': {}, 'gaps': {}, 'lanes': {}, 'last3': {}}
+    for c in CORNERS:
+        if (f'r{c}.tau', 'contention') not in tab.rows:
+            continue
+        out['ranks'][f'r{c}'] = {
+            'races': tab.races(f'r{c}.tau', 'contention'),
+            'tau': {k: tab.mean(f'r{c}.tau', k) for k in ('contention', 'independent', 'pastMean')},
+            'integerMae': {k: tab.mean(f'r{c}.integer', k) for k in ('contention', 'independent', 'pastMean')},
+            'continuousMae': {k: tab.mean(f'r{c}.continuous', k) for k in ('model', 'blend', 'pastMean')},
+            'tauContentionMinusIndependent': tab.diff(f'r{c}.tau', 'contention', 'independent'),
+            'integerContentionMinusIndependent': tab.diff(f'r{c}.integer', 'contention', 'independent')}
+        out['gaps'][f'g{c}'] = {k: tab.mean(f'g{c}', k) for k in ('contention', 'independent', 'gapModel')}
+        lane = lanes[f'l{c}']
+        out['lanes'][f'l{c}'] = {k: es.lane_summary(lane[k], lane['label']) for k in ('contention', 'independent', 'displayed')}
+        out['lanes'][f'l{c}']['displayedDiffersFromScored'] = float(np.mean(np.array(lane['displayed']) != np.array(lane['contention'])))
+    out['last3'] = {k: tab.mean('last3', k) for k in ('contention', 'contentionNoTraffic', 'independentFormation', 'featuresOnlyModel')}
+    out['last3']['trafficInput'] = tab.diff('last3', 'contention', 'contentionNoTraffic')
+    out['last3']['formation'] = tab.diff('last3', 'contentionNoTraffic', 'independentFormation')
+    out['last3']['closingModelVsFeaturesOnly'] = tab.diff('last3', 'independentFormation', 'featuresOnlyModel')
+    sigma, train_pace = pace_sigma(d, end)
+    pp = np.array([pred['pace'] for x, corners, numbers, pred, *_ in races])
+    pa = np.array([x.pace.iloc[0] for x, *_ in races])
+    out['pace'] = es.pace_summary(pp, pa, train_pace, sigma, PACE_BANDS)
+    return out
 
 
 def corner_sets(d):
@@ -1081,7 +1233,7 @@ def main():
     model = {'name': 'Paddock展開予想モデル', 'version': VERSION, 'trainingEnd': '2025-12-31', 'validation': '2025-09〜12',
              'rows': int(d.complete.sum()), 'historyRows': int(len(d)), 'excludedRows': int(raw - len(d)), 'features': FEATURES, 'closingFeatures': LAST3_FEATURES,
              'moveFeatures': MOVE_FEATURES, 'contention': params, 'contentionTuning': tuning, 'knownIssues': KNOWN_ISSUES,
-             'summary': metrics.pop('_summary'),
+             'summary': metrics.pop('_summary'), 'standard': metrics.pop('_standard'),
              'moves': metrics.pop('_moves'), 'pace': {**metrics.pop('_pace'), 'giPace': gi_pace, 'giBands': list(gi_bands)}, 'paceFeatures': PACE_FEATURES,
              'intervals': {**intervals, 'published': shown}, 'metrics': metrics,
              'notes': ['各角の順位・先頭からの馬身差・併走群内の内外位置と上がり3Fを個別に学習（LightGBM）。',
