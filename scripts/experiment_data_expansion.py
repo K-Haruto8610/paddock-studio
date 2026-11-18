@@ -28,6 +28,19 @@ Result 2026-11-18 -> ADOPTED as v1.7 (no code change; README「データ拡充�
   is the data. Re-tuning picks front 0.45 / hold 0.06 (v1.6: 0.25 / 0.03).
   Shift: course norms on all 94 courses from 2547 -> 2759 races, mean |shift| 0.06 s (max 0.95); validation pace mean
   +0.041 -> +0.027 s, H/M/S 32/27/41% -> 32/28/40%.
+
+Interim 2026-11-18 (追加指示8, 2022 imported; 2021/2020 still to come) -> NOT adopted yet, decision deferred to the
+3-year run. --pin keeps the v1.6 frame's 273 races while --before is v1.7's frame:
+  python scripts/experiment_data_expansion.py --pin outputs/data-expansion/frame_before_20261118_0126.pkl \
+    --before outputs/data-expansion/frame_after.pkl --after outputs/data-expansion-v18/frame_2022.pkl \
+    --old-report models/pace/report.json --out outputs/data-expansion-v18/result.json --only after,after-seed7
+  2022: 3331 races / 914 named / 888 complete (2025: 3348/915/885). Frame 48729/46401 -> 60299/58319 rows, complete
+  named races 3442 -> 4330; the 273 races' labels unchanged. Re-tuning picks hold 0.03 (v1.7 0.06), front stays 0.45.
+  v1.7 -> +2022, seed 42 (seed 7): r1 0.2304->0.2290 (0.2329->0.2275), r2 0.2345->0.2328 (0.2356->0.2318),
+  r3 0.2477->0.2470 (0.2463->0.2458), r4 0.2574->0.2541 (0.2564->0.2543); g1 3.408->3.492 (3.450->3.415),
+  g2 3.395->3.370, g3 2.586->2.493, g4 2.367->2.209 (2.215->2.204); l1 0.4361->0.4370, l4 0.5936->0.5941 (seed 7
+  0.5704); last3 0.814->0.823 (0.817->0.819). With v1.7's parameters fixed: r1-r4 0.2300/0.2341/0.2481/0.2549.
+  -> at seed 42 only r4 clears 0.002 (bar: 3 corners); seed 7 and the two-seed mean clear it at r1/r2/r4. Borderline.
 """
 import argparse
 import json
@@ -138,10 +151,11 @@ def main():
     ap.add_argument('--old-report', default=str(pm.ROOT / 'outputs' / 'data-expansion' / 'pace_report_v1.6_before.json'))
     ap.add_argument('--out', default=str(pm.ROOT / 'outputs' / 'data-expansion' / 'result.json'))
     ap.add_argument('--only', default='before,after,after-v16P,after-seed7')
+    ap.add_argument('--pin', help='frame whose validation races are pinned (default: --before; v1.6 frame for the 273)')
     args = ap.parse_args()
     old = json.loads(Path(args.old_report).read_text(encoding='utf-8'))
     before, after = frame(args.before), frame(args.after)
-    codes = validation_codes(before)
+    codes = validation_codes(frame(args.pin) if args.pin else before)
     PINNED = set(codes)
     res = json.loads(Path(args.out).read_text(encoding='utf-8')) if Path(args.out).exists() else {}
     res['validationRaces'] = {'pinned': len(codes), 'allAfter': len(validation_codes(after)),

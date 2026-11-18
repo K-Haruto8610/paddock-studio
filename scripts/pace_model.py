@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = 'paddock.pace-forecast/v1'
 # Revision of the v1 format (README): 1.1 adds the optional rankRange / last3Range fields; v1 readers ignore them.
 SCHEMA_REVISION = '1.1'
-VERSION = '1.7'  # 1.7: no code change; refitted and re-tuned on the re-imported DB (2023+ complete, 追加指示5)
+VERSION = '1.8'  # 1.8: no code change; refitted and re-tuned after 2022 was imported (追加指示8; 1.7: 2023+, 追加指示5)
 # 1.6: forecast ranges (rankRange / last3Range); same point model, refitted and re-tuned on the current DB# Representative lengths for each JRA separator (midpoints of the published bands).
 GAP_LENGTHS = {'': 0.6, ',': 1.5, '-': 3.5, '=': 6.5}
 SEP_ORDER = ['', ',', '-', '=']
@@ -431,6 +431,10 @@ KNOWN_ISSUES = [
     '1・2角の馬身差（g1/g2）は拡充前は過去5走平均に負けていた（3.83/3.83 対 3.40/3.66）。拡充後は同一データの過去平均3.30/3.46に対し3.41/3.39で、'
     'g1はなお0.10馬身負け、g2は勝つが差はシード差（0.03/0.05）並み。どちらも記号からの馬身差ラベルの誤差（1頭あたり約0.8馬身）より小さい。'
     '隊列長モデルは1・2角の学習レースが278/323→1214/1421になり、定数予想をわずかに上回るようになった（scripts/experiment_spread_after_expansion.py）。',
+    'v1.8（2026-11-18）はコード無変更で、2022年を取り込んだDB（学習対象の全頭そろう名前付きレース3442→4330）で再学習・再チューニングした（frontは0.45、holdは0.06→0.03）。'
+    '同じ検証273レースで、順位 r1〜r4 0.2304/0.2345/0.2477/0.2574→0.2290/0.2328/0.2470/0.2541（シード7では1・2・4角で0.002超の改善、シード42では4角のみ）、'
+    '馬身差 g3/g4 2.59/2.37→2.49/2.21、g1 3.41→3.49（シード7では3.45→3.42）、上がり0.814→0.823秒（許容0.01以内）。'
+    '4角のポジション争いあり（g4 2.21）は独立予測（2.19）よりなお悪いが、差は0.17→0.01馬身に縮んだ。2020・2021年はまだ一部しかない。',
 ]
 
 

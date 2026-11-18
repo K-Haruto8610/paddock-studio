@@ -19,34 +19,34 @@
   "trainingEnd": "2025-08-31",
   "validation": "2025-09〜12",
   "inferenceTrainingEnd": "2025-12-31",
-  "rows": 46401,
-  "races": 3442,
-  "historyRows": 48729,
-  "excludedRows": 135209,
+  "rows": 58319,
+  "races": 4330,
+  "historyRows": 60299,
+  "excludedRows": 167041,
   "metrics": {
     "c1": {
-      "mae": 0.2154489710101876,
-      "baselineMae": 0.22084090776334384,
+      "mae": 0.21459693479836334,
+      "baselineMae": 0.22087019508257383,
       "validationRows": 1571
     },
     "c2": {
-      "mae": 0.21559448274457324,
-      "baselineMae": 0.21938487790164687,
+      "mae": 0.21525077600597867,
+      "baselineMae": 0.21941366542909319,
       "validationRows": 1864
     },
     "c3": {
-      "mae": 0.22227507588664697,
-      "baselineMae": 0.22661409861574464,
+      "mae": 0.22190738874526708,
+      "baselineMae": 0.22635552629038477,
       "validationRows": 3730
     },
     "c4": {
-      "mae": 0.22606934370731765,
-      "baselineMae": 0.23311348102445897,
+      "mae": 0.22587393978271106,
+      "baselineMae": 0.23288197186649107,
       "validationRows": 3729
     },
     "last3": {
-      "mae": 0.8953766980767178,
-      "baselineMae": 1.1786289324849772,
+      "mae": 0.8990475994634904,
+      "baselineMae": 1.1795258925415342,
       "validationRows": 3772
     }
   },
