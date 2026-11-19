@@ -2,6 +2,7 @@ import * as T from 'three';
 import type {TrackModel} from './trackGeometry';
 import type {Terrain} from './sceneBuilders';
 import {seeded} from './scenery';
+import {standSeatGeometry} from './standSeat';
 import {bevelBox, CONCRETE_TILE, foliageGeometry, leafNormalMap, standMaterials, trunkGeometry} from './surfaceFinish';
 
 /** Horizon and zenith colours of the day's sky: pale haze in winter, a deeper blue near the summer sun. */
@@ -140,6 +141,37 @@ export function skyEnvironment(renderer: T.WebGLRenderer, sunOffset: T.Vector3) 
   return target.texture;
 }
 
+/**
+ * Rows of the Blender stadium seat (app/standSeat.ts) on the main stand's five terraces: two rows on each 2.2 m tread, four on
+ * the deep top one, 0.5 m apart, with an aisle every 11 m (where the roof's columns stand). One InstancedMesh, in the stand's
+ * frame; each seat's colour drifts a little, as moulded seats fade unevenly in the sun.
+ */
+function seatRows(geometry: T.BufferGeometry) {
+  const places: [number, number, number][] = [];
+  for (let terrace = 0; terrace < 5; terrace++) {
+    const front = (terrace - 2) * 2.2 - 2.5, floor = 6.6 + terrace * 0.9;
+    for (let line = 0; line < (terrace === 4 ? 4 : 2); line++) {
+      for (let x = -46; x <= 46; x += 0.5) {
+        if (Math.abs(x - Math.round(x / 11) * 11) < 0.8) continue;   // aisles
+        places.push([x, floor, front + 0.35 + line * 1.1]);
+      }
+    }
+  }
+  const material = new T.MeshStandardMaterial({color: '#ffffff', vertexColors: true, roughness: 0.72, side: T.DoubleSide});
+  const seats = new T.InstancedMesh(geometry, material, places.length);
+  seats.name = 'stand-seats';
+  const random = seeded(5531);
+  const base = new T.Color('#6f8a88'), color = new T.Color();
+  const matrix = new T.Matrix4();
+  places.forEach(([x, y, z], i) => {
+    seats.setMatrixAt(i, matrix.makeTranslation(x, y, z));
+    color.copy(base).offsetHSL(0, -0.04 * random(), 0.05 * (random() - 0.5));
+    seats.setColorAt(i, color);
+  });
+  seats.receiveShadow = true;
+  return seats;
+}
+
 export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Terrain, floor: number) {
   const tree = new T.IcosahedronGeometry(1, 1);
   // Broadleaf crowns: lumpy lobes with leaf-clump relief (colour per tree from the instance, shading from the vertices).
@@ -177,9 +209,13 @@ export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Ter
 
   const stand = groupAt(0, track.width + 92);
   piece(stand, box, concrete, 0, 2.5, 0, 96, 6, 20);
+  // Terraces: five steps rising away from the track (-z). With the Blender seat, the steps are concrete and carry rows of
+  // seats; without it, they are flat seat blocks as before.
+  const seat = standSeatGeometry();
   for (let row = 0; row < 5; row++) {
-    piece(stand, box, seats, 0, 6 + row * 0.9, (row - 2) * 2.2, 93, 1.2, 5);
+    piece(stand, box, seat ? concrete : seats, 0, 6 + row * 0.9, (row - 2) * 2.2, 93, 1.2, 5);
   }
+  if (seat) stand.add(seatRows(seat));
   for (const x of [-44, -22, 0, 22, 44]) piece(stand, box, roof, x, 10, 6, 0.8, 12, 0.8);
   piece(stand, box, roof, 0, 16, 2, 98, 1.1, 23);
   piece(stand, box, seats, 0, 15, -9, 98, 1.2, 0.5);

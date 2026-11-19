@@ -126,6 +126,23 @@ STYLE_GUIDE の「素材ごとの指定」を、レース画面のコードに�
 確認画像: `horse-side-front.png`、`horse-leg-rings.png`、`sky-trees.png`、`stand-photo-pbr.png`。
 
 **まだ満たしていない点**
-- 縫い目は、中心線と脚の付け根の輪だけ。口まわりなどには入れていない。
-- 写真素材は 1k の 2 組だけ（壁、屋根）。座席は単色のまま。
+- ~~縫い目は、中心線と脚の付け根の輪だけ。口まわりなどには入れていない。~~ → 口の縫い目を Blender で追加（下の付記）。
+- 写真素材は 1k の 2 組だけ（壁、屋根）。~~座席は単色のまま。~~ → 座席を Blender でモデリング（下の付記）。内馬場のスタンドと掲示板の面は単色のまま。
 - 空は大気散乱の単純な近似（Preetham）。太陽に近い側は、低い冬の太陽で淡く霞む。
+
+## 付記: Blender での仕上げ — 口の縫い目、スタンドの座席（2026-11-19）
+
+**口の縫い目**（`blender/seams.py`）
+- 鼻の穴の下に、頬から頬へ口の線（両端が少し上がる）を縫った。正面で中心線の縫い目と交わる。
+- Blender では、体の上に置いたガイドの曲線 `seamguide_mouth` が縫い目そのもの。点を動かせば縫い目が動き、`seamguide_` で始まる曲線を足せば縫い目が増える。ガイド自体は書き出さない。
+- `horse_body` には、頂点ごとに「いちばん近い縫い目上の点」（`_seam_at`、アプリの座標）と「縫い目に沿った長さ」（`_seam_along`）を焼き込む。`blender/export.py` は書き出しの前に焼き直すので、手で動かしたガイドがそのままアプリに届く。
+- アプリ側（`app/plushHorse.ts` の `stitchSeam`・`pileMaterial`）は、残り位置からこの点までの距離で、中心線と同じ溝・糸・針目を描き、毛足を縫い目で短く詰める。中心線と脚の輪は従来どおり式で描く。コード版の馬（`?model=code`）には口の縫い目はない。
+- 確認画像: `docs/style-check/horse-mouth-front.jpg`、`horse-mouth-oblique.jpg`（鹿毛。芦毛では糸が暗く、目立ちにくい）。
+
+**スタンドの座席**（`blender/seats.py` → `public/models/stand.glb`）
+- 成形の座席 `stand_seat` を1脚モデリング（座面と背もたれが一体の殻、鉄の脚）。72 三角形。座席の色は実行時に付け、`_shade`（殻 1、脚 0.35）で脚を暗くする。
+- メインスタンドの5段は、座席があるときはコンクリートの段になり、その上に座席を並べる（各段 2 列、最上段は 4 列、0.5 m 間隔、屋根の柱の位置に 11 m ごとの通路）。1,896 脚を1つの InstancedMesh で描き、約 13.7 万三角形。色は 1 脚ずつ少しだけ褪せ方を変える。艶は抑える（粗さ 0.72）。
+- 読み込みは馬のモデル・写真素材と一緒（`ensureHorseModel`、`app/standSeat.ts`）。読めないときは、従来の単色の段に戻る。
+- 確認画像: `docs/style-check/stand-seats-near.jpg`、`stand-seats-far.jpg`（スタンドだけを組んだ一時ページで撮影）。
+
+再生成: `python blender/run_in_blender.py blender/seams.py`（ガイドを作り直して焼き込む）→ `python blender/run_in_blender.py blender/export.py`。座席は `python blender/run_in_blender.py blender/seats.py export=1`。

@@ -323,7 +323,10 @@ function stuffedBodyGeometry(color: T.Color, settings: HeadSettings) {
 }
 
 /** The stuffed shell's attributes (coat, socks and nose colour; planar uv) on a body shell given as positions and normals. */
-function shellGeometry(positions: Float32Array, normals: Float32Array, color: T.Color, settings: HeadSettings, index?: ArrayLike<number>) {
+/** Seams modelled in Blender (blender/seams.py): per vertex, the nearest point on a seam (horse frame) and the arc length there. */
+type SewnLines = {at: Float32Array; along: Float32Array};
+
+function shellGeometry(positions: Float32Array, normals: Float32Array, color: T.Color, settings: HeadSettings, index?: ArrayLike<number>, sewn?: SewnLines) {
   const geometry = new T.BufferGeometry();
   if (index) geometry.setIndex(Array.from(index));
   const colors = new Float32Array(positions.length);
@@ -344,6 +347,10 @@ function shellGeometry(positions: Float32Array, normals: Float32Array, color: T.
   geometry.setAttribute('normal', new T.BufferAttribute(normals, 3));
   geometry.setAttribute('color', new T.BufferAttribute(colors, 3));
   geometry.setAttribute('uv', new T.BufferAttribute(uvs, 2));
+  if (sewn) {
+    geometry.setAttribute('seamAt', new T.BufferAttribute(sewn.at, 3));
+    geometry.setAttribute('seamAlong', new T.BufferAttribute(sewn.along, 1));
+  }
   return geometry;
 }
 
@@ -594,21 +601,39 @@ function rimLight<M extends T.Material>(material: M, strength = 0.32): M {
 }
 
 /**
- * A sewn seam down the centre line, where the two halves of the plush meet: a groove, and short stitches of thread across it.
- * It reads the geometry's `rest` positions (the shape before the rig moves it), so the stitches stay on the cloth as the legs
- * swing. Pile is pinched short along this line, so the thread shows through it.
+ * GLSL for the seams modelled in Blender (blender/seams.py; `sewn` below): the geometry carries, per vertex, the nearest point
+ * on a seam (`seamAt`, rest frame) and the arc length there (`seamAlong`). Interpolated across a triangle, the distance from
+ * the rest position to `seamAt` is the distance to the seam, so the thread stays a few millimetres wide on an 8.5 cm mesh.
  */
-function stitchSeam<M extends T.Material>(material: M): M {
+const SEWN_VERTEX = `
+attribute vec3 seamAt;
+attribute float seamAlong;
+varying vec3 vSeamAt;
+varying float vSeamAlong;`;
+const SEWN_PASS = `
+vSeamAt = seamAt;
+vSeamAlong = seamAlong;`;
+const SEWN_FRAGMENT = `
+varying vec3 vSeamAt;
+varying float vSeamAlong;`;
+
+/**
+ * A sewn seam down the centre line, where the two halves of the plush meet: a groove, and short stitches of thread across it,
+ * and rings round the tops of the legs. With `sewn`, also the seams modelled in Blender (the mouth). It reads the geometry's
+ * `rest` positions (the shape before the rig moves it), so the stitches stay on the cloth as the legs swing. Pile is pinched
+ * short along these lines, so the thread shows through it.
+ */
+function stitchSeam<M extends T.Material>(material: M, sewn = false): M {
   material.onBeforeCompile = shader => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
 attribute vec3 rest;
-varying vec3 vSeamRest;`)
+varying vec3 vSeamRest;${sewn ? SEWN_VERTEX : ''}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
-vSeamRest = rest;`);
+vSeamRest = rest;${sewn ? SEWN_PASS : ''}`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-varying vec3 vSeamRest;
+varying vec3 vSeamRest;${sewn ? SEWN_FRAGMENT : ''}
 ${LEG_RING_GLSL}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 {
@@ -619,17 +644,23 @@ ${LEG_RING_GLSL}`)
   // Stitches: short dashes along the seam, which runs mostly along x on the back and up y on the face.
   float along = vSeamRest.x * 0.8 + vSeamRest.y * 0.6;
   float dash = 1.0 - smoothstep(0.55, 0.65, abs(fract(along * 38.0) - 0.5) * 2.0);
+  float stitched = thread * dash;${sewn ? `
+  // The Blender seams: the same groove, thread and dashes, measured to the modelled line.
+  float lineAcross = length(vSeamRest - vSeamAt);
+  groove = max(groove, 1.0 - smoothstep(0.0, 0.026, lineAcross));
+  float lineDash = 1.0 - smoothstep(0.55, 0.65, abs(fract(vSeamAlong * 38.0) - 0.5) * 2.0);
+  stitched = max(stitched, (1.0 - smoothstep(0.0055, 0.0085, lineAcross)) * lineDash);` : ''}
   float light = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
   vec3 cloth = diffuseColor.rgb;
   vec3 stitch = light > 0.55 ? cloth * vec3(0.55, 0.5, 0.45) : min(cloth * 1.9 + vec3(0.14, 0.12, 0.1), vec3(1.0));
   float ringAlong;
   float ring = 1.0 - smoothstep(0.0055, 0.0085, legRingDistance(vSeamRest, ringAlong));
   float ringDash = 1.0 - smoothstep(0.55, 0.65, abs(fract(ringAlong * 38.0) - 0.5) * 2.0);
-  vec3 sewn = mix(cloth * (1.0 - 0.08 * groove), stitch, thread * dash);
+  vec3 sewn = mix(cloth * (1.0 - 0.08 * groove), stitch, stitched);
   diffuseColor.rgb = mix(sewn, stitch, ring * ringDash);
 }`);
   };
-  material.customProgramCacheKey = () => 'plush-seam';
+  material.customProgramCacheKey = () => sewn ? 'plush-seam-sewn' : 'plush-seam';
   return material;
 }
 
@@ -682,7 +713,7 @@ function pileNoiseTexture() {
  * Raised pile: the same surface drawn several times, each copy pushed a little further out and keeping only
  * the fibres tall enough to reach it. This gives the cloth a soft fuzzy outline instead of a hard edge.
  */
-function pileMaterial(color: T.ColorRepresentation, kind: FabricKind, layers: number, options: {vertexColors?: boolean; seam?: boolean; length?: number} = {}) {
+function pileMaterial(color: T.ColorRepresentation, kind: FabricKind, layers: number, options: {vertexColors?: boolean; seam?: boolean; sewn?: boolean; length?: number} = {}) {
   const look = FABRIC_LOOKS[kind];
   const material = new T.MeshPhysicalMaterial({
     color, vertexColors: !!options.vertexColors, roughness: 1,
@@ -691,6 +722,7 @@ function pileMaterial(color: T.ColorRepresentation, kind: FabricKind, layers: nu
   });
   const length = options.length ?? look.pile ?? 0.03;
   const seam = options.seam ? 1 : 0;
+  const sewn = !!options.sewn;
   material.onBeforeCompile = shader => {
     shader.uniforms.pileMap = {value: pileNoiseTexture()};
     shader.uniforms.pileLength = {value: length};
@@ -706,8 +738,8 @@ uniform float pileLayers;
 varying float vPileScale;
 varying vec3 vRest;
 varying vec3 vRestNormal;
-varying float vPile;`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>
+varying float vPile;${sewn ? SEWN_VERTEX : ''}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>${sewn ? SEWN_PASS : ''}
 vPile = (float(gl_InstanceID) + 1.0) / pileLayers;
 vRest = rest;
 vRestNormal = restNormal;
@@ -725,7 +757,7 @@ ${LEG_RING_GLSL}
 varying float vPileScale;
 varying vec3 vRest;
 varying vec3 vRestNormal;
-varying float vPile;`)
+varying float vPile;${sewn ? SEWN_FRAGMENT : ''}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 {
   // Pile pressed flat under other cloth is not drawn.
@@ -747,7 +779,8 @@ varying float vPile;`)
   float brushed = texture2D(pileMap, vRest.xy * 0.21 + 0.13).g + texture2D(pileMap, vRest.zy * 0.21 + 0.57).g - 1.0;
   // The pile is pinched short along the centre seam where the two halves are sewn together.
   float ringAlong;
-  float seam = pileSeam * max(1.0 - smoothstep(0.004, 0.034, abs(vRest.z)), 1.0 - smoothstep(0.004, 0.03, legRingDistance(vRest, ringAlong)));
+  float seam = pileSeam * max(1.0 - smoothstep(0.004, 0.034, abs(vRest.z)), 1.0 - smoothstep(0.004, 0.03, legRingDistance(vRest, ringAlong)));${sewn ? `
+  seam = max(seam, pileSeam * (1.0 - smoothstep(0.004, 0.03, length(vRest - vSeamAt))));` : ''}
   float reach = (1.0 - 0.7 * seam) * (0.8 + 0.25 * brushed) * mix(0.6, 1.0, tuft);
   diffuseColor.a = fibre - 0.92 * pow(min(vPile / reach, 1.5), 1.2) + 0.5;
   diffuseColor.rgb *= mix(${PILE_ROOT_SHADE.toFixed(2)}, 1.05, pow(vPile, 1.5)) * (1.0 + 0.2 * brushed) * (1.0 - 0.25 * (1.0 - tuft)) * (1.0 - 0.15 * seam);
@@ -758,6 +791,7 @@ varying float vPile;`)
 material.sheenColor *= mix(diffuseColor.rgb, vec3(1.0), 0.08);
 #endif`);
   };
+  material.customProgramCacheKey = () => sewn ? 'plush-pile-sewn' : 'plush-pile';
   return rimLight(material);
 }
 
@@ -1517,10 +1551,14 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     return m;
   };
 
-  const shellMaterial = rimLight(stitchSeam(fabricMaterial('#ffffff', fabrics.body ?? 'current')));
+  const seamAt = model?.body.attributes._seam_at, seamAlong = model?.body.attributes._seam_along;
+  const sewnLines: SewnLines | undefined = seamAt && seamAlong
+    ? {at: (seamAt.array as Float32Array).slice(), along: (seamAlong.array as Float32Array).slice()}
+    : undefined;
+  const shellMaterial = rimLight(stitchSeam(fabricMaterial('#ffffff', fabrics.body ?? 'current'), !!sewnLines));
   shellMaterial.vertexColors = true;
   const shell = new T.Mesh(model
-    ? shellGeometry((model.body.attributes.position.array as Float32Array).slice(), (model.body.attributes.normal.array as Float32Array).slice(), brown.color, settings, model.body.index?.array)
+    ? shellGeometry((model.body.attributes.position.array as Float32Array).slice(), (model.body.attributes.normal.array as Float32Array).slice(), brown.color, settings, model.body.index?.array, sewnLines)
     : stuffedBodyGeometry(brown.color, settings), shellMaterial);
   shell.name = 'seamless-body-and-feet';
   shell.castShadow = shell.receiveShadow = true;
@@ -1538,7 +1576,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
       }
       shell.geometry.setAttribute('pileScale', new T.BufferAttribute(scale, 1));
     }
-    addPile(shell, pileMaterial('#ffffff', bodyFabric, layers, {vertexColors: true, seam: true}), layers);
+    addPile(shell, pileMaterial('#ffffff', bodyFabric, layers, {vertexColors: true, seam: true, sewn: !!sewnLines}), layers);
   }
   // Eyes, nostrils and the saddlecloth sit on top of the pile rather than sinking into it.
   const raise = Math.max(0, pileLength - 0.02);

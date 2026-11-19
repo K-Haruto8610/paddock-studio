@@ -5,6 +5,7 @@
 glTF is +Y up, so Blender (X, Y, Z) arrives as (X, Z, -Y): +X forward, Y up, Z the horse's right, the app's own frame.
 No materials are exported: the app colours and fabrics every part itself, by the object's name. Only the straps carry UVs
 (the body, hood and ears get planar UVs in the app, as the code-built ones always did) and `_cover` (strap on hood = 1).
+The body carries `_seam_at` / `_seam_along` (blender/seams.py): the seams the app sews besides the centre line and leg rings.
 """
 import os
 import bpy
@@ -13,6 +14,14 @@ out = ARGS.get("out", "public/models/horse.glb")
 if not os.path.isabs(out):
     out = os.path.join(ARGS["root"], out)
 os.makedirs(os.path.dirname(out), exist_ok=True)
+
+# Seams: re-bake the seamguide_* curves onto the body, so a guide moved by hand in Blender is what the app sews.
+if any(o.name.startswith("seamguide_") for o in bpy.data.objects):
+    _args = dict(ARGS)
+    ARGS["lib"] = "1"
+    exec(open(ARGS["root"] + "/blender/seams.py", encoding="utf-8").read())
+    print(bake_seams())
+    ARGS.clear(); ARGS.update(_args)
 
 for o in bpy.context.scene.objects:
     o.select_set(o.name.startswith("horse_"))
