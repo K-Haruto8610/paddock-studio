@@ -35,6 +35,9 @@ import {
 import {addDistantGrass, addRaceGrass} from './raceGrass';
 import {addDirtTrail} from './dirtTrail';
 import {raceSunOffset} from './raceLighting';
+import {dayOfYear} from './raceSeason';
+import {addPrecipitation, GOING_LABEL, WEATHER_LABEL, WEATHER_LOOKS, wetSurfaces, type Weather} from './raceWeather';
+import {turfWearAmount} from './turfWear';
 /** Beyond this distance from the field a blade of grass is smaller than a pixel, so none are drawn. */
 const GRASS_SIGHT = 320;
 
@@ -141,6 +144,9 @@ export default function TrackScene({
   verification,
   suspended = false,
   elevationScale,
+  weather = 'clear',
+  going = null,
+  courseDay = null,
 }: {
   race: Race;
   plan: PlaybackPlan;
@@ -161,6 +167,12 @@ export default function TrackScene({
   verification?: VerificationRef;
   suspended?: boolean;
   elevationScale?: number;
+  /** Race-day weather: sky, light, haze, rain or snow, wet surfaces (app/raceWeather.ts). */
+  weather?: Weather;
+  /** Official going (1 良 ... 4 不良) for the infield board, when known. */
+  going?: number | null;
+  /** Turf race days on the present rail position: the inside wears as a meeting goes on (app/turfWear.ts). */
+  courseDay?: number | null;
 }) {
   const host = useRef<HTMLDivElement>(null);
   // The animation loop lives outside React's render cycle: it reads the latest props from refs.
@@ -199,10 +211,11 @@ export default function TrackScene({
     controls.maxDistance = 900;
     controls.maxPolarAngle = Math.PI * 0.48;
     const sunOffset = raceSunOffset(race.date);
-    const sun = addLights(scene, sunOffset);
+    const look = WEATHER_LOOKS[weather];
+    const sun = addLights(scene, sunOffset, look);
     sun.shadow.mapSize.setScalar(quality.shadowSize);
-    addRaceSky(scene, sunOffset);
-    const environment = skyEnvironment(renderer, sunOffset);
+    addRaceSky(scene, sunOffset, look);
+    const environment = skyEnvironment(renderer, sunOffset, look);
     scene.environment = environment;
     scene.environmentIntensity = 0.32;
 
@@ -213,16 +226,28 @@ export default function TrackScene({
     const straight = courseFor(race).straight;
     const courses = buildCourseSet(race, track, availableKinds(race));
     const terrain = addGround(scene, courses.tracks, route);
-    const surface = addCourseSurfaces(scene, courses, terrain, tokyo, route, tokyo ? tokyoChutes(race) : []);
+    // On soft ground the turf along the inside rail is cut up (ground and blades share the pattern).
+    const wear = {amount: turfWearAmount(look, going, courseDay), wet: look.wet};
+    const surface = addCourseSurfaces(scene, courses, terrain, tokyo, route, tokyo ? tokyoChutes(race) : [], wear);
     addRails(scene, courses, track.width, route, race.distance);
     const gate = addMarkers(scene, race, track, route);
     const floor = Math.min(...terrain.samples.map(s => s.y));
-    addFarGround(scene, floor);
-    addRaceLandscape(scene, track, terrain, floor - 1);
+    addFarGround(scene, floor, look.snowCover);
+    addRaceLandscape(scene, track, terrain, floor - 1, {
+      day: dayOfYear(race.date), look,
+      board: {
+        title: race.name,
+        lines: [`${race.venue} ${race.surface} ${race.distance}m`,
+          `天候 ${WEATHER_LABEL[weather]}${going ? `　${race.surface === 'ダート' ? 'ダート' : '芝'} ${GOING_LABEL[going]}` : ''}`],
+      },
+    });
     // Blades of grass stand around the field when the race is run on turf (STYLE_GUIDE: the grass is grown blade by blade).
-    const grass = track.kind === 'dirt' ? null : addRaceGrass(scene, route, track.width, surface);
-    const disposeDistantGrass = grass && quality.extendedGrass ? addDistantGrass(scene, track, surface, grass.uniforms) : null;
+    const grass = track.kind === 'dirt' ? null : addRaceGrass(scene, route, track.width, surface, wear);
+    const disposeDistantGrass = grass && quality.extendedGrass ? addDistantGrass(scene, track, surface, grass.uniforms, wear) : null;
     const gateBox = new T.Box3().setFromObject(gate);
+    // Everything built so far is the course and its surroundings: wet it in the rain (not the horses, added next).
+    wetSurfaces(scene, look.wet);
+    const falling = addPrecipitation(scene, look);
 
     // Horses and click-to-select; in edit mode, drag a horse to move it.
     const horses = addHorses(scene, race, quality.pileLayers);
@@ -453,6 +478,7 @@ export default function TrackScene({
           camera.position.distanceTo(packCenter) < GRASS_SIGHT, ticks);
       }
       trail?.setTime(travel, pose.at);
+      falling?.update(camera, reduced ? 0 : outputTime ?? seconds, outputHeight * renderer.getPixelRatio());
       contact.place();
       // Keep the shadow map on the field: its texel size follows the pack's spread, not a fixed 220m.
       const shadowHalf = T.MathUtils.clamp(Math.max(...gaps) / 2 - Math.min(...gaps) / 2 + 55, 75, 110);
@@ -598,6 +624,7 @@ export default function TrackScene({
       controls.dispose();
       grass?.dispose();
       disposeDistantGrass?.();
+      falling?.dispose();
       trail?.dispose();
       labels.dispose();
       el.removeEventListener('pointerdown', onPointerDown, true);
@@ -618,7 +645,7 @@ export default function TrackScene({
       renderer.domElement.remove();
     };
     // The plan is read live from state, so a hand edit does not rebuild the scene or move the camera.
-  }, [race, webgl, quality, verification, elevationScale]);
+  }, [race, webgl, quality, verification, elevationScale, weather, going, courseDay]);
 
   return (
     <div

@@ -1,4 +1,5 @@
 import * as T from 'three';
+import {NO_WEAR, wearTurf, type TurfWear} from './turfWear';
 import type {Race} from './types';
 import {makeTrack, makeTerrain, type TrackModel} from './trackGeometry';
 import {makeRoute, type RaceRoute} from './raceRoutes';
@@ -96,6 +97,7 @@ function ribbon(
   relief: T.Texture | null = null,
   dirtTone = false,
   covered?: (p: T.Vector3) => boolean,
+  wear: TurfWear = NO_WEAR,
 ) {
   const geo = strip(1024, (i, edge) => {
     const d = (i / 1024) * track.lap,
@@ -107,6 +109,8 @@ function ribbon(
   // Turf is felt (matte, a fine nap); dirt is sand (relief, and roughness that varies from patch to patch).
   const felt = SURFACE_TILE / FELT_TILE;
   const surface = worldVariation(dirtTone ? material('#ffffff', lift, map) : feltMaterial(map, felt, felt, lift), dirtTone ? 0.07 : 0.09);
+  // Turf cut up along the inside rail on soft ground (app/turfWear.ts).
+  if (!dirtTone) wearTurf(surface, wear);
   if (relief) {
     surface.normalMap = relief;
     surface.normalScale.setScalar(DIRT_RELIEF);
@@ -298,9 +302,16 @@ export function buildCourseSet(
   };
 }
 
-export function addLights(scene: T.Scene, sunOffset: T.Vector3) {
-  scene.add(new T.HemisphereLight('#b9d3ed', '#758565', 1.05));
-  const sun = new T.DirectionalLight('#fff0d8', 2.45);
+/**
+ * Sunlight and the light of the sky around. Under cloud (`sunLight` < 1) the sun dims and whitens, the sky's light grows
+ * a little and greys, and shadows fade (`shadow`), as on an overcast or rainy race day.
+ */
+export function addLights(scene: T.Scene, sunOffset: T.Vector3, weather: {sunLight: number; skyLight: number; shadow: number} =
+  {sunLight: 1, skyLight: 1, shadow: 1}) {
+  const overcast = 1 - weather.sunLight;
+  scene.add(new T.HemisphereLight(new T.Color('#b9d3ed').lerp(new T.Color('#c9cfd3'), overcast), '#758565', 1.05 * weather.skyLight));
+  const sun = new T.DirectionalLight(new T.Color('#fff0d8').lerp(new T.Color('#f2f4f6'), overcast), 2.45 * weather.sunLight);
+  sun.shadow.intensity = weather.shadow;
   sun.position.copy(sunOffset);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -444,6 +455,7 @@ export function addCourseSurfaces(
   tokyo: boolean,
   route?: RaceRoute,
   chutes: {surface: NonNullable<RaceRoute['chuteSurface']>; onDirt: boolean}[] = [],
+  wear: TurfWear = NO_WEAR,
 ) {
   const {turf, dirt, outer} = courses;
   const surfaces: GroundSurface[] = [];
@@ -455,8 +467,8 @@ export function addCourseSurfaces(
   const grass = turfTexture();
   // Where the outer course runs on the inner course's own strip it is the same surface: leave
   // that stretch to the inner ribbon so no two layers overlap there.
-  if (outer) lay(ribbon(outer, 0, outer.width, grass, 1, null, false, coveredBy(turf)), 1);
-  lay(ribbon(turf, 0, turf.width, grass, 2), 2);
+  if (outer) lay(ribbon(outer, 0, outer.width, grass, 1, null, false, coveredBy(turf), wear), 1);
+  lay(ribbon(turf, 0, turf.width, grass, 2, null, false, undefined, wear), 2);
   if (dirt) {
     // Harrowed sand: furrows along the course, laid over the same strip as the colour.
     const relief = dirtReliefMap();

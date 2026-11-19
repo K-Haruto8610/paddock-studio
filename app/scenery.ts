@@ -140,12 +140,13 @@ export function worldVariation<M extends T.Material>(material: M, strength = 0.1
 }
 
 /** Beyond the modelled ground the same lawn carries on flat, so its edge never shows. */
-export function addFarGround(scene: T.Scene, floor: number) {
+/** The fields beyond the course; `snow` (0..1) whitens them under lying snow. */
+export function addFarGround(scene: T.Scene, floor: number, snow = 0) {
   const lawn = groundTexture();
   lawn.repeat.setScalar(10400 / GROUND_TILE);
   const far = new T.Mesh(
     new T.CircleGeometry(5200, 48),
-    new T.MeshStandardMaterial({map: lawn, roughness: 0.96}),
+    new T.MeshStandardMaterial({map: lawn, roughness: 0.96, color: new T.Color('#ffffff').lerp(new T.Color(2.4, 2.4, 2.5), snow)}),
   );
   far.rotation.x = -Math.PI / 2;
   far.position.y = floor - FAR_GROUND_DROP;

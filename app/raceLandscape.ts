@@ -3,24 +3,32 @@ import type {TrackModel} from './trackGeometry';
 import type {Terrain} from './sceneBuilders';
 import {seeded} from './scenery';
 import {standSeatGeometry} from './standSeat';
-import {bevelBox, CONCRETE_TILE, foliageGeometry, leafNormalMap, standMaterials, trunkGeometry} from './surfaceFinish';
+import {bevelBox, CONCRETE_TILE, standMaterials} from './surfaceFinish';
+import {addTrees} from './raceTrees';
+import {WEATHER_LOOKS, type WeatherLook} from './raceWeather';
 
-/** Horizon and zenith colours of the day's sky: pale haze in winter, a deeper blue near the summer sun. */
-function skyColours(sunOffset: T.Vector3) {
+const FAIR = WEATHER_LOOKS.clear;
+
+/**
+ * Horizon and zenith colours of the day's sky: pale haze in winter, a deeper blue near the summer sun; under cloud the
+ * haze turns to the weather's grey.
+ */
+function skyColours(sunOffset: T.Vector3, look: WeatherLook = FAIR) {
   const summer = T.MathUtils.smoothstep(sunOffset.clone().normalize().y, 0.3, 1);
   return {
-    horizon: new T.Color('#e1e5d5').lerp(new T.Color('#e1edf3'), summer),
+    horizon: new T.Color('#e1e5d5').lerp(new T.Color('#e1edf3'), summer).lerp(new T.Color(look.murkColour), look.murk),
     zenith: new T.Color('#709bb9').lerp(new T.Color('#4999cf'), summer),
     summer,
   };
 }
 
 /**
- * The sky dome: a hazy horizon rising to blue, the sun's warm glow, and soft clouds drifting at one height (fractal noise
- * on a flat layer, so they shrink toward the horizon, brighter on the sun's side and grey underneath).
+ * The sky dome: a hazy horizon rising to blue, the sun (its disc, a bright corona and a wide warm glow), and soft clouds
+ * drifting at one height (fractal noise on a flat layer, so they shrink toward the horizon, brighter on the sun's side and
+ * grey underneath). The weather sets how much cloud, how grey, and how much of the sun shows through.
  */
-function skyDome(sunOffset: T.Vector3) {
-  const {horizon, zenith, summer} = skyColours(sunOffset);
+function skyDome(sunOffset: T.Vector3, look: WeatherLook = FAIR) {
+  const {horizon, zenith, summer} = skyColours(sunOffset, look);
   const sky = new T.Mesh(new T.SphereGeometry(4400, 40, 20), new T.ShaderMaterial({
     side: T.BackSide,
     depthWrite: false,
@@ -28,7 +36,8 @@ function skyDome(sunOffset: T.Vector3) {
     uniforms: {
       horizon: {value: horizon}, zenith: {value: zenith},
       sun: {value: sunOffset.clone().normalize()},
-      cover: {value: 0.5 - 0.12 * summer},
+      cover: {value: look.cover < 0 ? 0.5 - 0.12 * summer : look.cover},
+      grey: {value: look.grey}, sunShow: {value: look.sun},
       turbidity: {value: 2}, rayleigh: {value: 2.4}, mieCoefficient: {value: 0.003},
     },
     // Atmospheric scattering after Preetham et al., as in three's Sky (MIT): the blue of the sky and the pale haze toward the
@@ -61,6 +70,8 @@ function skyDome(sunOffset: T.Vector3) {
       uniform vec3 zenith;
       uniform vec3 sun;
       uniform float cover;
+      uniform float grey;
+      uniform float sunShow;
       varying float vSunfade;
       varying vec3 vBetaR;
       varying vec3 vBetaM;
@@ -74,7 +85,9 @@ function skyDome(sunOffset: T.Vector3) {
         vec3 Fex = exp(-(vBetaR * 8.4E3 * inv + vBetaM * 1.25E3 * inv));
         float c = dot(ray, sun);
         vec3 betaRTheta = vBetaR * rayleighPhase(c * 0.5 + 0.5);
-        vec3 betaMTheta = vBetaM * hgPhase(c, 0.8);
+        // The forward (Mie) glare stops growing 15 deg from the sun: closer in, the haze would be as white as the disc, which
+        // would then vanish. The sun's own halo is drawn in main().
+        vec3 betaMTheta = vBetaM * hgPhase(min(c, 0.966), 0.8);
         vec3 inscatter = vSunE * ((betaRTheta + betaMTheta) / (vBetaR + vBetaM));
         vec3 Lin = pow(inscatter * (1.0 - Fex), vec3(1.5));
         Lin *= mix(vec3(1.0), pow(inscatter * Fex, vec3(0.5)), clamp(pow(1.0 - sun.y, 5.0), 0.0, 1.0));
@@ -95,19 +108,38 @@ function skyDome(sunOffset: T.Vector3) {
       void main() {
         vec3 ray = normalize(direction);
         // Scattered sky above, the haze colour (the fog's) at and below the horizon, so the two meet without a seam.
-        vec3 colour = mix(horizon, min(scattering(ray) * 0.62, vec3(0.95)), smoothstep(0.0, 0.3, ray.y));
-        float glow = pow(max(dot(ray, sun), 0.0), 18.0);
-        colour = mix(colour, vec3(1.0, 0.82, 0.55), 0.28 * glow);
+        // Bright sky rolls off softly toward 0.84 instead of clipping, so the sun's disc (1.0) stays brighter than its haze.
+        vec3 bright = scattering(ray) * 0.62;
+        vec3 over = max(bright - 0.7, 0.0);
+        bright = min(bright, vec3(0.7)) + 0.14 * (1.0 - exp(-over / 0.14));
+        vec3 colour = mix(horizon, bright, smoothstep(0.0, 0.3, ray.y));
+        float facing = max(dot(ray, sun), 0.0);
+        float glow = pow(facing, 18.0);
+        colour = mix(colour, vec3(1.0, 0.82, 0.55), 0.2 * glow * (0.4 + 0.6 * sunShow));
+        // The sun: a disc about twice its true size (0.5 deg; true size reads as a dot on a phone), a tight bright corona
+        // round it, both behind the clouds.
+        float disc = smoothstep(0.999955, 0.999975, facing);
+        float corona = pow(facing, 2500.0) * 0.55 + pow(facing, 300.0) * 0.22;
+        float density = 0.0;
         // Clouds on a flat layer: the further toward the horizon, the closer together and the fainter.
         if (ray.y > 0.0) {
           vec2 p = ray.xz / (ray.y + 0.12) * 0.55;
           float body = fbm(p + vec2(3.1, 1.7));
-          float density = smoothstep(1.0 - cover - 0.1, 1.0 - cover + 0.18, body + 0.18 * fbm(p * 3.0 + 5.0));
-          // Lit from the sun's side, shaded and a little grey underneath.
+          density = smoothstep(1.0 - cover - 0.1, 1.0 - cover + 0.18, body + 0.18 * fbm(p * 3.0 + 5.0));
+          // Lit from the sun's side, shaded and a little grey underneath; rain cloud is heavier and darker.
           float lit = clamp(0.62 + 0.9 * (fbm(p + sun.xz * 0.16 + vec2(3.1, 1.7)) - body), 0.0, 1.0);
           vec3 cloud = mix(vec3(0.66, 0.7, 0.76), vec3(1.0, 0.99, 0.96), lit);
-          colour = mix(colour, cloud, density * 0.85 * smoothstep(0.02, 0.3, ray.y));
+          cloud = mix(cloud, mix(vec3(0.5, 0.53, 0.57), vec3(0.74, 0.76, 0.78), lit), grey);
+          density *= smoothstep(0.02, 0.3, ray.y);
+          // On a fine day the sun is out: the clouds thin out gradually toward it (over about 30 deg, so no hole shows) and
+          // none sits on the disc.
+          density *= 1.0 - smoothstep(0.5, 1.0, sunShow) * smoothstep(0.866, 0.9976, facing);
+          colour = mix(colour, cloud, density * mix(0.85, 1.0, grey));
         }
+        // Through thin cloud the sun is a bright smudge; through a closed deck, nothing.
+        float through = sunShow * (1.0 - 0.85 * density);
+        colour = mix(colour, vec3(1.0, 0.98, 0.92), clamp(disc * through + corona * through, 0.0, 1.0));
+        colour += vec3(0.35, 0.33, 0.3) * pow(facing, 40.0) * sunShow * density * 0.5;
         gl_FragColor = vec4(colour, 1.0);
         #include <colorspace_fragment>
       }`,
@@ -117,10 +149,10 @@ function skyDome(sunOffset: T.Vector3) {
   return sky;
 }
 
-export function addRaceSky(scene: T.Scene, sunOffset: T.Vector3) {
-  const sky = skyDome(sunOffset);
+export function addRaceSky(scene: T.Scene, sunOffset: T.Vector3, look: WeatherLook = FAIR) {
+  const sky = skyDome(sunOffset, look);
   scene.add(sky);
-  scene.fog = new T.Fog(skyColours(sunOffset).horizon, 720, 2450);
+  scene.fog = new T.Fog(skyColours(sunOffset, look).horizon, ...look.fog);
   return sky;
 }
 
@@ -129,9 +161,9 @@ export function addRaceSky(scene: T.Scene, sunOffset: T.Vector3) {
  * the sky above them and the haze at the horizon (STYLE_GUIDE: one sky, one light for everything).
  * The texture is the caller's to dispose.
  */
-export function skyEnvironment(renderer: T.WebGLRenderer, sunOffset: T.Vector3) {
+export function skyEnvironment(renderer: T.WebGLRenderer, sunOffset: T.Vector3, look: WeatherLook = FAIR) {
   const dome = new T.Scene();
-  const sky = skyDome(sunOffset);
+  const sky = skyDome(sunOffset, look);
   dome.add(sky);
   const pmrem = new T.PMREMGenerator(renderer);
   const target = pmrem.fromScene(dome, 0.04, 1, 10000);
@@ -141,18 +173,20 @@ export function skyEnvironment(renderer: T.WebGLRenderer, sunOffset: T.Vector3) 
   return target.texture;
 }
 
+type Terrace = {floor: number; front: number; lines: number};
+
 /**
- * Rows of the Blender stadium seat (app/standSeat.ts) on the main stand's five terraces: two rows on each 2.2 m tread, four on
- * the deep top one, 0.5 m apart, with an aisle every 11 m (where the roof's columns stand). One InstancedMesh, in the stand's
- * frame; each seat's colour drifts a little, as moulded seats fade unevenly in the sun.
+ * Rows of the Blender stadium seat (app/standSeat.ts) on a stand's terraces: `lines` rows on each tread from its front edge,
+ * 1.1 m apart, seats 0.5 m apart across `half` metres either side of the centre, with an aisle every `aisle` metres (where
+ * the roof's columns stand). One InstancedMesh, in the stand's frame (track at -z); each seat's colour drifts a little, as
+ * moulded seats fade unevenly in the sun.
  */
-function seatRows(geometry: T.BufferGeometry) {
+function seatRows(geometry: T.BufferGeometry, terraces: Terrace[], half: number, aisle: number, tint: string, seed: number) {
   const places: [number, number, number][] = [];
-  for (let terrace = 0; terrace < 5; terrace++) {
-    const front = (terrace - 2) * 2.2 - 2.5, floor = 6.6 + terrace * 0.9;
-    for (let line = 0; line < (terrace === 4 ? 4 : 2); line++) {
-      for (let x = -46; x <= 46; x += 0.5) {
-        if (Math.abs(x - Math.round(x / 11) * 11) < 0.8) continue;   // aisles
+  for (const {floor, front, lines} of terraces) {
+    for (let line = 0; line < lines; line++) {
+      for (let x = -half; x <= half; x += 0.5) {
+        if (Math.abs(x - Math.round(x / aisle) * aisle) < 0.8) continue;   // aisles
         places.push([x, floor, front + 0.35 + line * 1.1]);
       }
     }
@@ -160,8 +194,8 @@ function seatRows(geometry: T.BufferGeometry) {
   const material = new T.MeshStandardMaterial({color: '#ffffff', vertexColors: true, roughness: 0.72, side: T.DoubleSide});
   const seats = new T.InstancedMesh(geometry, material, places.length);
   seats.name = 'stand-seats';
-  const random = seeded(5531);
-  const base = new T.Color('#6f8a88'), color = new T.Color();
+  const random = seeded(seed);
+  const base = new T.Color(tint), color = new T.Color();
   const matrix = new T.Matrix4();
   places.forEach(([x, y, z], i) => {
     seats.setMatrixAt(i, matrix.makeTranslation(x, y, z));
@@ -172,11 +206,60 @@ function seatRows(geometry: T.BufferGeometry) {
   return seats;
 }
 
-export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Terrain, floor: number) {
+/**
+ * The infield board's LED face: a dark panel of round lamps, 220 x 52, lit amber for the title and white for the lines
+ * (race, course, weather and going, as the boards show them), dim where unlit. Emissive, so it reads in any light.
+ */
+function ledBoard(title: string, lines: string[]) {
+  const cols = 220, rows = 52, pitch = 6;
+  const text = document.createElement('canvas');
+  text.width = cols;
+  text.height = rows;
+  const g = text.getContext('2d', {willReadFrequently: true})!;
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, cols, rows);
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = 'bold 15px sans-serif';
+  g.fillStyle = '#ffb030';
+  g.fillText(title, cols / 2, 10, cols - 8);
+  g.font = 'bold 12px sans-serif';
+  g.fillStyle = '#f2f2ea';
+  lines.slice(0, 2).forEach((line, k) => g.fillText(line, cols / 2, 27 + k * 15, cols - 8));
+  const lit = g.getImageData(0, 0, cols, rows).data;
+  const face = document.createElement('canvas');
+  face.width = cols * pitch;
+  face.height = rows * pitch;
+  const out = face.getContext('2d')!;
+  const image = out.createImageData(face.width, face.height);
+  for (let y = 0; y < face.height; y++)
+    for (let x = 0; x < face.width; x++) {
+      const c = Math.floor(x / pitch), r = Math.floor(y / pitch);
+      const lamp = Math.hypot(x % pitch - pitch / 2 + 0.5, y % pitch - pitch / 2 + 0.5) < pitch * 0.38;
+      const k = (r * cols + c) * 4, o = (y * face.width + x) * 4;
+      // Lamps take the lit colour (thresholded, as an LED is on or off); unlit lamps are a faint grey dot.
+      const on = Math.max(lit[k], lit[k + 1], lit[k + 2]) > 110;
+      for (let ch = 0; ch < 3; ch++) image.data[o + ch] = lamp ? (on ? Math.min(255, lit[k + ch] * 1.15) : 16) : 0;
+      image.data[o + 3] = 255;
+    }
+  out.putImageData(image, 0, 0);
+  const texture = new T.CanvasTexture(face);
+  texture.colorSpace = T.SRGBColorSpace;
+  texture.anisotropy = 8;
+  return new T.MeshStandardMaterial({color: '#060606', roughness: 0.3, emissive: '#ffffff', emissiveMap: texture, emissiveIntensity: 1.3});
+}
+
+export type LandscapeOptions = {
+  /** Day of the year of the race (app/raceSeason.ts dresses the trees for it). */
+  day: number;
+  look: WeatherLook;
+  /** What the infield board shows: a title and up to two lines. */
+  board: {title: string; lines: string[]};
+};
+
+export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Terrain, floor: number, options: LandscapeOptions) {
+  const {look} = options;
   const tree = new T.IcosahedronGeometry(1, 1);
-  // Broadleaf crowns: lumpy lobes with leaf-clump relief (colour per tree from the instance, shading from the vertices).
-  const leaf = new T.MeshStandardMaterial({color: '#fff', roughness: 1, vertexColors: true, normalMap: leafNormalMap(), normalScale: new T.Vector2(0.7, 0.7)});
-  const trunk = new T.MeshStandardMaterial({color: '#665845', roughness: 1});
   const box = new T.BoxGeometry(1, 1, 1);
   const shrub = new T.MeshStandardMaterial({color: '#55764b', roughness: 1});
   // Scanned concrete panels and corrugated roofing (procedural concrete if the photos did not load).
@@ -198,11 +281,14 @@ export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Ter
     group.add(mesh);
     return mesh;
   };
+  // A building's frame: x along the course, the track at -z. Taken from the direction to the course's middle lane, not from
+  // the tangent, which turns round between left- and right-handed courses.
   const groupAt = (distance: number, lane: number) => {
-    const {point, tangent} = at(distance, lane);
+    const {point} = at(distance, lane);
+    const toward = track.sample(distance, track.width / 2).point.sub(point).setY(0).normalize();
     const group = new T.Group();
     group.position.copy(point);
-    group.rotation.y = -Math.atan2(tangent.z, tangent.x);
+    group.rotation.y = Math.atan2(-toward.x, -toward.z);
     scene.add(group);
     return group;
   };
@@ -210,51 +296,38 @@ export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Ter
   const stand = groupAt(0, track.width + 92);
   piece(stand, box, concrete, 0, 2.5, 0, 96, 6, 20);
   // Terraces: five steps rising away from the track (-z). With the Blender seat, the steps are concrete and carry rows of
-  // seats; without it, they are flat seat blocks as before.
+  // seats (two on each 2.2 m tread, four on the deep top one, an aisle every 11 m); without it, flat seat blocks as before.
   const seat = standSeatGeometry();
   for (let row = 0; row < 5; row++) {
     piece(stand, box, seat ? concrete : seats, 0, 6 + row * 0.9, (row - 2) * 2.2, 93, 1.2, 5);
   }
-  if (seat) stand.add(seatRows(seat));
+  if (seat) {
+    const terraces = [0, 1, 2, 3, 4].map(t => ({floor: 6.6 + t * 0.9, front: (t - 2) * 2.2 - 2.5, lines: t === 4 ? 4 : 2}));
+    stand.add(seatRows(seat, terraces, 46, 11, '#6f8a88', 5531));
+  }
   for (const x of [-44, -22, 0, 22, 44]) piece(stand, box, roof, x, 10, 6, 0.8, 12, 0.8);
   piece(stand, box, roof, 0, 16, 2, 98, 1.1, 23);
   piece(stand, box, seats, 0, 15, -9, 98, 1.2, 0.5);
+
+  // The infield stand faces out across the course: a front walk, three concrete steps of seats, a concourse behind, and a
+  // roof on three columns.
   const infield = groupAt(track.lap * 0.68, -115);
   piece(infield, box, concrete, 0, 2.4, 0, 47, 5, 16);
-  piece(infield, box, seats, 0, 4.6, 0, 38, 2.4, 15);
-  piece(infield, box, roof, 0, 6.2, 1, 50, 1.3, 19);
-
-  const trees: {position: T.Vector3; height: number; width: number; color: T.Color}[] = [];
-  for (let segment = 0; segment < 48; segment++) {
-    const random = seeded(7283 + segment * 457);
-    const distance = track.lap * segment / 48;
-    const nearStand = Math.min(distance, track.lap - distance) < 90;
-    for (const lane of [track.width + (nearStand ? 153 : 106), track.width + 176]) {
-      for (let i = 0; i < 3; i++) {
-        const position = at(distance + (random() - 0.5) * 29, lane + random() * 24).point;
-        trees.push({position, height: 8 + random() * 10, width: 3.2 + random() * 4.6,
-          color: new T.Color().setHSL(0.24 + random() * 0.08, 0.19 + random() * 0.15, 0.26 + random() * 0.15)});
-      }
-    }
+  for (let row = 0; row < 3; row++) {
+    const height = 0.5 + row * 0.8;
+    piece(infield, box, seat ? concrete : seats, 0, 4.9 + height / 2, -3.6 + row * 2.4, 44, height, 2.4);
   }
-  const crowns = new T.InstancedMesh(foliageGeometry(), leaf, trees.length);
-  const trunks = new T.InstancedMesh(trunkGeometry(), trunk, trees.length);
-  const instance = new T.Object3D();
-  trees.forEach(({position, height, width, color}, i) => {
-    instance.position.copy(position).y += height * 0.72;
-    instance.scale.set(width * 0.9, height * 0.5, width * 0.9);
-    instance.rotation.y = i;
-    instance.updateMatrix();
-    crowns.setMatrixAt(i, instance.matrix);
-    crowns.setColorAt(i, color);
-    instance.position.copy(position).y += height * 0.2;
-    instance.scale.set(width * 0.16, height * 0.6, width * 0.16);
-    instance.updateMatrix();
-    trunks.setMatrixAt(i, instance.matrix);
-  });
-  scene.add(trunks, crowns);
+  piece(infield, box, concrete, 0, 5.95, 5.2, 47, 2.1, 5.6);
+  if (seat) {
+    const terraces = [0, 1, 2].map(r => ({floor: 5.4 + r * 0.8, front: -4.8 + r * 2.4, lines: 2}));
+    infield.add(seatRows(seat, terraces, 20.5, 10, '#7d8f72', 6203));
+  }
+  for (const x of [-21, 0, 21]) piece(infield, box, roof, x, 9.2, 4.6, 0.5, 4.6, 0.5);
+  piece(infield, box, roof, 0, 11.7, 0.6, 50, 0.6, 13);
 
-  const hills = new T.MeshBasicMaterial({color: '#97aba7', toneMapped: false});
+  addTrees(scene, track, (distance, lane) => at(distance, lane).point, options.day, look.snowCover);
+
+  const hills = new T.MeshBasicMaterial({color: new T.Color('#97aba7').lerp(new T.Color('#d9dde0'), 0.7 * look.snowCover), toneMapped: false});
   for (let i = 0; i < 28; i++) {
     const random = seeded(3271 + i * 23);
     const position = track.sample(track.lap * i / 28, 710 + random() * 280).point;
@@ -265,9 +338,13 @@ export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Ter
     scene.add(hill);
   }
 
+  // The infield board: a framed LED face toward the course (-z), on two legs.
   const board = groupAt(-track.lap * 0.45, -50);
   piece(board, box, roof, 0, 7, 0, 22, 7, 1.8);
-  piece(board, box, seats, 0, 7, 0.94, 19, 4.8, 0.08);
+  const face = new T.Mesh(new T.PlaneGeometry(19, 4.8), ledBoard(options.board.title, options.board.lines));
+  face.position.set(0, 7, -0.92);
+  face.rotation.y = Math.PI;
+  board.add(face);
   for (const x of [-8, 8]) piece(board, box, concrete, x, 2, 0, 1, 5, 1);
   for (const fraction of [0.04, 0.16, 0.39, 0.57, 0.76, 0.92]) {
     const bed = groupAt(track.lap * fraction, -38);

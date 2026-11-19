@@ -29,6 +29,7 @@ import {RaceRecorder, mp4MimeType, RECORDING_SCENE_SIZE, prepareRecordingOverlay
 import {completeTick, outputSeconds, progressAtTime, RACE_FPS} from './raceClock';
 import {EXPORT_QUALITY} from './sceneQuality';
 import {raceOverlay} from './raceOverlay';
+import {WEATHERS, WEATHER_LABEL, weatherFromCode, type RaceConditionsFile, type Weather} from './raceWeather';
 
 async function readJson<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -49,6 +50,9 @@ export default function Home() {
     [speed, setSpeed] = useState(2),
     [followKey, setFollowKey] = useState(0),
     [cameraMode, setCameraMode] = useState<CameraMode>('pack'),
+    // Race-day weather (public/data/race_conditions.json) unless the viewer picks another, and the rail position's days.
+    [conditions, setConditions] = useState<RaceConditionsFile['races']>({}),
+    [weatherChoice, setWeatherChoice] = useState<Weather | 'actual'>('actual'),
     [tab, setTab] = useState('horses'),
     [modeChoice, setMode] = useState<PlaybackMode>('replay'),
     // Race-flow model output: bundled file, optionally replaced by a file the user imports.
@@ -94,7 +98,10 @@ export default function Home() {
       readJson<Dataset>('/data/forecasts.json'),
       readJson<Replays>('/data/replays.json'),
       readJson<unknown>('/data/pace_forecasts.json'),
-    ]).then(([f, r, p]) => {
+      readJson<RaceConditionsFile>('/data/race_conditions.json'),
+    ]).then(([f, r, p, w]) => {
+      // Without the file every race is drawn in fine weather on a fresh rail.
+      if (w.status === 'fulfilled') setConditions(w.value.races);
       if (p.status === 'fulfilled') {
         const parsed = parsePaceForecast(p.value);
         if (parsed.ok) setBundledPace(parsed.data);
@@ -112,6 +119,14 @@ export default function Home() {
     });
   }, []);
   const race = data?.races.find((r) => r.id === raceId);
+  const recorded = conditions[raceId];
+  const actualWeather = weatherFromCode(recorded?.weather);
+  const weather: Weather = weatherChoice === 'actual' ? actualWeather ?? 'clear' : weatherChoice;
+  // The board shows the official going only with the weather it was recorded in.
+  const going = weatherChoice === 'actual' ? recorded?.going ?? null : null;
+  // The rail position's days hold whatever weather is picked: the meeting has worn the inside either way.
+  const meeting = recorded?.meeting;
+  const courseDay = meeting?.courseDay ?? null;
   const distance = race?.distance ?? 0;
   const horse = race?.horses.find((h) => h.number === selected),
     course = race ? courseFor(race) : null,
@@ -530,7 +545,8 @@ export default function Home() {
               {exportStatus && horseReady && (
                 <div className="export-renderer" aria-hidden="true">
                   <TrackScene race={race} plan={plan} progress={0} selected={selected} followKey={0}
-                    onSelect={() => {}} quality={EXPORT_QUALITY} verification={exportFrame} />
+                    onSelect={() => {}} quality={EXPORT_QUALITY} verification={exportFrame} weather={weather} going={going}
+                    courseDay={courseDay} />
                 </div>
               )}
               <div className="stage">
@@ -549,6 +565,9 @@ export default function Home() {
                   onRendered={recording ? (c) => recorder.current?.drawFrame(c) : undefined}
                   recordingSize={recording ? RECORDING_SCENE_SIZE : undefined}
                   suspended={!!exportStatus}
+                  weather={weather}
+                  going={going}
+                  courseDay={courseDay}
                 /> : <div className="scene" />}
                 <div className="scene-top">
                   <span
@@ -573,6 +592,19 @@ export default function Home() {
                       setCameraMode('broadcast');
                       setFollowKey((k) => k + 1);
                     }}>自動演出</button>
+                    <select
+                      className="weather-select"
+                      aria-label="天候"
+                      value={weatherChoice}
+                      onChange={(e) => setWeatherChoice(e.target.value as Weather | 'actual')}
+                    >
+                      <option value="actual">
+                        天候：{actualWeather ? `当日（${WEATHER_LABEL[actualWeather]}）` : '当日（不明・晴で表示）'}
+                      </option>
+                      {WEATHERS.map((w) => (
+                        <option key={w} value={w}>天候：{WEATHER_LABEL[w]}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
                 <div className="scene-bottom">
@@ -583,6 +615,9 @@ export default function Home() {
                   </span>
                   <span>
                     JRA公式図面ベース · 馬は約1.7倍 · 高低差は{raceElevationScale(race.venueCode)}倍で表示
+                    {meeting?.course && meeting.courseDay
+                      ? ` · ${meeting.kai}回${meeting.day}日目 ${meeting.course}コース${meeting.courseDay}日目${meeting.estimated ? '（見込み）' : ''}`
+                      : ''}
                   </span>
                 </div>
               </div>

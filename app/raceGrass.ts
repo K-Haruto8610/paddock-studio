@@ -4,6 +4,19 @@ import type {RaceRoute} from './raceRoutes';
 import type {TrackModel, TrackPoint} from './trackGeometry';
 import {seeded} from './scenery';
 import {type BladeField, bladeMaterial, bladeMesh, emptyBladeField, grassUniforms, mowBand, scatterBlade} from './surfaceDetail';
+import {NO_WEAR, wearAt, type TurfWear} from './turfWear';
+
+/**
+ * Blades on worn turf (app/turfWear.ts): none where the soil is bare, short, flattened and darker where it is trampled.
+ * Blade `i` of `field`, standing at world (x, z) `lane` metres off the inside rail.
+ */
+function wearBlade(field: BladeField, i: number, x: number, z: number, lane: number, wear: TurfWear) {
+  if (wear.amount <= 0) return;
+  const {trampled, bare} = wearAt(x, z, lane, wear);
+  field.blade[i * 4 + 1] *= bare > 0.4 ? 0 : (1 - bare) * (1 - 0.7 * trampled);
+  field.blade[i * 4 + 2] += 0.6 * trampled;
+  field.blade[i * 4 + 3] -= 0.16 * trampled + 0.2 * bare;
+}
 
 // Standing grass on the course a race is run on. A whole course would take tens of millions of
 // blades, so they stand only around the field: the course is cut into short stretches along the
@@ -28,7 +41,8 @@ const BLADES_PER_TICK = 3200;
 export type RaceGrass = ReturnType<typeof addRaceGrass>;
 
 /** Sparse blades continue over the visible lap beyond the dense stand around the horses. */
-export function addDistantGrass(scene: T.Scene, track: TrackModel, ground: Ground, uniforms: ReturnType<typeof grassUniforms>) {
+export function addDistantGrass(scene: T.Scene, track: TrackModel, ground: Ground, uniforms: ReturnType<typeof grassUniforms>,
+  wear: TurfWear = NO_WEAR) {
   const material = bladeMaterial({...uniforms, uFrom: {value: -1e6}, uTo: {value: 1e6}});
   const group = new T.Group();
   scene.add(group);
@@ -52,6 +66,7 @@ export function addDistantGrass(scene: T.Scene, track: TrackModel, ground: Groun
       const band = mowBand(lane);
       field.lay.set([tangent.x * band, tangent.z * band, at, 0], i * 4);
       scatterBlade(field, i, random);
+      wearBlade(field, i, point.x, point.z, lane, wear);
     }
     const mesh = bladeMesh(field, material);
     mesh.geometry.boundingSphere = bounds.getBoundingSphere(new T.Sphere());
@@ -71,7 +86,7 @@ export function addDistantGrass(scene: T.Scene, track: TrackModel, ground: Groun
  * Grass over lanes 0..width of `route`, grown around the field by `update`. Each blade takes its
  * height and lean from `ground`, the surface as drawn, so it stands on the course even on a slope.
  */
-export function addRaceGrass(scene: T.Scene, route: RaceRoute, width: number, ground: Ground) {
+export function addRaceGrass(scene: T.Scene, route: RaceRoute, width: number, ground: Ground, wear: TurfWear = NO_WEAR) {
   const uniforms = grassUniforms();
   const material = bladeMaterial(uniforms);
   const group = new T.Group();
@@ -132,6 +147,7 @@ export function addRaceGrass(scene: T.Scene, route: RaceRoute, width: number, gr
       field.lay[n * 4 + 2] = from + a * STRETCH;
       scatterBlade(field, n, rand);
       field.blade[n * 4 + 3] += 0.04 * band;
+      wearBlade(field, n, p.x, p.z, l * width, wear);
     }
     g.done = end;
   };

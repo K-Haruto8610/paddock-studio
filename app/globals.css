@@ -229,6 +229,14 @@ select {
   color: #fff;
   border-radius: 3px;
 }
+.weather-select {
+  margin-left: 3px;
+  padding: 4px 6px;
+  font-size: 11px;
+  border: 0;
+  border-left: 1px solid #dce0d4;
+  background: transparent;
+}
 .scene-bottom {
   position: absolute;
   bottom: 13px;

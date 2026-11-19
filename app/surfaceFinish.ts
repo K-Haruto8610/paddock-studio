@@ -229,21 +229,23 @@ function valueNoise3(x: number, y: number, z: number) {
     fz) * 2 - 1;
 }
 
-let foliage: T.BufferGeometry | null = null;
+const foliage = new Map<number, T.BufferGeometry>();
 
 /**
  * The crown of a broadleaf tree, about 1 m in radius: a cluster of lumpy lobes (each a sphere pushed in and out by noise, so
  * the outline is irregular and the volume has hollows), joined into one smooth surface, darker underneath and lighter on top.
- * One geometry, shared by every tree; the colour of each tree comes from its instance.
+ * One geometry per `detail` (icosahedron subdivisions of a lobe: 3 is 10k triangles, 2 is 2.6k for the dense rows), shared
+ * by every tree; the colour of each tree comes from its instance.
  */
-export function foliageGeometry() {
-  if (foliage) return foliage;
+export function foliageGeometry(detail = 3) {
+  const cached = foliage.get(detail);
+  if (cached) return cached;
   const lobes: [number, number, number, number][] = [
     [0, 0, 0, 0.66], [0.5, -0.12, 0.18, 0.5], [-0.48, -0.1, 0.2, 0.52], [0.12, 0.34, -0.46, 0.5],
     [0.05, -0.08, 0.55, 0.48], [-0.2, 0.4, 0.12, 0.45], [0.38, 0.28, 0.3, 0.4], [-0.4, 0.2, -0.4, 0.42],
   ];
   const parts = lobes.map(([x, y, z, r], index) => {
-    const sphere = new T.IcosahedronGeometry(1, 3);
+    const sphere = new T.IcosahedronGeometry(1, detail);
     const p = sphere.attributes.position;
     for (let i = 0; i < p.count; i++) {
       const vx = p.getX(i), vy = p.getY(i), vz = p.getZ(i);
@@ -276,8 +278,8 @@ export function foliageGeometry() {
     uv[i * 2 + 1] = position.getY(i) * 2.2;
   }
   merged.setAttribute('uv', new T.BufferAttribute(uv, 2));
-  foliage = merged;
-  return foliage;
+  foliage.set(detail, merged);
+  return merged;
 }
 
 let leafMap: T.CanvasTexture | null = null;
@@ -303,6 +305,49 @@ export function leafNormalMap() {
 export function trunkGeometry() {
   const profile = [[0, -0.5], [0.5, -0.5], [0.58, -0.45], [0.42, -0.2], [0.34, 0.2], [0.28, 0.5], [0, 0.5]].map(([r, y]) => new T.Vector2(r, y));
   return new T.LatheGeometry(profile, 10);
+}
+
+let branches: T.BufferGeometry | null = null;
+
+/**
+ * The bare wood of a broadleaf tree, for winter and the weeks around it: five limbs from the top of the trunk, each forking
+ * twice into thinner branches that reach the outline of the crown (a vase, as zelkova and cherry grow). In the tree's
+ * instance frame: x and z in crown widths, y in tree heights, standing on y = 0 (the trunk's own geometry ends at 0.5).
+ */
+export function branchGeometry() {
+  if (branches) return branches;
+  const random = seeded(4417);
+  const parts: T.BufferGeometry[] = [];
+  const up = new T.Vector3(0, 1, 0);
+  const limb = (from: T.Vector3, to: T.Vector3, r0: number, r1: number) => {
+    const length = from.distanceTo(to);
+    const piece = new T.CylinderGeometry(r1, r0, length, 5, 1, true);
+    piece.applyQuaternion(new T.Quaternion().setFromUnitVectors(up, to.clone().sub(from).normalize()));
+    piece.translate((from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2);
+    parts.push(piece);
+  };
+  const grow = (from: T.Vector3, direction: T.Vector3, length: number, radius: number, depth: number) => {
+    const to = from.clone().addScaledVector(direction, length);
+    limb(from, to, radius, radius * 0.62);
+    if (depth === 0) return;
+    for (let k = 0; k < 3; k++) {
+      const turn = (k - 1) * 0.9 + (random() - 0.5) * 0.5;
+      const child = direction.clone().applyAxisAngle(up, turn);
+      child.y += 0.25 + random() * 0.3;
+      grow(from.clone().lerp(to, 0.55 + 0.4 * random()), child.normalize(), length * (0.55 + 0.15 * random()), radius * 0.55, depth - 1);
+    }
+  };
+  const base = new T.Vector3(0, 0.46, 0);
+  limb(new T.Vector3(0, 0.3, 0), base, 0.055, 0.045);
+  for (let i = 0; i < 5; i++) {
+    const angle = (i / 5) * Math.PI * 2 + random() * 0.6;
+    const direction = new T.Vector3(Math.cos(angle) * 0.55, 0.8, Math.sin(angle) * 0.55).normalize();
+    grow(base, direction, 0.36 + random() * 0.08, 0.04, 2);
+  }
+  grow(base, up.clone(), 0.42, 0.04, 1);
+  branches = mergeGeometries(parts)!;
+  parts.forEach(part => part.dispose());
+  return branches;
 }
 
 /** Metres covered by one repeat of the scanned wall and roof photos (a precast panel, a few corrugations). */

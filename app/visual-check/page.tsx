@@ -12,6 +12,7 @@ import {raceOverlay} from '../raceOverlay';
 import {encodeRaceVideo, h264Config, videoTimeline} from '../videoExport';
 import entries from '../../docs/visual-baseline/forecasts.json';
 import forecasts from '../../docs/visual-baseline/pace_forecasts.json';
+import type {Weather} from '../raceWeather';
 
 type VerifyRequest = Parameters<VerifyFrame>[0] & {
   raceId: string;
@@ -21,6 +22,11 @@ type VerifyRequest = Parameters<VerifyFrame>[0] & {
   quality?: 'preview' | 'export';
   composite?: boolean;
   elevationScale?: 2 | 4 | 8;
+  /** Race-day weather (default fine, as the baselines were taken) and the going shown on the infield board. */
+  weather?: Weather;
+  going?: number;
+  /** Turf race days on the present rail (wear along the inside); default none. */
+  courseDay?: number;
 };
 
 type SceneInput = {
@@ -28,6 +34,9 @@ type SceneInput = {
   plan: ReturnType<typeof buildPlayback>;
   quality: 'preview' | 'export';
   elevationScale?: 2 | 4 | 8;
+  weather: Weather;
+  going: number | null;
+  courseDay: number | null;
   resolve: () => void;
 };
 
@@ -38,7 +47,7 @@ export default function VisualCheck() {
   const [input, setInput] = useState<SceneInput>();
   const verification = useRef<VerifyFrame | null>(null);
   const loaded = useRef<{raceId: string; mode: PlaybackMode; forecast: unknown; edits: string | undefined;
-    quality: string; elevationScale?: number} | null>(null);
+    quality: string; elevationScale?: number; weather: string; going?: number; courseDay?: number} | null>(null);
 
   useEffect(() => {
     input?.resolve();
@@ -76,10 +85,14 @@ export default function VisualCheck() {
         const prior = loaded.current;
         if (!prior || prior.raceId !== race.id || prior.mode !== mode ||
           prior.forecast !== request.forecast || prior.edits !== edits || prior.quality !== quality ||
-          prior.elevationScale !== request.elevationScale) {
+          prior.elevationScale !== request.elevationScale || prior.weather !== (request.weather ?? 'clear') ||
+          prior.going !== request.going || prior.courseDay !== request.courseDay) {
           const {elevationScale} = request;
-          await new Promise<void>(resolve => setInput({race, plan, quality, elevationScale, resolve}));
-          loaded.current = {raceId: race.id, mode, forecast: request.forecast, edits, quality, elevationScale};
+          const weather = request.weather ?? 'clear';
+          await new Promise<void>(resolve => setInput({race, plan, quality, elevationScale, weather,
+            going: request.going ?? null, courseDay: request.courseDay ?? null, resolve}));
+          loaded.current = {raceId: race.id, mode, forecast: request.forecast, edits, quality, elevationScale, weather,
+            going: request.going, courseDay: request.courseDay};
         }
         if (!verification.current) throw Error('WebGL renderer is unavailable');
         const overlay = raceOverlay(race, plan, request.progress, !!request.edits, pace?.model);
@@ -147,7 +160,8 @@ export default function VisualCheck() {
       <p>開発用の定点ショット。ブラウザーから captureRaceFrame を呼び出してください。</p>
       {input && <TrackScene race={input.race} plan={input.plan} progress={0} selected={null}
         followKey={0} onSelect={() => {}} quality={input.quality === 'export' ? EXPORT_QUALITY : PREVIEW_QUALITY}
-        verification={verification} elevationScale={input.elevationScale} />}
+        verification={verification} elevationScale={input.elevationScale} weather={input.weather} going={input.going}
+        courseDay={input.courseDay} />}
     </main>
   );
 }
