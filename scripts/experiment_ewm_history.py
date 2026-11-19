@@ -22,6 +22,10 @@ Adoption: (1) on the selection window both seeds move tau, integer MAE and the p
 the right way; (2) the report window moves the same way; (3) guards within tolerance on the report window: gaps
 +0.05 lengths, lanes +0.01 (MAE; also shown as the ratio to constant 0), last3 +0.01 s, at every corner.
 
+Procedure (--procedure): 'reviewed' (default since the Codex review of E0, 2026-11-19: straight courses not formed, pace
+OOF by race day with forward norms; contention parameters from audit_e0 pipeline 'reviewed', seed 42; outputs in
+outputs/e1-ewm-reviewed/) or 'e0' (E0 as committed, a6c38ce, reproduces the first E1 record in outputs/e1-ewm/).
+
 Run:  python scripts/experiment_ewm_history.py select --seed 42      (and --seed 7)
       python scripts/experiment_ewm_history.py report --seed 42 [--retune]   (and --seed 7)
       python scripts/experiment_ewm_history.py summary
@@ -45,6 +49,8 @@ OUT = ROOT / 'outputs' / 'e1-ewm'
 FRAME = ROOT / 'outputs' / 'data-expansion-v18' / 'frame_2022.pkl'
 PIN = ROOT / 'outputs' / 'data-expansion' / 'frame_before_20261118_0126.pkl'
 E0_PARAMS = ROOT / 'outputs' / 'e0-audit' / 'pipeline_fixAB_seed42.json'
+PROCEDURES = {'reviewed': (('course', 'forward'), 'pipeline_reviewed_seed42.json', 'e1-ewm-reviewed'),
+              'e0': (('course_e0', 'forward_ids'), 'pipeline_fixAB_seed42.json', 'e1-ewm')}
 ALPHAS = (None, 0.2, 0.3, 0.5)
 BLENDS = (0.0, 0.25, 0.5, 0.75, 1.0)
 SEL, REP = ('20250601', '20250601', '20250831'), ('20250901', '20250901', '20251231')
@@ -72,23 +78,25 @@ def collect(tab, system, models, races, P, d, fit_end):
     for x, corners, numbers, pred, spreads, early in races:
         race, n = x.RACE_CODE.iloc[0], len(numbers)
         con = pm.simulate(numbers, early, pred, spreads, corners, P)
+        keys = list(numbers)  # rows paired by horse number (E0 review finding 9)
         for c in corners:
             if not pm.labelled(x, c):
                 continue
             y = x[f'r{c}'].to_numpy()
             formed = (np.array(con[c]['rank']) - 1) / (n - 1)
-            tab.add(f'r{c}.integer', system, race, np.abs(formed - y))
+            tab.add(f'r{c}.integer', system, race, np.abs(formed - y), keys)
+            tab.add(f'r{c}.places', system, race, np.abs(formed - y) * (n - 1), keys)
             tab.add_value(f'r{c}.tau', system, race, es.kendall(formed, y))
-            tab.add(f'r{c}.model', system, race, np.abs(np.asarray(pred[f'model_r{c}'], float) - y))
-            tab.add(f'r{c}.blend', system, race, np.abs(np.asarray(pred[f'r{c}'], float) - y))
-            tab.add(f'g{c}', system, race, np.abs(np.asarray(con[c]['gap'], float) - x[f'g{c}'].to_numpy()))
+            tab.add(f'r{c}.model', system, race, np.abs(np.asarray(pred[f'model_r{c}'], float) - y), keys)
+            tab.add(f'r{c}.blend', system, race, np.abs(np.asarray(pred[f'r{c}'], float) - y), keys)
+            tab.add(f'g{c}', system, race, np.abs(np.asarray(con[c]['gap'], float) - x[f'g{c}'].to_numpy()), keys)
             lab = x[f'l{c}'].to_numpy()
-            tab.add(f'l{c}', system, race, np.abs(np.asarray(con[c].get('localLane', con[c]['lane']), float) - lab))
-            tab.add(f'l{c}.zero', system, race, np.abs(lab))
+            tab.add(f'l{c}', system, race, np.abs(np.asarray(con[c].get('localLane', con[c]['lane']), float) - lab), keys)
+            tab.add(f'l{c}.zero', system, race, np.abs(lab), keys)
         ok = x.last3.notna().to_numpy()
         if ok.any():
             t3 = pm.closing(models, x, con, corners, pred['pace'])[0]
-            tab.add('last3', system, race, np.abs(t3[ok] - x.last3.to_numpy()[ok]))
+            tab.add('last3', system, race, np.abs(t3[ok] - x.last3.to_numpy()[ok]), list(np.asarray(numbers)[ok]))
 
 
 def summarize(tab, system):
@@ -97,6 +105,7 @@ def summarize(tab, system):
         if (f'r{c}.tau', system) not in tab.rows:
             continue
         out[f'c{c}'] = {'tau': tab.mean(f'r{c}.tau', system), 'integer': tab.mean(f'r{c}.integer', system),
+                        'places': tab.mean(f'r{c}.places', system),
                         'model': tab.mean(f'r{c}.model', system), 'blend': tab.mean(f'r{c}.blend', system),
                         'gap': tab.mean(f'g{c}', system), 'lane': tab.mean(f'l{c}', system),
                         'laneRatioToZero': tab.mean(f'l{c}', system) / tab.mean(f'l{c}.zero', system),
@@ -164,7 +173,7 @@ def cmd_report(args):
     pm.RANK_BLEND = 0.5
     diffs = {}
     for c in pm.CORNERS:
-        for m in ('tau', 'integer', 'model', 'blend') if (f'r{c}.tau', 'baseline') in tab.rows else ():
+        for m in ('tau', 'integer', 'places', 'model', 'blend') if (f'r{c}.tau', 'baseline') in tab.rows else ():
             diffs[f'r{c}.{m}'] = tab.diff(f'r{c}.{m}', 'candidate', 'baseline')
         for m in (f'g{c}', f'l{c}'):
             if (m, 'baseline') in tab.rows:
@@ -201,9 +210,12 @@ def main():
     ap.add_argument('--alpha')
     ap.add_argument('--blend')
     ap.add_argument('--retune', action='store_true')
+    ap.add_argument('--procedure', choices=list(PROCEDURES), default='reviewed')
     args = ap.parse_args()
+    global OUT, E0_PARAMS
+    (pm.EVAL_CORNERS, pm.PACE_OOF), params, out = PROCEDURES[args.procedure]
+    E0_PARAMS, OUT = ROOT / 'outputs' / 'e0-audit' / params, ROOT / 'outputs' / out
     ex.PINNED = set(ex.validation_codes(pd.read_pickle(PIN)))
-    pm.EVAL_CORNERS, pm.PACE_OOF = 'course', 'forward'
     {'select': cmd_select, 'report': cmd_report, 'summary': cmd_summary}[args.cmd](args)
 
 

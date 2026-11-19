@@ -40,7 +40,8 @@ import eval_standard as es  # noqa: E402
 
 sys.stdout.reconfigure(encoding='utf-8')
 ROOT = pm.ROOT
-OUT = ROOT / 'outputs' / 'e3-isotonic'
+OUT = ROOT / 'outputs' / 'e3-isotonic-reviewed'
+PROCEDURES = {'reviewed': (('course', 'forward'), 'e3-isotonic-reviewed'), 'e0': (('course_e0', 'forward_ids'), 'e3-isotonic')}
 FRAME = ROOT / 'outputs' / 'data-expansion-v18' / 'frame_2022.pkl'
 PIN = ROOT / 'outputs' / 'data-expansion' / 'frame_before_20261118_0126.pkl'
 LAMBDAS = (0.0, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0, np.inf)
@@ -164,7 +165,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('cmd', choices=['select', 'report', 'summary'])
     ap.add_argument('--seed', type=int, default=42)
+    ap.add_argument('--procedure', choices=list(PROCEDURES), default='reviewed')
     args = ap.parse_args()
+    global OUT
+    (pm.EVAL_CORNERS, pm.PACE_OOF), out = PROCEDURES[args.procedure]
+    OUT = ROOT / 'outputs' / out
     ex.PINNED = set(ex.validation_codes(pd.read_pickle(PIN)))
     {'select': cmd_select, 'report': cmd_report, 'summary': cmd_summary}[args.cmd](args)
 

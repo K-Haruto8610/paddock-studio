@@ -40,6 +40,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pace_model as pm  # noqa: E402
+pm.legacy_procedure('experiment_sequence_features.py')  # pre-E0: reproduces its record on the v1.8 procedure (E0 review finding 2)
 import experiment_rel_features as rel  # noqa: E402
 
 BASE = list(pm.FEATURES)

@@ -91,7 +91,8 @@ export const paceForecastSchema = z.object({
         .optional(),
       // Optional: validation of the race-pace model.
       pace: z
-        .object({corr: z.number(), labelHit: z.number(), mae: z.number().optional(), constantMae: z.number().optional()})
+        .object({corr: z.number(), labelHit: z.number(), mae: z.number().optional(), constantMae: z.number().optional(),
+                 labelShare: z.record(z.string(), z.number()).optional()})
         .passthrough()
         .optional(),
     })

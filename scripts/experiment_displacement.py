@@ -41,6 +41,7 @@ from lightgbm import LGBMRegressor
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pace_model as pm  # noqa: E402
+pm.legacy_procedure('experiment_displacement.py')  # pre-E0: reproduces its record on the v1.8 procedure (E0 review finding 2)
 from experiment_rel_features import GROUPS, P15, add_candidates, mae, refit  # noqa: E402
 
 CROWD = [f for g in GROUPS.values() for f in g]

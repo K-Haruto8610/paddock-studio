@@ -94,42 +94,60 @@ class RaceTable:
     be bootstrapped with the races paired."""
 
     def __init__(self):
-        self.rows = {}  # (metric, system) -> {race: (sum, count)}
+        self.rows = {}  # (metric, system) -> {race: {row key: value}} (NaN kept, so systems stay aligned row by row)
 
-    def add(self, metric, system, race, values):
-        """Per-horse errors of one race (added to what the race already has, e.g. several corners)."""
+    def add(self, metric, system, race, values, keys=None):
+        """Per-horse errors of one race, added to what the race already has (e.g. several corners). `keys` name the rows
+        (e.g. (corner, horse number)) so that diff() compares two systems on the same horses only; without keys the rows
+        are numbered in the order they are added (the same order for every system). NaN errors are kept as missing."""
         v = np.asarray(values, float).ravel()
-        v = v[~np.isnan(v)]
-        if len(v):
-            r = self.rows.setdefault((metric, system), {})
-            s, n = r.get(race, (0.0, 0))
-            r[race] = (s + float(v.sum()), n + len(v))
+        r = self.rows.setdefault((metric, system), {}).setdefault(race, {})
+        if keys is None:
+            keys = [('#', len(r) + i) for i in range(len(v))]
+        for k, e in zip(keys, v):
+            r[k] = float(e)
 
     def add_value(self, metric, system, race, value):
         if value is not None and not np.isnan(value):
-            self.rows.setdefault((metric, system), {})[race] = (float(value), 1)
+            self.rows.setdefault((metric, system), {})[race] = {'value': float(value)}
+
+    def _sums(self, metric, system, races=None, pair=None):
+        """Per-race (sum, count) over the non-missing rows; with `pair` (the other system's rows) only the rows both have."""
+        r = self.rows.get((metric, system), {})
+        out = {}
+        for race in (r if races is None else races):
+            rows = r.get(race, {})
+            keys = [k for k, e in rows.items() if not np.isnan(e)]
+            if pair is not None:
+                other = pair.get(race, {})
+                keys = [k for k in keys if k in other and not np.isnan(other[k])]
+            if keys:
+                out[race] = (sum(rows[k] for k in keys), len(keys))
+        return out
 
     def mean(self, metric, system):
-        r = self.rows.get((metric, system), {})
-        s, n = (np.array([v[i] for v in r.values()]) for i in (0, 1))
-        return float(s.sum() / n.sum()) if len(r) else np.nan
+        s = self._sums(metric, system)
+        return float(sum(v[0] for v in s.values()) / sum(v[1] for v in s.values())) if s else np.nan
 
     def count(self, metric, system):
-        return int(sum(v[1] for v in self.rows.get((metric, system), {}).values()))
+        return int(sum(v[1] for v in self._sums(metric, system).values()))
 
     def races(self, metric, system):
-        return len(self.rows.get((metric, system), {}))
+        return len(self._sums(metric, system))
 
     def diff(self, metric, a, b, reps=2000, seed=812):
-        """Mean of a minus mean of b over the races both have, with a 95% paired bootstrap interval."""
+        """Mean of a minus mean of b over the rows both systems have (same race, same row key, both non-missing), with a
+        95% paired bootstrap interval (races resampled). 'rows' = the paired rows."""
         ra, rb = self.rows.get((metric, a), {}), self.rows.get((metric, b), {})
-        races = sorted(set(ra) & set(rb))
+        common = sorted(set(ra) & set(rb))
+        pa, pb = self._sums(metric, a, common, rb), self._sums(metric, b, common, ra)
+        races = sorted(set(pa) & set(pb))
         if not races:
-            return {'diff': np.nan, 'lo': np.nan, 'hi': np.nan, 'races': 0}
-        sa, na = np.array([ra[r][0] for r in races]), np.array([ra[r][1] for r in races], float)
-        sb, nb = np.array([rb[r][0] for r in races]), np.array([rb[r][1] for r in races], float)
+            return {'diff': np.nan, 'lo': np.nan, 'hi': np.nan, 'races': 0, 'rows': 0}
+        sa, na = np.array([pa[r][0] for r in races]), np.array([pa[r][1] for r in races], float)
+        sb, nb = np.array([pb[r][0] for r in races]), np.array([pb[r][1] for r in races], float)
         point = sa.sum() / na.sum() - sb.sum() / nb.sum()
         idx = np.random.default_rng(seed).integers(len(races), size=(reps, len(races)))
         boot = sa[idx].sum(1) / na[idx].sum(1) - sb[idx].sum(1) / nb[idx].sum(1)
         lo, hi = np.quantile(boot, [.025, .975])
-        return {'diff': float(point), 'lo': float(lo), 'hi': float(hi), 'races': len(races)}
+        return {'diff': float(point), 'lo': float(lo), 'hi': float(hi), 'races': len(races), 'rows': int(na.sum())}

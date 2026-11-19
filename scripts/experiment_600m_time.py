@@ -45,8 +45,10 @@ import eval_standard as es  # noqa: E402
 
 sys.stdout.reconfigure(encoding='utf-8')
 ROOT = pm.ROOT
-OUT = ROOT / 'outputs' / 'e2-600m'
-FRAME = OUT / 'frame.pkl'
+DATA = ROOT / 'outputs' / 'e2-600m'  # frame, data and widths (no model, procedure-free)
+FRAME = DATA / 'frame.pkl'
+OUT = DATA  # model results (features / finish): e2-600m-reviewed with the reviewed procedure
+PROCEDURES = {'reviewed': (('course', 'forward'), 'e2-600m-reviewed'), 'e0': (('course_e0', 'forward_ids'), 'e2-600m')}
 V18 = ROOT / 'outputs' / 'data-expansion-v18' / 'frame_2022.pkl'
 PIN = ROOT / 'outputs' / 'data-expansion' / 'frame_before_20261118_0126.pkl'
 SEL, REP = ('20250601', '20250601', '20250831'), ('20250901', '20250901', '20251231')
@@ -245,7 +247,7 @@ def cmd_features(args):
     passed) the rebuilt corner-3/4 labels. Gaps scored against the old labels, the rebuilt labels and gap600."""
     ex.set_seed(args.seed)
     d0 = load()
-    rebuild = json.loads((OUT / 'widths.json').read_text(encoding='utf-8'))['rebuild']
+    rebuild = json.loads((DATA / 'widths.json').read_text(encoding='utf-8'))['rebuild']
     P = json.loads((ROOT / 'models' / 'pace' / 'report.json').read_text(encoding='utf-8'))['contention']
     res = {'seed': args.seed, 'rebuild': rebuild, 'historyAlpha': pm.HISTORY_ALPHA}
     base = list(pm.FEATURES)
@@ -316,9 +318,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('cmd', choices=['frame', 'data', 'widths', 'features', 'finish'])
     ap.add_argument('--seed', type=int, default=42)
+    ap.add_argument('--procedure', choices=list(PROCEDURES), default='reviewed')
     args = ap.parse_args()
+    global OUT
+    (pm.EVAL_CORNERS, pm.PACE_OOF), out = PROCEDURES[args.procedure]
+    if args.cmd in ('features', 'finish'):
+        OUT = ROOT / 'outputs' / out
+        OUT.mkdir(parents=True, exist_ok=True)
     ex.PINNED = set(ex.validation_codes(pd.read_pickle(PIN)))
-    pm.EVAL_CORNERS, pm.PACE_OOF = 'course', 'forward'
     {'frame': cmd_frame, 'data': cmd_data, 'widths': cmd_widths, 'features': cmd_features, 'finish': cmd_finish}[args.cmd](args)
 
 

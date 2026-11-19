@@ -49,6 +49,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import experiment_data_expansion as ex  # noqa: E402  (pins the validation window to v1.6's races)
 import diagnose_margins as dm  # noqa: E402
 import pace_model as pm  # noqa: E402
+pm.legacy_procedure('experiment_spread_after_expansion.py')  # pre-E0: reproduces its record on the v1.8 procedure (E0 review finding 2)
 
 sys.stdout.reconfigure(encoding='utf-8')
 WINDOWS = {'tuning': ('20250601', '20250601', '20250831'), 'validation': ('20250901', '20250901', '20251231')}

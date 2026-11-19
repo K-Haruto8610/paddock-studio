@@ -15,7 +15,9 @@ Frame: the v1.8 training frame (outputs/data-expansion-v18/frame_2022.pkl); repo
             5 objective  contention objective with and without l1 over the whole grid: same choice?
             6 corners    published 2026 races: corner set from all data (race_output) vs from races before the race day
   pipeline  the full published procedure (tune_contention -> tune_moves -> calibrate_intervals -> validate) for one
-            variant x seed: legacy (must reproduce v1.8), fixA (course corner sets), fixB (forward pace OOF), fixAB.
+            variant x seed: legacy (must reproduce v1.8), fixA (course corner sets), fixB (forward pace OOF), fixAB = E0
+            as committed (a6c38ce); reviewed = after the Codex review of 2026-11-19 (straight courses not formed, pace
+            OOF by race day with forward norms, every chunk race predicted). --nopin: the whole report window.
   summary   combine the files into outputs/e0-audit/result.json and print the tables used in the README.
 
 Run:  python scripts/audit_e0.py measure
@@ -41,13 +43,18 @@ OUT = ROOT / 'outputs' / 'e0-audit'
 FRAME = ROOT / 'outputs' / 'data-expansion-v18' / 'frame_2022.pkl'
 PIN = ROOT / 'outputs' / 'data-expansion' / 'frame_before_20261118_0126.pkl'
 WINDOWS = {'selection': ('20250601', '20250601', '20250831'), 'report': ('20250901', '20250901', '20251231')}
-VARIANTS = {'legacy': ('labels', 'kfold'), 'fixA': ('course', 'kfold'), 'fixB': ('labels', 'forward'), 'fixAB': ('course', 'forward')}
+VARIANTS = {'legacy': ('labels', 'kfold'), 'fixA': ('course_e0', 'kfold'), 'fixB': ('labels', 'forward_ids'),
+            'fixAB': ('course_e0', 'forward_ids'), 'reviewed': ('course', 'forward'),
+            'reviewedCorners': ('course', 'forward_ids'), 'reviewedOof': ('course_e0', 'forward')}
 V18 = json.loads((ROOT / 'models' / 'pace' / 'report.json').read_text(encoding='utf-8'))
 
 
 def load(frame, pin):
+    # The audit is of v1.8: its model settings (5-run means as stored in the v1.8 frame, rank blend 0.5), whatever the
+    # current pace_model defaults are (v1.9 changed RANK_BLEND to 0.75).
+    pm.HISTORY_ALPHA, pm.RANK_BLEND = None, 0.5
     d = pd.read_pickle(frame)
-    ex.PINNED = set(ex.validation_codes(pd.read_pickle(pin)))
+    ex.PINNED = set(ex.validation_codes(pd.read_pickle(pin))) if pin else None
     return d
 
 
@@ -55,14 +62,7 @@ def set_variant(name):
     pm.EVAL_CORNERS, pm.PACE_OOF = VARIANTS[name]
 
 
-def traffic_of(form_c):
-    """out / close of any formation with the contention layer's rule: a row = horses with the same gap; out = horses
-    outside in the row; close = a horse under one length ahead within one lane."""
-    gap, lane = np.asarray(form_c['gap'], float), np.asarray(form_c['lane'], float)
-    n = len(gap)
-    out = [float(sum(lane[j] > lane[i] for j in range(n) if gap[j] == gap[i])) for i in range(n)]
-    close = [float(any(0 < gap[i] - gap[j] < 1.0 and abs(lane[j] - lane[i]) < 1.0 for j in range(n))) for i in range(n)]
-    return out, close
+traffic_of = pm.formation_traffic  # moved to pace_model (standard_metrics uses it for the independent formation)
 
 
 def closing_variant(models, x, form, corners, pace, traffic=True, energy=True):
@@ -92,7 +92,7 @@ def measure_window(d, name, P):
             z['round'].extend(np.rint(np.clip(pred[f'l{c}'], 0, 4)))
     out['lanesRoundedIndependent'] = {f'l{c}': es.lane_summary(z['round'], z['label']) for c, z in sorted(lanes.items())}
     # 2 last3 ablation with the same closing model
-    tab = es.RaceTable()
+    tab, shift_rows, traffic_rows = es.RaceTable(), [], {}
     for x, corners, numbers, pred, spreads, early in races:
         ok = x.last3.notna().to_numpy()
         if not ok.any():
@@ -111,9 +111,16 @@ def measure_window(d, name, P):
             'E_contention_energy_traffic': closing_variant(models, x, con, corners, pred['pace']),
             'F_independent_energy_derivedTraffic': closing_variant(models, x, ind_t, corners, pred['pace']),
         }
+        keys = list(np.asarray(numbers)[ok])
         for k, v in variants.items():
-            tab.add('last3', k, race, np.abs(np.asarray(v)[ok] - l3))
-            tab.add('last3.bias', k, race, np.asarray(v)[ok] - l3)  # signed: the energy / traffic inputs only slow a horse
+            tab.add('last3', k, race, np.abs(np.asarray(v)[ok] - l3), keys)
+            tab.add('last3.bias', k, race, np.asarray(v)[ok] - l3, keys)  # signed: the energy / traffic inputs only slow a horse
+        shift_rows.append((race, keys, np.asarray(variants['B_closing_noEnergy_noTraffic'])[ok],
+                           np.asarray(variants['C_independent_energy_noTraffic'])[ok], l3))
+        z = traffic_rows.setdefault('n', [0, 0, 0])
+        z[0] += int(np.sum(np.asarray(ind_t[last]['close'])[ok] > 0))
+        z[1] += int(np.sum(np.asarray(ind_t[last]['out'])[ok] > 0))
+        z[2] += int(ok.sum())
     keys = sorted({k for (m, k) in tab.rows if m == 'last3'})
     out['last3Ablation'] = {'mae': {k: tab.mean('last3', k) for k in keys}, 'bias': {k: tab.mean('last3.bias', k) for k in keys},
                             'rows': tab.count('last3', keys[0]),
@@ -124,7 +131,26 @@ def measure_window(d, name, P):
                                 'traffic input on contention (D->E)': ('D_contention_energy_noTraffic', 'E_contention_energy_traffic'),
                                 'traffic input on independent (C->F)': ('C_independent_energy_noTraffic', 'F_independent_energy_derivedTraffic'),
                                 'total (A->E)': ('A_featuresOnlyModel', 'E_contention_energy_traffic')}.items()}}
+    # Review finding 6: how much of B->C is a level shift? B plus the mean of C - B for every horse, scored like C.
+    shift = float(np.mean(np.concatenate([c - b for _, _, b, c, _ in shift_rows])))
+    for race, keys, b, c, l3 in shift_rows:
+        tab.add('last3', 'B_plus_meanShift', race, np.abs(b + shift - l3), keys)
+    out['last3Ablation']['levelShift'] = {
+        'meanCminusB': shift, 'maeB': tab.mean('last3', 'B_closing_noEnergy_noTraffic'), 'maeBshifted': tab.mean('last3', 'B_plus_meanShift'),
+        'maeC': tab.mean('last3', 'C_independent_energy_noTraffic'),
+        'shareOfBtoC': (tab.mean('last3', 'B_closing_noEnergy_noTraffic') - tab.mean('last3', 'B_plus_meanShift'))
+                       / (tab.mean('last3', 'B_closing_noEnergy_noTraffic') - tab.mean('last3', 'C_independent_energy_noTraffic'))}
+    # Review finding 5: the independent formation does leave traffic at the last corner (scored horses).
+    n = traffic_rows.get('n', [0, 0, 0])
+    out['last3Ablation']['independentTraffic'] = {'close': n[0], 'out': n[1], 'horses': n[2],
+                                                  'treeSplitsOnTrafficClose': tree_splits(models['last3_traffic'], 'traffic_close')}
     return out, models, races
+
+
+def tree_splits(model, feature):
+    """How many splits of the fitted closing model use `feature` (0 = the input cannot change a prediction)."""
+    names = model.booster_.feature_name()
+    return int(model.booster_.feature_importance('split')[names.index(feature)])
 
 
 def objective_check(models, races):
@@ -180,7 +206,7 @@ def cmd_pipeline(args):
     res = ex.pipeline(d, seed=args.seed)
     res.update({'variant': args.variant, 'seed': args.seed, 'evalCorners': pm.EVAL_CORNERS, 'paceOof': pm.PACE_OOF})
     OUT.mkdir(parents=True, exist_ok=True)
-    path = OUT / f'pipeline_{args.variant}_seed{args.seed}.json'
+    path = OUT / f'pipeline_{args.variant}_seed{args.seed}{"_nopin" if args.pin is None else ""}.json'
     path.write_text(json.dumps(res, ensure_ascii=False, indent=1, default=float), encoding='utf-8')
     print('wrote', path)
 
@@ -215,9 +241,12 @@ def main():
     ap.add_argument('cmd', choices=['measure', 'pipeline', 'summary'])
     ap.add_argument('--frame', default=str(FRAME))
     ap.add_argument('--pin', default=str(PIN))
+    ap.add_argument('--nopin', action='store_true', help='score the whole report window (not only v1.6\'s 273 races)')
     ap.add_argument('--variant', default='legacy', choices=list(VARIANTS))
     ap.add_argument('--seed', type=int, default=42)
     args = ap.parse_args()
+    if args.nopin:
+        args.pin = None
     {'measure': cmd_measure, 'pipeline': cmd_pipeline, 'summary': cmd_summary}[args.cmd](args)
 
 

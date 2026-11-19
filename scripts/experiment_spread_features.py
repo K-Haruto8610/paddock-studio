@@ -44,6 +44,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pace_model as pm  # noqa: E402
+pm.legacy_procedure('experiment_spread_features.py')  # pre-E0: reproduces its record on the v1.8 procedure (E0 review finding 2)
 
 P15 = json.loads((pm.ROOT / 'models' / 'pace' / 'report.json').read_text(encoding='utf-8'))['contention']
 BASE = list(pm.SPREAD_FEATURES)

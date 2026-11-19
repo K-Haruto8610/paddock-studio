@@ -36,15 +36,35 @@ LENGTHS_PER_SECOND = 5.0  # JRA rule of thumb: 1 length is about 0.2 s
 # -0.07 lengths but finish-order correlation -0.002 to -0.010 (scripts/experiment_spread_after_expansion.py).
 CORNERS = (1, 2, 3, 4)
 TARGETS = [f'{kind}{c}' for c in CORNERS for kind in ('r', 'g', 'l')] + ['last3']
-# Evaluation / validation procedure (E0 audit, 2026-11-18; README「評価の監査（E0）」). The defaults are the audited
-# procedure. The legacy values reproduce the v1.8 report and the earlier experiment records exactly.
+# Evaluation / validation procedure (E0 audit 2026-11-18, corrected after the Codex review 2026-11-19; README
+# 「評価の監査（E0）」). The defaults are the reviewed procedure. The older values reproduce earlier records exactly:
+# ('labels', 'kfold') = v1.8 and the experiments before E0; ('course_e0', 'forward_ids') = E0 as committed (a6c38ce)
+# and the E1-E3 records made with it.
 EVAL_CORNERS = 'course'  # corners a validation race is formed on: 'course' = the course's usual corner set from races
-#                          before the window (what race_output does before a race); 'labels' (legacy) = the corners whose
-#                          labels happen to be complete in the race itself. Scoring always needs complete labels.
-PACE_OOF = 'forward'     # pace input of the spread models' training rows: 'forward' = predicted by a pace model fitted
-#                          on earlier races only; 'kfold' (legacy) = fitted on the other three date chunks, later races too
-PACE_OOF_CHUNKS = 8      # date chunks of the forward scheme; the first chunk has no earlier races and stays out of the
-#                          spread models' training rows
+#                          before the window (what race_output does before a race); straight courses (no corner) are
+#                          not formed and not scored. 'course_e0' = the same, but straight courses formed on a made-up
+#                          (3, 4), which fed their closing 3F. 'labels' (legacy) = the corners whose labels happen to be
+#                          complete in the race itself. Scoring always needs complete labels.
+PACE_OOF = 'forward'     # pace input of the spread models' training rows (and the sigma of the pace probabilities):
+#                          'forward' = race DAYS split into PACE_OOF_CHUNKS consecutive chunks; each chunk predicted by a
+#                          pace model fitted on the earlier chunks, with the course norms, pace labels and past paces
+#                          rebuilt from the races before the chunk; every race of the chunk gets a prediction (also those
+#                          without an actual pace), and every race of the first chunk stays out of the spread training.
+#                          'forward_ids' (E0 as committed) = race IDs split into chunks (a day could straddle two), norms
+#                          from all races before PACE_NORM_END, races without an actual pace left without a prediction.
+#                          'kfold' (legacy) = fitted on the other three chunks, later races too.
+PACE_OOF_CHUNKS = 8
+STRAIGHT_TRACKS = (10, 29)  # JV-Data TRACK_CODE 芝・直線 / ダート・直線: no corner, so no formation (新潟芝1000m)
+
+
+def legacy_procedure(script):
+    """Experiment scripts written before E0 were judged with the v1.8 procedure (label corner sets, k-fold pace OOF,
+    5-run means, blend 0.5, blended continuous MAE). They are kept to reproduce their records, not to judge anything new
+    (E0 review finding 2: on the current procedure their NaN-unaware means break). New experiments: experiment_ewm_history.py."""
+    global EVAL_CORNERS, PACE_OOF, HISTORY_ALPHA, RANK_BLEND
+    EVAL_CORNERS, PACE_OOF, HISTORY_ALPHA, RANK_BLEND = 'labels', 'kfold', None, 0.5
+    print(f'{script}: pre-E0 experiment, run on the legacy v1.8 procedure (labels / kfold / 5-run means / blend 0.5); '
+          'its numbers are not E0-standard measures', flush=True)
 
 
 def parse_passing(text):
@@ -417,10 +437,10 @@ def add_history_features(d):
 PACE_NORM_END = '20250601'  # course norms from the earliest training window only: no later period leaks in
 
 
-def course_norm(d):
+def course_norm(d, before=PACE_NORM_END):
     """Usual early 3F of the course (venue/track/distance, else surface/distance), from races before
-    PACE_NORM_END. pace = early 3F minus this: negative = the leaders went faster than usual."""
-    tr = d[d.date < PACE_NORM_END].drop_duplicates('RACE_CODE')
+    `before` (PACE_NORM_END). pace = early 3F minus this: negative = the leaders went faster than usual."""
+    tr = d[d.date < before].drop_duplicates('RACE_CODE')
     exact = tr.groupby(['venue', 'track', 'distance']).early3.median().to_dict()
     loose = tr.groupby(['surface', 'distance']).early3.median().to_dict()
     return pd.Series([exact.get((v, t, ds), loose.get((s, ds), np.nan))
@@ -433,7 +453,9 @@ PACE_FEATURES = ['distance', 'surface', 'venue', 'track', 'field', 'going', 'fro
                  'front3_wish', 'front_pace_hist']
 SPREAD_FEATURES = ['distance', 'surface', 'venue', 'track', 'field', 'front_pressure', 'outer_pressure', 'mean_past_g', 'mean_early',
                    'going', 'n_front', 'n_leaders', 'front3_wish', 'front_pace_hist', 'pace_pred']
-# Pace labels (seconds vs the course's usual early 3F); 'H' fast, 'S' slow. Bands are the training terciles.
+# Pace labels (seconds vs the course's usual early 3F); 'H' fast, 'S' slow. FIXED bands, set when the pace model was
+# introduced; they are not recomputed (the terciles of the current training races are about -0.30 / +0.30 s, E0 review).
+# The screen's GI label uses other bands (gi_bands: terciles of the predicted pace of the past GI races).
 PACE_BANDS = (-0.35, 0.2)
 
 
@@ -518,6 +540,9 @@ KNOWN_ISSUES = [
     '（6〜8月で選定、scripts/experiment_ewm_history.py）。検証は E0 の手順（コースの角の組、前方のみのペース交差予測）。'
     '同じ273レース・再チューニングありで、公開隊列の τ は1〜4角 +0.015/+0.018/+0.023/+0.011（シード7 +0.010/+0.006/+0.011/+0.006）、'
     '整数順位MAE −0.007/−0.007/−0.007/−0.003、上がり −0.009秒、馬身差・内外は許容内。',
+    'E0 の Codex レビュー後（2026-11-19）に検証手順を直した：ペースの前方交差予測を開催日単位にし、コースの基準・ペースの正解・過去のペースも'
+    '各ブロックより前のレースだけで作り直す。直線コース（新潟芝1000m）は隊列を作らず検証から外す。対比較は同じ馬どうし。'
+    'この手順で E1 をやり直しても選ばれる設定と順位の結果は同じで、v1.9 の採用は変わらない（馬身差の検証値は 0.01〜0.04 馬身動く）。',
 ]
 
 
@@ -558,7 +583,11 @@ def fit_models(d, end):
     train = d[fit].copy()
     races = race_level(train, 'RACE_CODE', 1).dropna(subset=['pace']).sort_values('date')
     models['pace'] = pace_lgbm().fit(races[PACE_FEATURES], races['pace'])
-    oof, skip = pace_oof(races)
+    if PACE_OOF == 'forward':
+        fwd = forward_pace(d, end)
+        oof, skip = fwd['pred'], fwd['skip']
+    else:
+        oof, skip = pace_oof(races)
     train['pace_pred'] = train.RACE_CODE.map(oof)
     for c in CORNERS:
         races = race_level(train, 'RACE_CODE', c).dropna(subset=['spread'])
@@ -596,9 +625,51 @@ def pace_oof(races):
     return oof, pd.Index(parts[0])
 
 
+_FORWARD = {}
+
+
+def forward_pace(d, end):
+    """PACE_OOF 'forward' (E0 review fix, 2026-11-19): out-of-sample pace predictions for the training races before `end`
+    as a spread model would have got them before each race. The race days of the complete training races are split into
+    PACE_OOF_CHUNKS consecutive chunks (a day never straddles two). For chunk k >= 1 everything pace-derived is rebuilt
+    from the races before the chunk: the course norms (races before min(chunk start, PACE_NORM_END)), the pace labels,
+    the horses' past paces and front_pace_hist; the pace model is fitted on the earlier chunks' races with an actual pace
+    and predicts every race of the chunk. Returns {'pred', 'actual'} (Series by RACE_CODE; actual = the pace on the same
+    chunk norms, NaN when unknown) and 'skip' = every race of the first chunk. Cached per (frame, end, seed)."""
+    key = (len(d), end, PACE_OOF_CHUNKS, pace_lgbm)
+    if _FORWARD.get('frame') is d and _FORWARD.get('key') == key:
+        return _FORWARD['value']
+    hist = d[d.date < end]
+    days = np.sort(hist.loc[hist.complete, 'date'].unique())
+    parts = np.array_split(days, PACE_OOF_CHUNKS)
+    pred, actual, h = {}, {}, 'KETTO_TOROKU_BANGO'
+    for k in range(1, len(parts)):
+        start = parts[k][0]
+        x = hist[hist.date <= parts[k][-1]].copy()
+        x['pace'] = x.early3 - course_norm(x, min(start, PACE_NORM_END))
+        prev = x.groupby(h).pace.shift()
+        x['past_pace'] = prev.groupby(x[h]).rolling(5, min_periods=1).mean().reset_index(level=0, drop=True)
+        x['front_pace_hist'] = x.groupby('RACE_CODE').past_pace.transform('mean')
+        races = race_level(x[x.complete], 'RACE_CODE', 1)
+        tr, te = races[races.date < start].dropna(subset=['pace']), races[races.date >= start]
+        pred.update(zip(te.index, pace_lgbm().fit(tr[PACE_FEATURES], tr['pace']).predict(te[PACE_FEATURES])))
+        actual.update(zip(te.index, te['pace']))
+    skip = pd.Index(hist.loc[hist.complete & hist.date.isin(parts[0]), 'RACE_CODE'].unique())
+    value = {'pred': pd.Series(pred, dtype=float), 'actual': pd.Series(actual, dtype=float), 'skip': skip,
+             'chunkStarts': [str(p[0]) for p in parts]}
+    _FORWARD.update(frame=d, key=key, value=value)
+    return value
+
+
 def pace_sigma(d, end):
     """Spread of the forward out-of-sample pace errors on the training races before `end` (seconds): the scale of the
-    normal predictive distribution used for the H/M/S probabilities (RPS). Uses the forward scheme whatever PACE_OOF is."""
+    normal predictive distribution used for the H/M/S probabilities (RPS), and the training races' actual paces.
+    PACE_OOF 'forward': the errors of forward_pace; otherwise the E0-as-committed race-ID chunks."""
+    if PACE_OOF == 'forward':
+        fwd = forward_pace(d, end)
+        ok = fwd['actual'].notna()
+        train = race_level(d[(d.date < end) & d.complete], 'RACE_CODE', 1).dropna(subset=['pace'])
+        return float(np.std(fwd['pred'][ok] - fwd['actual'][ok])), train['pace'].to_numpy()
     races = race_level(d[(d.date < end) & d.complete], 'RACE_CODE', 1).dropna(subset=['pace']).sort_values('date')
     parts = np.array_split(races.index.to_numpy(), PACE_OOF_CHUNKS)
     err = []
@@ -921,12 +992,13 @@ def labelled(x, c):
 def evaluation_races(models, d, start, end, codes=None):
     """Cached per-race predictions for a period (only the race codes in `codes` when given).
     EVAL_CORNERS 'course': every full-field race is formed on its course's usual corner set, taken from the races before
-    `start` like race_output does before a race; corners without complete labels are formed but not scored.
+    `start` like race_output does before a race; corners without complete labels are formed but not scored; straight
+    courses have no corner set and are left out ('course_e0': formed on a made-up (3, 4), as E0 was committed).
     'labels' (legacy): only the corners where every horse has all labels, and races with two or more of them."""
     window = d[d.date.between(start, end)]
     if codes is not None:
         window = window[window.RACE_CODE.isin(codes)]
-    sets = corner_sets(d[d.date < start]) if EVAL_CORNERS == 'course' else None
+    sets = None if EVAL_CORNERS == 'labels' else corner_sets(d[d.date < start], (3, 4) if EVAL_CORNERS == 'course_e0' else ())
     out = []
     for _, x in window.groupby('RACE_CODE'):
         if sets is None:
@@ -1111,20 +1183,42 @@ def past5(x, t):
     return 'past5_' + t if 'past5_' + t in x else 'past_' + t
 
 
+def formation_traffic(form_c):
+    """out / close of any formation with the contention layer's rule: a row = horses with the same gap; out = horses
+    outside in the row; close = a horse under one length ahead within one lane (moved here from audit_e0.traffic_of)."""
+    gap, lane = np.asarray(form_c['gap'], float), np.asarray(form_c['lane'], float)
+    n = len(gap)
+    out = [float(sum(lane[j] > lane[i] for j in range(n) if gap[j] == gap[i])) for i in range(n)]
+    close = [float(any(0 < gap[i] - gap[j] < 1.0 and abs(lane[j] - lane[i]) < 1.0 for j in range(n))) for i in range(n)]
+    return out, close
+
+
+def with_traffic(form, corners):
+    """A copy of a formation whose last corner carries the traffic it leaves (formation_traffic); `independent` itself
+    sets none (E0 review finding 5: horses do sit within a length behind one another in the independent formation)."""
+    form = {c: dict(form[c]) for c in corners}
+    form[corners[-1]]['out'], form[corners[-1]]['close'] = formation_traffic(form[corners[-1]])
+    return form
+
+
 def standard_metrics(models, races, P, d, end):
     """E0 standard measures (scripts/eval_standard.py) for one evaluation window; models fitted before `end`.
     ranks : tau and integer MAE of the published (contention) formation, of the independent formation and of the
             past mean turned into integer ranks; continuous MAE of the model BEFORE the blend, of the blend and of the
-            past mean (secondary).
+            past mean (secondary). UNITS: integerMae is in normalised rank, |rank - actual| / (field - 1), like the
+            continuous MAE (so a horse of a small field weighs more); integerMaePlaces is the same error in places.
     lanes : the scored lane (localLane) and the independent lane against the constant-0 forecast, class accuracy over
             0 / 1 / 2+, and the displayed lane (track-relative path slot, `lane` in the output) on the same label: the
             app shows `lane`, the scores use `localLane`.
     gaps  : the per-horse gap model on its own (a reference only: not a formation, so not drawable) next to the
             published and the independent formation (independentMae is the RECONSTRUCTED independent formation).
-    last3 : the same closing model on the independent and the contention formation, with and without the traffic
-            input, and the FEATURES-only closing model (independentMae in metrics).
+    last3 : the same closing model on the contention formation (with / without its traffic), on the independent
+            formation with the traffic it leaves (formation_traffic: horses do sit close behind one another there too)
+            and without it, and the FEATURES-only closing model (independentMae in metrics).
     pace  : seconds MAE / correlation, H/M/S hit and ranked probability score against the climatology and the majority
-            class (bands = PACE_BANDS, the training terciles of the actual pace; the screen's GI label uses other bands)."""
+            class (bands = PACE_BANDS, fixed -0.35 / +0.20 s, not the current terciles; the screen's GI label uses other
+            bands).
+    Every comparison pairs the same race, corner and horse (RaceTable keys)."""
     import eval_standard as es
     tr = (d.date < end) & d.complete
     tab, lanes = es.RaceTable(), {}
@@ -1141,14 +1235,16 @@ def standard_metrics(models, races, P, d, end):
             past_rank = np.argsort(np.argsort(past + 1e-9 * nums, kind='stable'), kind='stable') / (n - 1)
             forms = {'contention': (np.array(con[c]['rank']) - 1) / (n - 1), 'independent': (np.array(ind[c]['rank']) - 1) / (n - 1),
                      'pastMean': past_rank}
+            keys = list(numbers)
             for k, v in forms.items():
-                tab.add(f'r{c}.integer', k, race, np.abs(v - y))
+                tab.add(f'r{c}.integer', k, race, np.abs(v - y), keys)
+                tab.add(f'r{c}.places', k, race, np.abs(v - y) * (n - 1), keys)
                 tab.add_value(f'r{c}.tau', k, race, es.kendall(v, y))
             for k, v in (('model', pred[f'model_r{c}']), ('blend', pred[f'r{c}']), ('pastMean', past)):
-                tab.add(f'r{c}.continuous', k, race, np.abs(np.asarray(v, float) - y))
+                tab.add(f'r{c}.continuous', k, race, np.abs(np.asarray(v, float) - y), keys)
             g = x[f'g{c}'].to_numpy()
             for k, v in (('contention', con[c]['gap']), ('independent', ind[c]['gap']), ('gapModel', pred[f'g{c}'])):
-                tab.add(f'g{c}', k, race, np.abs(np.asarray(v, float) - g))
+                tab.add(f'g{c}', k, race, np.abs(np.asarray(v, float) - g), keys)
             lab = x[f'l{c}'].to_numpy()
             lane = lanes.setdefault(f'l{c}', {'label': [], 'contention': [], 'independent': [], 'displayed': []})
             lane['label'].extend(lab)
@@ -1159,10 +1255,10 @@ def standard_metrics(models, races, P, d, end):
         if ok.any():
             l3 = x.last3.to_numpy()[ok]
             t3_con, free_con = closing(models, x, con, corners, pred['pace'])
-            t3_ind = closing(models, x, ind, corners, pred['pace'])[0]  # the independent formation carries no traffic
+            t3_ind, free_ind = closing(models, x, with_traffic(ind, corners), corners, pred['pace'])
             for k, v in (('contention', t3_con), ('contentionNoTraffic', free_con), ('independentFormation', t3_ind),
-                         ('featuresOnlyModel', pred['last3'])):
-                tab.add('last3', k, race, np.abs(np.asarray(v)[ok] - l3))
+                         ('independentNoTraffic', free_ind), ('featuresOnlyModel', pred['last3'])):
+                tab.add('last3', k, race, np.abs(np.asarray(v)[ok] - l3), list(np.asarray(numbers)[ok]))
     out = {'ranks': {}, 'gaps': {}, 'lanes': {}, 'last3': {}}
     for c in CORNERS:
         if (f'r{c}.tau', 'contention') not in tab.rows:
@@ -1171,6 +1267,7 @@ def standard_metrics(models, races, P, d, end):
             'races': tab.races(f'r{c}.tau', 'contention'),
             'tau': {k: tab.mean(f'r{c}.tau', k) for k in ('contention', 'independent', 'pastMean')},
             'integerMae': {k: tab.mean(f'r{c}.integer', k) for k in ('contention', 'independent', 'pastMean')},
+            'integerMaePlaces': {k: tab.mean(f'r{c}.places', k) for k in ('contention', 'independent', 'pastMean')},
             'continuousMae': {k: tab.mean(f'r{c}.continuous', k) for k in ('model', 'blend', 'pastMean')},
             'tauContentionMinusIndependent': tab.diff(f'r{c}.tau', 'contention', 'independent'),
             'integerContentionMinusIndependent': tab.diff(f'r{c}.integer', 'contention', 'independent')}
@@ -1178,10 +1275,12 @@ def standard_metrics(models, races, P, d, end):
         lane = lanes[f'l{c}']
         out['lanes'][f'l{c}'] = {k: es.lane_summary(lane[k], lane['label']) for k in ('contention', 'independent', 'displayed')}
         out['lanes'][f'l{c}']['displayedDiffersFromScored'] = float(np.mean(np.array(lane['displayed']) != np.array(lane['contention'])))
-    out['last3'] = {k: tab.mean('last3', k) for k in ('contention', 'contentionNoTraffic', 'independentFormation', 'featuresOnlyModel')}
+    out['last3'] = {k: tab.mean('last3', k) for k in ('contention', 'contentionNoTraffic', 'independentFormation',
+                                                       'independentNoTraffic', 'featuresOnlyModel')}
     out['last3']['trafficInput'] = tab.diff('last3', 'contention', 'contentionNoTraffic')
-    out['last3']['formation'] = tab.diff('last3', 'contentionNoTraffic', 'independentFormation')
-    out['last3']['closingModelVsFeaturesOnly'] = tab.diff('last3', 'independentFormation', 'featuresOnlyModel')
+    out['last3']['formation'] = tab.diff('last3', 'contention', 'independentFormation')  # both with their own traffic
+    out['last3']['formationNoTraffic'] = tab.diff('last3', 'contentionNoTraffic', 'independentNoTraffic')
+    out['last3']['closingModelVsFeaturesOnly'] = tab.diff('last3', 'independentNoTraffic', 'featuresOnlyModel')
     sigma, train_pace = pace_sigma(d, end)
     pp = np.array([pred['pace'] for x, corners, numbers, pred, *_ in races])
     pa = np.array([x.pace.iloc[0] for x, *_ in races])
@@ -1189,8 +1288,14 @@ def standard_metrics(models, races, P, d, end):
     return out
 
 
-def corner_sets(d):
-    """Corners a course actually passes, from history of the same venue/track/distance."""
+def corner_sets(d, straight=()):
+    """Corners a course actually passes, from history of the same venue/track/distance. A straight course (STRAIGHT_TRACKS)
+    passes none: [] (no formation; `straight` = (3, 4) reproduces E0 as committed, which formed it on a made-up 3/4)."""
+    sets = _corner_sets(d)
+    return lambda v, t, dist: list(straight) if t in STRAIGHT_TRACKS else sets(v, t, dist)
+
+
+def _corner_sets(d):
     seen = d.groupby('RACE_CODE').agg(venue=('venue', 'first'), track=('track', 'first'), distance=('distance', 'first'),
                                       **{f'has{c}': (f'r{c}', lambda s: bool(s.notna().all())) for c in CORNERS})
     seen['set'] = seen[[f'has{c}' for c in CORNERS]].apply(lambda r: tuple(c for c in CORNERS if r[f'has{c}']), axis=1)
@@ -1277,10 +1382,19 @@ def main():
     ap.add_argument('--forecasts', default=str(ROOT / 'public' / 'data' / 'forecasts.json'))
     ap.add_argument('--entries-dir', default=str(ROOT / 'data' / 'entries'))
     ap.add_argument('--out', default=str(ROOT / 'public' / 'data' / 'pace_forecasts.json'))
+    ap.add_argument('--frame', help='a stored labelled frame (pickle) instead of the DB, e.g. to rebuild a version on the '
+                                    'data it was adopted on; history features are rebuilt from its labels')
+    ap.add_argument('--raw-rows', type=int, help='with --frame: the DB rows the frame was cut from (for excludedRows)')
     args = ap.parse_args()
     today_s = (args.today or date.today().isoformat()).replace('-', '')
-    d, raw = load_frame(today_s)
-    d = add_traffic(add_history_features(add_labels(d)))
+    if args.frame:
+        d = pd.read_pickle(args.frame)
+        d = d[[k for k in d if not (k.startswith('past') or k == 'starts')]]
+        raw = args.raw_rows if args.raw_rows is not None else len(d)
+        d = add_traffic(add_history_features(d))
+    else:
+        d, raw = load_frame(today_s)
+        d = add_traffic(add_history_features(add_labels(d)))
     print(d[TARGETS].notna().sum().to_string(), flush=True)
     contention, tuning = tune_contention(d)
     params = tune_moves(d, contention)
@@ -1315,6 +1429,9 @@ def main():
             print('WARNING field mismatch, skipped', race['id'], race['name'])
             continue
         corners = sets(int(x.venue.iloc[0]), int(x.track.iloc[0]), int(x.distance.iloc[0]))
+        if len(corners) < 2:
+            print('WARNING no formation for a course without corners (straight), skipped', race['id'], race['name'])
+            continue
         key = 'RACE_CODE' if 'RACE_CODE' in x else 'race'
         out_races[race['id']] = race_output(models, x, key, corners, params, gi_bands, shown, margins)
         print(race['name'], 'corners', corners)

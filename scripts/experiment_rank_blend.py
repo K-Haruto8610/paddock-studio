@@ -26,6 +26,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pace_model as pm
+pm.legacy_procedure('experiment_rank_blend.py')  # pre-E0: reproduces its record on the v1.8 procedure (E0 review finding 2)
 from lightgbm import LGBMRanker
 
 def mae(a, b):

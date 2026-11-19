@@ -22,6 +22,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pace_model as pm  # noqa: E402
+pm.legacy_procedure('experiment_contention_front.py')  # pre-E0: reproduces its record on the v1.8 procedure (E0 review finding 2)
 
 V15 = json.loads((pm.ROOT / 'models' / 'pace' / 'report.json').read_text(encoding='utf-8'))['contention']
 SETTINGS = {'front45': dict(V15), 'front25': {**V15, 'front': .25}}
