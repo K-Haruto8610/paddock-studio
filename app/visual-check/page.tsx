@@ -1,6 +1,7 @@
 'use client';
 import {useEffect, useRef, useState} from 'react';
 import TrackScene, {type VerifyFrame} from '../TrackScene';
+import {ensureHorseModel} from '../blenderHorse';
 import {buildPlayback, playbackEndProgress} from '../playback';
 import {parsePaceForecast, paceForRace} from '../paceForecast';
 import type {Dataset, PlaybackMode, Replays} from '../types';
@@ -70,6 +71,7 @@ export default function VisualCheck() {
           throw Error('Invalid frame dimensions or timeline input');
         }
         await document.fonts.ready;
+        await ensureHorseModel();     // every horse in the scene is made from the same model
         const edits = JSON.stringify(request.edits);
         const prior = loaded.current;
         if (!prior || prior.raceId !== race.id || prior.mode !== mode ||

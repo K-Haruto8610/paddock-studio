@@ -19,6 +19,7 @@ import {
   worldVariation,
 } from './scenery';
 import {dirtReliefMap, RELIEF_TILE} from './surfaceDetail';
+import {FELT_TILE, feltMaterial, paintedMetal, postGeometry, railPaintMap, sandRoughnessMap} from './surfaceFinish';
 import {groundOf, type GroundSurface} from './courseGround';
 
 // The plush model is 4 units long: scale 1.0 draws a ~4m horse (≈1.7x life size)
@@ -103,10 +104,16 @@ function ribbon(
     p.y += 0.02;
     return {p, uv: [d / SURFACE_TILE, lane / SURFACE_TILE]};
   }, covered && ((a, b) => [...a, ...b].every(covered)));
-  const surface = worldVariation(material('#ffffff', lift, map), dirtTone ? 0.07 : 0.09);
+  // Turf is felt (matte, a fine nap); dirt is sand (relief, and roughness that varies from patch to patch).
+  const felt = SURFACE_TILE / FELT_TILE;
+  const surface = worldVariation(dirtTone ? material('#ffffff', lift, map) : feltMaterial(map, felt, felt, lift), dirtTone ? 0.07 : 0.09);
   if (relief) {
     surface.normalMap = relief;
     surface.normalScale.setScalar(DIRT_RELIEF);
+  }
+  if (dirtTone) {
+    surface.roughnessMap = sandRoughnessMap();
+    surface.roughnessMap.repeat.setScalar(SURFACE_TILE / 8);
   }
   const m = new T.Mesh(geo, surface);
   m.receiveShadow = true;
@@ -191,18 +198,20 @@ const UP = new T.Vector3(0, 1, 0);
 function rail(track: TrackModel, lane: number, away: 1 | -1, open?: (p: T.Vector3) => boolean) {
   const group = new T.Group();
   const {closed, runs} = railRuns(track, lane, open);
-  const railMat = new T.MeshStandardMaterial({color: '#f7f6ea', roughness: 0.6});
+  // Painted steel with a little wear, round and smooth (never a faceted tube); the paint repeats every ~3 m along the rail.
+  const postMat = paintedMetal(railPaintMap(1));
   for (const run of runs) {
     const pts = run.map((p) => p.clone().setY(p.y + 1.1));
+    const curve = new T.CatmullRomCurve3(pts, closed);
     const tube = new T.Mesh(
-      new T.TubeGeometry(new T.CatmullRomCurve3(pts, closed), pts.length * 2, 0.16, 6, closed),
-      railMat,
+      new T.TubeGeometry(curve, pts.length * 2, 0.16, 16, closed),
+      paintedMetal(railPaintMap(curve.getLength() / 3)),
     );
     tube.castShadow = true;
     group.add(tube);
   }
   const count = Math.ceil(track.lap / 8);
-  const posts = new T.InstancedMesh(new T.CylinderGeometry(0.06, 0.075, 1, 6), railMat, count);
+  const posts = new T.InstancedMesh(postGeometry(), postMat, count);
   const dummy = new T.Object3D();
   const arm = new T.Vector3();
   let used = 0;
@@ -342,7 +351,7 @@ export function addGround(scene: T.Scene, tracks: TrackModel[], route?: RaceRout
   ground.computeVertexNormals();
   const map = groundTexture();
   map.repeat.set(size.x / GROUND_TILE, size.z / GROUND_TILE);
-  const groundMesh = new T.Mesh(ground, worldVariation(material('#ffffff', 0, map), 0.12));
+  const groundMesh = new T.Mesh(ground, worldVariation(feltMaterial(map, size.x / FELT_TILE, size.z / FELT_TILE), 0.12));
   groundMesh.receiveShadow = true;
   scene.add(groundMesh);
   return terrain;
@@ -418,7 +427,8 @@ function chuteRibbon(
     p.y += 0.02;
     return {p, uv: [((i / N) * surface.length) / SURFACE_TILE, (edge * width) / SURFACE_TILE]};
   }, covered);
-  const m = new T.Mesh(geo, worldVariation(material('#ffffff', lift, map), 0.09));
+  const felt = SURFACE_TILE / FELT_TILE;
+  const m = new T.Mesh(geo, worldVariation(feltMaterial(map, felt, felt, lift), 0.09));
   m.receiveShadow = true;
   return m;
 }

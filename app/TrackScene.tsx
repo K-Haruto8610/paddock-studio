@@ -2,7 +2,6 @@
 import {useEffect, useRef, useSyncExternalStore} from 'react';
 import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import type {Race} from './types';
 import {makeTrack, availableKinds} from './trackGeometry';
 import {makeRoute, type RaceRoute} from './raceRoutes';
@@ -15,7 +14,7 @@ import {completeTick, outputSeconds, RACE_FPS} from './raceClock';
 import {cameraFrame, createSceneTimeline} from './sceneTimeline';
 import {createRaceRenderer, PREVIEW_QUALITY, type SceneQuality} from './sceneQuality';
 import {addHorseLabels} from './horseLabels';
-import {addRaceLandscape, addRaceSky} from './raceLandscape';
+import {addRaceLandscape, addRaceSky, skyEnvironment} from './raceLandscape';
 import {courseFor} from './courses';
 import {posePlush} from './plushHorse';
 import {kickAt, NO_KICK, type Kick, type KickPlan} from './closingKick';
@@ -203,12 +202,8 @@ export default function TrackScene({
     const sun = addLights(scene, sunOffset);
     sun.shadow.mapSize.setScalar(quality.shadowSize);
     addRaceSky(scene, sunOffset);
-    const room = new RoomEnvironment();
-    const pmrem = new T.PMREMGenerator(renderer);
-    const environment = pmrem.fromScene(room, 0.08);
-    room.dispose();
-    pmrem.dispose();
-    scene.environment = environment.texture;
+    const environment = skyEnvironment(renderer, sunOffset);
+    scene.environment = environment;
     scene.environmentIntensity = 0.32;
 
     // Course geometry and everything drawn on it.
@@ -224,7 +219,7 @@ export default function TrackScene({
     const floor = Math.min(...terrain.samples.map(s => s.y));
     addFarGround(scene, floor);
     addRaceLandscape(scene, track, terrain, floor - 1);
-    // Blades of grass stand around the field when the race is run on turf.
+    // Blades of grass stand around the field when the race is run on turf (STYLE_GUIDE: the grass is grown blade by blade).
     const grass = track.kind === 'dirt' ? null : addRaceGrass(scene, route, track.width, surface);
     const disposeDistantGrass = grass && quality.extendedGrass ? addDistantGrass(scene, track, surface, grass.uniforms) : null;
     const gateBox = new T.Box3().setFromObject(gate);

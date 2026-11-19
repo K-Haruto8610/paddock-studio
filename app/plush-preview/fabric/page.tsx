@@ -4,6 +4,7 @@ import Link from 'next/link';
 import {useEffect, useRef, useState} from 'react';
 import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {useHorseModelReady} from '../../blenderHorse';
 import {plush, posePlush, FABRIC_LABELS, type FabricChoice, type FabricKind} from '../../plushHorse';
 import {disposeScene} from '../../sceneBuilders';
 import type {Horse} from '../../types';
@@ -45,6 +46,7 @@ function FabricView({index, choice, coatCode, blinker, bridle, shared}: {
 }) {
   const host = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<T.Scene | null>(null);
+  const horseReady = useHorseModelReady();
   const modelRef = useRef<T.Group | null>(null);
   useEffect(() => {
     const el = host.current!;
@@ -123,7 +125,7 @@ function FabricView({index, choice, coatCode, blinker, bridle, shared}: {
   }, [index, shared]);
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene) return;
+    if (!scene || !horseReady) return;
     if (modelRef.current) {
       scene.remove(modelRef.current);
       const discarded = new T.Scene();
@@ -136,7 +138,7 @@ function FabricView({index, choice, coatCode, blinker, bridle, shared}: {
     model.getObjectByName('numberplate')!.visible = false;
     modelRef.current = model;
     scene.add(model);
-  }, [index, choice, coatCode, blinker, bridle]);
+  }, [index, choice, coatCode, blinker, bridle, horseReady]);
   return <div ref={host} className="fabric-canvas" aria-label={`見本${index + 1}の3Dプレビュー`} />;
 }
 

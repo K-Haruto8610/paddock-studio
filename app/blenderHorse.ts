@@ -1,3 +1,4 @@
+import {useSyncExternalStore} from 'react';
 import * as T from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 
@@ -27,6 +28,9 @@ export type HorseModel = {
 
 let loaded: HorseModel | null = null;
 let loading: Promise<HorseModel> | null = null;
+/** True once loading has finished, whether or not it worked (`horseModel()` says which). */
+let settled = false;
+const listeners = new Set<() => void>();
 
 /** The model once `loadHorseModel` has finished; null before that. */
 export function horseModel() {
@@ -75,4 +79,30 @@ export function loadHorseModel(url = HORSE_MODEL_URL): Promise<HorseModel> {
     return model;
   });
   return loading;
+}
+
+/**
+ * Loads the model and never rejects: if the file cannot be read, horses fall back to the code-built shapes and the failure
+ * is logged. Await it before building any scene, so every horse in a scene is made the same way.
+ */
+export function ensureHorseModel(): Promise<void> {
+  return loadHorseModel().then(() => undefined, error => {
+    console.error('Blender horse model unavailable; using the code-built horse.', error);
+  }).finally(() => {
+    settled = true;
+    listeners.forEach(listener => listener());
+  });
+}
+
+/** React: false until the model has loaded (or failed), so a screen can hold back building horses until then. */
+export function useHorseModelReady() {
+  return useSyncExternalStore(
+    notify => {
+      listeners.add(notify);
+      void ensureHorseModel();
+      return () => {listeners.delete(notify);};
+    },
+    () => settled,
+    () => false,
+  );
 }

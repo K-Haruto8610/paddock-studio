@@ -2,6 +2,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import Link from 'next/link';
 import TrackScene, {type VerifyFrame} from './TrackScene';
+import {useHorseModelReady} from './blenderHorse';
 import type {CameraMode} from './raceCamera';
 import PlaybackNotes from './PlaybackNotes';
 import HorseTable, {dateLabel} from './HorseTable';
@@ -36,6 +37,7 @@ async function readJson<T>(url: string): Promise<T> {
 }
 
 export default function Home() {
+  const horseReady = useHorseModelReady();
   const [data, setData] = useState<Dataset | null>(null),
     [replays, setReplays] = useState<Replays | null>(null),
     [err, setErr] = useState(''),
@@ -525,14 +527,14 @@ export default function Home() {
           )}
           <div className="workspace">
             <section className="theater">
-              {exportStatus && (
+              {exportStatus && horseReady && (
                 <div className="export-renderer" aria-hidden="true">
                   <TrackScene race={race} plan={plan} progress={0} selected={selected} followKey={0}
                     onSelect={() => {}} quality={EXPORT_QUALITY} verification={exportFrame} />
                 </div>
               )}
               <div className="stage">
-                <TrackScene
+                {horseReady ? <TrackScene
                   race={race}
                   plan={plan}
                   progress={progress}
@@ -547,7 +549,7 @@ export default function Home() {
                   onRendered={recording ? (c) => recorder.current?.drawFrame(c) : undefined}
                   recordingSize={recording ? RECORDING_SCENE_SIZE : undefined}
                   suspended={!!exportStatus}
-                />
+                /> : <div className="scene" />}
                 <div className="scene-top">
                   <span
                     className={`scene-status ${actual ? 'recorded-status' : ''}`}

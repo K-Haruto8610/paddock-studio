@@ -4,6 +4,7 @@ import Link from 'next/link';
 import {useEffect, useRef, useState} from 'react';
 import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {useHorseModelReady} from '../blenderHorse';
 import {plush, posePlush} from '../plushHorse';
 import {disposeScene, HORSE_SCALE} from '../sceneBuilders';
 import {dirtTexture, turfTexture, SURFACE_TILE} from '../scenery';
@@ -77,11 +78,13 @@ export default function SurfacePreview() {
   const status = useRef<HTMLParagraphElement>(null);
   const rig = useRef<Rig | null>(null);
   const live = useRef(START);
+  const horseReady = useHorseModelReady();
   const [s, setS] = useState(START);
   const [view, setView] = useState('中継カメラ');
   const set = (patch: Partial<Settings>) => setS((old) => ({...old, ...patch}));
 
   useEffect(() => {
+    if (!horseReady) return;
     const el = host.current!;
     const renderer = new T.WebGLRenderer({antialias: true});
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -187,7 +190,7 @@ export default function SurfacePreview() {
       renderer.domElement.remove();
       rig.current = null;
     };
-  }, []);
+  }, [horseReady]);
 
   useEffect(() => {
     live.current = s;

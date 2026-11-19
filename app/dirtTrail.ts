@@ -188,7 +188,7 @@ function makePrints(scene: T.Scene) {
 /** Sand: instanced billboards whose flight is worked out in the vertex shader from where and when each grain was thrown. */
 function makeSand(scene: T.Scene) {
   const clock = {uClock: {value: 0}};
-  const material = new T.MeshLambertMaterial({color: SAND});
+  const material = new T.MeshStandardMaterial({color: SAND, roughness: 1, metalness: 0});
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uClock = clock.uClock;
     shader.vertexShader = shader.vertexShader

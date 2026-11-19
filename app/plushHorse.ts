@@ -143,7 +143,11 @@ export const CURRENT_HEAD: HeadSettings = {headWidth: 0.8, noseSize: 1, noseTape
 export const SAVED_HEAD: HeadSettings = {headWidth: 0.95, noseSize: 0.25, noseTaper: 0.5, foreheadSlope: 0.15, faceBlend: 0.15, chestSlope: 0.25, noseColor: 0.5, eyeScale: 0, maneHeight: 0.3};
 type PlushOptions = Partial<HeadSettings> & {
   bridle?: boolean; fabric?: FabricChoice; labels?: boolean; pileLayers?: number;
-  /** 'blender' takes the body, hood, ears, eyes, nostrils and bridle from the Blender model (call `loadHorseModel` first); 'code' (default) builds them here. */
+  /**
+   * 'blender' takes the body, hood, ears, eyes, nostrils, bridle, saddle cloth and the mane and tail guides from the Blender
+   * model (`loadHorseModel`/`ensureHorseModel` first; it throws if the model is not loaded); 'code' builds them here.
+   * Unset: the Blender model when it is loaded, otherwise the code-built horse.
+   */
   model?: 'code' | 'blender';
 };
 export function normalizeHead(options: PlushOptions = {}): HeadSettings {
@@ -363,19 +367,19 @@ type FabricLook = {
 const FABRIC_LOOKS: Record<FabricKind, FabricLook> = {
   current: {repeat: 5, bump: 0.018, roughness: 1, sheen: 0.65, sheenRoughness: 1, sheenColor: '#d9d1c6', pile: 0.028},
   // Dense short pile: almost no visible grain, a soft bright glow at grazing angles.
-  minky: {repeat: 4, bump: 0.004, roughness: 0.85, sheen: 1, sheenRoughness: 0.35, sheenColor: '#ffffff', pile: 0.04},
+  minky: {repeat: 4, bump: 0.01, roughness: 0.92, sheen: 1, sheenRoughness: 0.35, sheenColor: '#ffffff', pile: 0.04},
   // Curly long pile: deep bumpy curls.
   boa: {repeat: 2.4, bump: 0.05, roughness: 1, sheen: 0.8, sheenRoughness: 0.55, sheenColor: '#f2ece2', pile: 0.045},
   // Matted fibres, flat and dry.
   felt: {repeat: 2.4, bump: 0.012, roughness: 1, sheen: 0.15, sheenRoughness: 1, sheenColor: '#d9d1c6'},
   // Cut pile laid in one direction: smooth, with a strong shifting sheen.
-  velour: {repeat: 3, bump: 0.003, roughness: 0.7, sheen: 1, sheenRoughness: 0.22, sheenColor: '#fff6ea', pile: 0.038},
+  velour: {repeat: 3, bump: 0.014, roughness: 0.92, sheen: 1, sheenRoughness: 0.22, sheenColor: '#fff6ea', pile: 0.038},
   // Rows of small raised loops.
   terry: {repeat: 1.5, bump: 0.035, roughness: 1, sheen: 0.35, sheenRoughness: 0.8, sheenColor: '#e8e2d8'},
   // Columns of V stitches.
   knit: {repeat: 1.3, bump: 0.04, roughness: 1, sheen: 0.3, sheenRoughness: 0.8, sheenColor: '#e8e2d8'},
   // Fine pebble grain with a soft polish.
-  leather: {repeat: 3, bump: 0.006, roughness: 0.5, sheen: 0, sheenRoughness: 1, sheenColor: '#000000', clearcoat: 0.3},
+  leather: {repeat: 3, bump: 0.008, roughness: 0.66, sheen: 0, sheenRoughness: 1, sheenColor: '#000000', clearcoat: 0.06},
 };
 
 const fabricCanvases = new Map<FabricKind, HTMLCanvasElement>();
@@ -548,6 +552,41 @@ function fabricMaterial(color: T.ColorRepresentation, kind: FabricKind, stretch:
   });
 }
 
+/**
+ * A sewn seam down the centre line, where the two halves of the plush meet: a groove, and short stitches of thread across it.
+ * It reads the geometry's `rest` positions (the shape before the rig moves it), so the stitches stay on the cloth as the legs
+ * swing. Pile is pinched short along this line, so the thread shows through it.
+ */
+function stitchSeam<M extends T.Material>(material: M): M {
+  material.onBeforeCompile = shader => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+attribute vec3 rest;
+varying vec3 vSeamRest;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+vSeamRest = rest;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vSeamRest;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+{
+  float across = abs(vSeamRest.z);
+  // A shallow groove either side of the line, and the thread itself in the middle.
+  float groove = 1.0 - smoothstep(0.0, 0.026, across);
+  float thread = 1.0 - smoothstep(0.0055, 0.0085, across);
+  // Stitches: short dashes along the seam, which runs mostly along x on the back and up y on the face.
+  float along = vSeamRest.x * 0.8 + vSeamRest.y * 0.6;
+  float dash = 1.0 - smoothstep(0.55, 0.65, abs(fract(along * 38.0) - 0.5) * 2.0);
+  float light = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
+  vec3 cloth = diffuseColor.rgb;
+  vec3 stitch = light > 0.55 ? cloth * vec3(0.55, 0.5, 0.45) : min(cloth * 1.9 + vec3(0.14, 0.12, 0.1), vec3(1.0));
+  diffuseColor.rgb = mix(cloth * (1.0 - 0.08 * groove), stitch, thread * dash);
+}`);
+  };
+  material.customProgramCacheKey = () => 'plush-seam';
+  return material;
+}
+
 const PILE_LAYERS = 12;
 /** Shade at the fibre roots and of the cloth backing under the pile; the fibres brighten from this toward their tips. */
 const PILE_ROOT_SHADE = 0.45;
@@ -672,6 +711,13 @@ material.sheenColor *= mix(diffuseColor.rgb, vec3(1.0), 0.08);
 #endif`);
   };
   return material;
+}
+
+/** The shape before any rig moves it, kept as an attribute for shaders that sew or brush by position. */
+function addRest(geometry: T.BufferGeometry) {
+  if (geometry.attributes.rest) return geometry;
+  geometry.setAttribute('rest', new T.BufferAttribute((geometry.attributes.position.array as Float32Array).slice(), 3));
+  return geometry;
 }
 
 /** Cover a mesh with pile. The layers share its geometry, so they follow the legs as they swing. */
@@ -1395,7 +1441,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   const layers = options.pileLayers ?? PILE_LAYERS;
   const settings = normalizeHead(options);
   const {headWidth} = settings;
-  const model = options.model === 'blender' ? horseModel() : null;
+  const model = options.model === 'code' ? null : horseModel();
   if (options.model === 'blender' && !model) throw new Error("plush: the Blender model is not loaded; await loadHorseModel() first");
   const g = new T.Group();
   const body = new T.Group();
@@ -1423,7 +1469,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     return m;
   };
 
-  const shellMaterial = fabricMaterial('#ffffff', fabrics.body ?? 'current');
+  const shellMaterial = stitchSeam(fabricMaterial('#ffffff', fabrics.body ?? 'current'));
   shellMaterial.vertexColors = true;
   const shell = new T.Mesh(model
     ? shellGeometry((model.body.attributes.position.array as Float32Array).slice(), (model.body.attributes.normal.array as Float32Array).slice(), brown.color, settings, model.body.index?.array)
@@ -1431,6 +1477,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   shell.name = 'seamless-body-and-feet';
   shell.castShadow = shell.receiveShadow = true;
   body.add(shell);
+  addRest(shell.geometry);
   const pileLength = FABRIC_LOOKS[bodyFabric].pile ?? 0;
   if (piled) {
     shellMaterial.color.setScalar(PILE_ROOT_SHADE);
@@ -1451,7 +1498,10 @@ export function plush(h: Horse, options: PlushOptions = {}) {
 
   const nodding = [shell];
   if (h.blinker) {
-    const menko = new T.Mesh(model ? modelPart(model.menko) : hoodGeometry(settings), hood);
+    // The hood has its own centre seam; the ears share the plain hood cloth (they have no rest positions to sew by).
+    const menkoGeometry = model ? modelPart(model.menko) : hoodGeometry(settings);
+    addRest(menkoGeometry);
+    const menko = new T.Mesh(menkoGeometry, stitchSeam(hood.clone()));
     nodding.push(menko);
     menko.name = 'felt-menko';
     menko.castShadow = menko.receiveShadow = true;

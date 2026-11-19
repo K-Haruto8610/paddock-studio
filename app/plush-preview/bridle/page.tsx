@@ -230,7 +230,8 @@ export default function BridleNotes() {
       disposeScene(discarded);
     }
     const horse: Horse = {number: 10, name: '', coat: '', coatCode, blinker, gate: 1, jockey: '', age: 4, weight: 500, positions: [], last3: 0, history: []};
-    const model = plush(horse, {bridle: true});
+    // The strap ink is drawn in the code-built head's frame, so this page keeps the code-built horse.
+    const model = plush(horse, {bridle: true, model: 'code'});
     model.getObjectByName('nameplate')!.visible = false;
     model.getObjectByName('numberplate')!.visible = false;
     model.userData.plushRig.head.add(layerRef.current);

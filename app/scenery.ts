@@ -68,7 +68,7 @@ export function turfTexture(stripes = true) {
   const rand = seeded(11);
   const n = [8, 16, 32, 64].map((k) => tileNoise(rand, k));
   return tileTexture('#7faf66', (u, v) => {
-    const mown = stripes ? 0.035 * Math.tanh(3 * Math.sin(Math.PI * 8 * v)) : 0;
+    const mown = stripes ? 0.05 * Math.tanh(3 * Math.sin(Math.PI * 8 * v)) : 0;
     return mown + 0.04 * n[0](u, v) + 0.035 * n[1](u, v) + 0.03 * n[2](u, v) + 0.035 * n[3](u, v);
   });
 }

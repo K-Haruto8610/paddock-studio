@@ -1,12 +1,25 @@
 import * as T from 'three';
 import type {TrackModel} from './trackGeometry';
 import type {Terrain} from './sceneBuilders';
-import {seeded} from './scenery';
+import {apronTexture, seeded} from './scenery';
+import {bevelBox, concreteMaterial} from './surfaceFinish';
 
-export function addRaceSky(scene: T.Scene, sunOffset: T.Vector3) {
+/** Horizon and zenith colours of the day's sky: pale haze in winter, a deeper blue near the summer sun. */
+function skyColours(sunOffset: T.Vector3) {
   const summer = T.MathUtils.smoothstep(sunOffset.clone().normalize().y, 0.3, 1);
-  const horizon = new T.Color('#e1e5d5').lerp(new T.Color('#e1edf3'), summer);
-  const zenith = new T.Color('#709bb9').lerp(new T.Color('#4999cf'), summer);
+  return {
+    horizon: new T.Color('#e1e5d5').lerp(new T.Color('#e1edf3'), summer),
+    zenith: new T.Color('#709bb9').lerp(new T.Color('#4999cf'), summer),
+    summer,
+  };
+}
+
+/**
+ * The sky dome: a hazy horizon rising to blue, the sun's warm glow, and soft clouds drifting at one height (fractal noise
+ * on a flat layer, so they shrink toward the horizon, brighter on the sun's side and grey underneath).
+ */
+function skyDome(sunOffset: T.Vector3) {
+  const {horizon, zenith, summer} = skyColours(sunOffset);
   const sky = new T.Mesh(new T.SphereGeometry(4400, 40, 20), new T.ShaderMaterial({
     side: T.BackSide,
     depthWrite: false,
@@ -14,6 +27,7 @@ export function addRaceSky(scene: T.Scene, sunOffset: T.Vector3) {
     uniforms: {
       horizon: {value: horizon}, zenith: {value: zenith},
       sun: {value: sunOffset.clone().normalize()},
+      cover: {value: 0.5 - 0.12 * summer},
     },
     vertexShader: `
       varying vec3 direction;
@@ -26,20 +40,64 @@ export function addRaceSky(scene: T.Scene, sunOffset: T.Vector3) {
       uniform vec3 horizon;
       uniform vec3 zenith;
       uniform vec3 sun;
+      uniform float cover;
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+      }
+      float fbm(vec2 p) {
+        float v = 0.0, a = 0.5;
+        for (int i = 0; i < 5; i++) { v += a * noise(p); p = p * 2.03 + 11.7; a *= 0.5; }
+        return v;
+      }
       void main() {
         vec3 ray = normalize(direction);
         vec3 colour = mix(horizon, zenith, smoothstep(-0.02, 0.66, ray.y));
         float glow = pow(max(dot(ray, sun), 0.0), 18.0);
         colour = mix(colour, vec3(1.0, 0.82, 0.55), 0.28 * glow);
+        // Clouds on a flat layer: the further toward the horizon, the closer together and the fainter.
+        if (ray.y > 0.0) {
+          vec2 p = ray.xz / (ray.y + 0.12) * 0.55;
+          float body = fbm(p + vec2(3.1, 1.7));
+          float density = smoothstep(1.0 - cover - 0.1, 1.0 - cover + 0.18, body + 0.18 * fbm(p * 3.0 + 5.0));
+          // Lit from the sun's side, shaded and a little grey underneath.
+          float lit = clamp(0.62 + 0.9 * (fbm(p + sun.xz * 0.16 + vec2(3.1, 1.7)) - body), 0.0, 1.0);
+          vec3 cloud = mix(vec3(0.66, 0.7, 0.76), vec3(1.0, 0.99, 0.96), lit);
+          colour = mix(colour, cloud, density * 0.85 * smoothstep(0.02, 0.3, ray.y));
+        }
         gl_FragColor = vec4(colour, 1.0);
         #include <colorspace_fragment>
       }`,
   }));
   sky.renderOrder = -100;
   sky.frustumCulled = false;
-  scene.add(sky);
-  scene.fog = new T.Fog(horizon, 720, 2450);
   return sky;
+}
+
+export function addRaceSky(scene: T.Scene, sunOffset: T.Vector3) {
+  const sky = skyDome(sunOffset);
+  scene.add(sky);
+  scene.fog = new T.Fog(skyColours(sunOffset).horizon, 720, 2450);
+  return sky;
+}
+
+/**
+ * Ambient light taken from the sky itself, so the light the surfaces and horses receive from around them is the colour of
+ * the sky above them and the haze at the horizon (STYLE_GUIDE: one sky, one light for everything).
+ * The texture is the caller's to dispose.
+ */
+export function skyEnvironment(renderer: T.WebGLRenderer, sunOffset: T.Vector3) {
+  const dome = new T.Scene();
+  const sky = skyDome(sunOffset);
+  dome.add(sky);
+  const pmrem = new T.PMREMGenerator(renderer);
+  const target = pmrem.fromScene(dome, 0.04, 1, 10000);
+  pmrem.dispose();
+  sky.geometry.dispose();
+  (sky.material as T.Material).dispose();
+  return target.texture;
 }
 
 export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Terrain, floor: number) {
@@ -48,7 +106,7 @@ export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Ter
   const trunk = new T.MeshStandardMaterial({color: '#665845', roughness: 1});
   const box = new T.BoxGeometry(1, 1, 1);
   const shrub = new T.MeshStandardMaterial({color: '#55764b', roughness: 1});
-  const concrete = new T.MeshStandardMaterial({color: '#c4bca8', roughness: 0.86});
+  const concrete = concreteMaterial(apronTexture(), '#f2e8d2');
   const seats = new T.MeshStandardMaterial({color: '#809491', roughness: 0.95});
   const roof = new T.MeshStandardMaterial({color: '#405d62', roughness: 0.85});
 
@@ -59,9 +117,11 @@ export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Ter
   };
   const piece = (group: T.Group, geometry: T.BufferGeometry, material: T.Material,
     x: number, y: number, z: number, w: number, h: number, d: number) => {
-    const mesh = new T.Mesh(geometry, material);
+    // Boxes get small bevelled edges (and uv in metres); anything else keeps the unit-geometry scaling.
+    const bevelled = geometry === box ? bevelBox(w, h, d, 0.2) : null;
+    const mesh = new T.Mesh(bevelled ?? geometry, material);
     mesh.position.set(x, y, z);
-    mesh.scale.set(w, h, d);
+    if (!bevelled) mesh.scale.set(w, h, d);
     group.add(mesh);
     return mesh;
   };
