@@ -81,3 +81,13 @@ Paddock Studio の3Dモデルと質感の共通仕様。Blender でのモデリ�
 | 合計 | 15,624 |
 
 再生成: Blender を開いてアドオンのサーバーを起動し、`python blender/run_in_blender.py blender/horse.py cell=0.085`。比較画像は `blender/previews/`。
+
+## 付記: Blender のモデルをアプリで使う（2026-11-19）
+
+流れ: `blender/horse.py` で Blender の中に作る → `blender/export.py` で `public/models/horse.glb` に書き出す → アプリが読み込む。
+
+- 読み込み: `app/blenderHorse.ts` の `loadHorseModel()`。部品は名前で受け取る（`horse_body`、`horse_menko`、`horse_ear_L/R`、`horse_eye_L/R`、`horse_nostril_L/R`、`horse_bridle_*`）。材質は書き出さず、色・布・毛足はアプリ側で付ける。
+- 使い方: `plush(horse, {model: 'blender'})`。読み込み前に呼ぶと例外。既定は `'code'`（従来どおりコードで作る）で、レース画面はまだ従来のまま。
+- 確認: `/plush-preview` の「Blender のモデル」チェック、または `/plush-preview?model=blender`。コード版と並べた比較は `blender/previews/app-code-vs-blender.png`（上がコード、下が Blender。左が静止、右が走り）。
+- 脚の振りと頭の上下は、従来どおりアプリが頂点の位置から計算する。
+- 革ひもは、毛足の上に乗るよう、アプリ側で外へ持ち上げる（`_cover` が 1 の頭巾の上では持ち上げ量が小さい）。

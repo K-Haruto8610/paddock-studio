@@ -196,6 +196,7 @@ def strap_mesh(name, points, closed, pivot):
     w, h, bev = STRAP_W / 2, STRAP_H / 2, 0.003
     section = [(-w + bev, h), (w - bev, h), (w, h - bev), (w, -h + bev), (w - bev, -h), (-w + bev, -h), (-w, -h + bev), (-w, h - bev)]
     bm = bmesh.new()
+    cover = bm.verts.layers.float.new("_cover")        # 1 where the strap lies on the hood, 0 on bare coat (the app lifts it over fur)
     rows = []
     cnt = len(points)
     for i in range(cnt):
@@ -206,12 +207,24 @@ def strap_mesh(name, points, closed, pivot):
         outward = normal_at(c)
         outward = unit(outward - tangent * outward.dot(tangent))
         across = unit(tangent.cross(outward))
-        rows.append([bm.verts.new(to_blender(*(c + across * x + outward * y)) - pivot) for x, y in section])
+        row = []
+        for x, y in section:
+            p = c + across * x + outward * y
+            v = bm.verts.new(to_blender(*p) - pivot)
+            v[cover] = clamp(-hood_outline(*p) / 0.03, 0, 1)
+            row.append(v)
+        rows.append(row)
     m = len(section)
-    for i in range(cnt if closed else cnt - 1):
+    uv = bm.loops.layers.uv.new("UVMap")                # u along the strap, v across it, as the app's leather grain expects
+    across_v = [x / STRAP_W + 0.5 for x, _ in section]
+    span = cnt if closed else cnt - 1
+    for i in range(span):
         r0, r1 = rows[i], rows[(i + 1) % cnt]
+        u0, u1 = i / span, (i + 1) / span
         for e in range(m):
-            bm.faces.new((r0[e], r0[(e + 1) % m], r1[(e + 1) % m], r1[e]))
+            f = bm.faces.new((r0[e], r0[(e + 1) % m], r1[(e + 1) % m], r1[e]))
+            for loop, (u, vv) in zip(f.loops, ((u0, across_v[e]), (u0, across_v[(e + 1) % m]), (u1, across_v[(e + 1) % m]), (u1, across_v[e]))):
+                loop[uv].uv = (u, vv)
     if not closed:
         for r in (rows[0], rows[-1]):
             bm.faces.new(r)
@@ -282,6 +295,8 @@ def build_menko_and_bridle():
             j.rotation_quaternion = Vector((0, 0, 1)).rotation_difference(Vector((nrm.x, -nrm.z, nrm.y)))   # to Blender axes
             j.location = to_blender(*(p + nrm * STRAP_H * 0.2))
             j.data.materials.append(leather)
+            attr = j.data.attributes.new("_cover", "FLOAT", "POINT")
+            attr.data.foreach_set("value", [clamp(-hood_outline(*p) / 0.03, 0, 1)] * len(j.data.vertices))
             smooth(j)
             link(j, head)
             j.matrix_parent_inverse = Matrix.Translation(-pivot)

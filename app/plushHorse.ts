@@ -3,6 +3,7 @@ import {seededPick} from './seededPick';
 import {MarchingCubes} from 'three/addons/objects/MarchingCubes.js';
 import type {Horse} from './types';
 import {STRIDE_LENGTH, NO_KICK, type Kick} from './closingKick';
+import {horseModel, type HorseModel} from './blenderHorse';
 const coat: Record<string, string> = {
   '01': '#b8773c',
   '02': '#845330',
@@ -140,7 +141,11 @@ export const PREVIOUS_HEAD: HeadSettings = {headWidth: 1, noseSize: 0, noseTaper
 export const CURRENT_HEAD: HeadSettings = {headWidth: 0.8, noseSize: 1, noseTaper: 1, foreheadSlope: 1, faceBlend: 1, chestSlope: 1, noseColor: 1, eyeScale: 1, maneHeight: 1};
 /** The head the user picked with the preview sliders; used everywhere by default. */
 export const SAVED_HEAD: HeadSettings = {headWidth: 0.95, noseSize: 0.25, noseTaper: 0.5, foreheadSlope: 0.15, faceBlend: 0.15, chestSlope: 0.25, noseColor: 0.5, eyeScale: 0, maneHeight: 0.3};
-type PlushOptions = Partial<HeadSettings> & {bridle?: boolean; fabric?: FabricChoice; labels?: boolean; pileLayers?: number};
+type PlushOptions = Partial<HeadSettings> & {
+  bridle?: boolean; fabric?: FabricChoice; labels?: boolean; pileLayers?: number;
+  /** 'blender' takes the body, hood, ears, eyes, nostrils and bridle from the Blender model (call `loadHorseModel` first); 'code' (default) builds them here. */
+  model?: 'code' | 'blender';
+};
 export function normalizeHead(options: PlushOptions = {}): HeadSettings {
   const settings = {...SAVED_HEAD};
   for (const key of Object.keys(settings) as (keyof HeadSettings)[]) {
@@ -310,8 +315,13 @@ function stuffedBodyGeometry(color: T.Color, settings: HeadSettings) {
     field.geometry.dispose();
     temporaryMaterial.dispose();
   }
+  return shellGeometry(shellTemplate.positions.slice(), shellTemplate.normals.slice(), color, settings);
+}
+
+/** The stuffed shell's attributes (coat, socks and nose colour; planar uv) on a body shell given as positions and normals. */
+function shellGeometry(positions: Float32Array, normals: Float32Array, color: T.Color, settings: HeadSettings, index?: ArrayLike<number>) {
   const geometry = new T.BufferGeometry();
-  const positions = shellTemplate.positions.slice();
+  if (index) geometry.setIndex(Array.from(index));
   const colors = new Float32Array(positions.length);
   const uvs = new Float32Array(positions.length / 3 * 2);
   const sock = new T.Color('#29272a');
@@ -327,7 +337,7 @@ function stuffedBodyGeometry(color: T.Color, settings: HeadSettings) {
     uvs[i * 2 + 1] = y * 0.45;
   }
   geometry.setAttribute('position', new T.BufferAttribute(positions, 3));
-  geometry.setAttribute('normal', new T.BufferAttribute(shellTemplate.normals.slice(), 3));
+  geometry.setAttribute('normal', new T.BufferAttribute(normals, 3));
   geometry.setAttribute('color', new T.BufferAttribute(colors, 3));
   geometry.setAttribute('uv', new T.BufferAttribute(uvs, 2));
   return geometry;
@@ -1257,10 +1267,102 @@ function earGeometry() {
   return geometry;
 }
 
+/** Planar uv, the way the shell and hood have always been mapped (the Blender parts carry none, except the straps). */
+function planarUv(geometry: T.BufferGeometry) {
+  const position = geometry.attributes.position;
+  const uv = new Float32Array(position.count * 2);
+  for (let i = 0; i < position.count; i++) {
+    uv[i * 2] = position.getX(i) * 0.45 + position.getZ(i) * 0.2;
+    uv[i * 2 + 1] = position.getY(i) * 0.45;
+  }
+  geometry.setAttribute('uv', new T.BufferAttribute(uv, 2));
+  return geometry;
+}
+
+/** A copy of a Blender part, in the horse frame, with planar uv unless it has its own. */
+function modelPart(geometry: T.BufferGeometry) {
+  const copy = geometry.clone();
+  return copy.attributes.uv ? copy : planarUv(copy);
+}
+
+/** A Blender part moved into the head group's frame (the group sits at HEAD_ORIGIN, unscaled for Blender parts). */
+function headFrame(geometry: T.BufferGeometry) {
+  const copy = modelPart(geometry);
+  copy.translate(-HEAD_ORIGIN[0], -HEAD_ORIGIN[1], 0);
+  return copy;
+}
+
+/** Where the head's own centre is, in the horse frame: straps are lifted away from it over fur. */
+const HEAD_CENTER = new T.Vector3(1.26, 1.85, 0);
+/** How far the Blender straps already stand off the surface (STRAP_LIFT in blender/menko.py). */
+const MODEL_STRAP_LIFT = 0.01;
+
+/**
+ * Ears, eyes and nostrils from the Blender model, on the head group. Eyes and nostrils stand on the fur's tips (`raise`),
+ * as the code-built ones do; the ears carry their own short pile.
+ */
+function addModelHead(
+  head: T.Group, model: HorseModel, mats: {hood: T.Material; brown: T.Material & {color: T.Color}; eye: T.Material; shine: T.Material; dark: T.Material},
+  piled: boolean, blinker: boolean, bodyFabric: FabricKind, layers: number, raise: number,
+) {
+  for (const [name, source] of Object.entries(model.head)) {
+    const geometry = headFrame(source);
+    geometry.computeBoundingBox();
+    const center = geometry.boundingBox!.getCenter(new T.Vector3());
+    const side = Math.sign(center.z) || 1;
+    if (name.startsWith('horse_ear_')) {
+      const ear = new T.Mesh(geometry, mats.hood);
+      ear.name = 'cupped-cloth-ear';
+      ear.castShadow = ear.receiveShadow = true;
+      head.add(ear);
+      if (piled && !blinker) addPile(ear, pileMaterial(mats.brown.color, bodyFabric, layers, {length: 0.016}), layers);
+      continue;
+    }
+    geometry.translate(0, 0, side * raise);
+    const isEye = name.startsWith('horse_eye_');
+    const part = new T.Mesh(geometry, isEye ? mats.eye : mats.dark);
+    part.name = isEye ? 'bead-eye' : 'nostril';
+    part.castShadow = part.receiveShadow = true;
+    head.add(part);
+    if (isEye) {
+      // The highlight: a small flat disc on the bead, up and toward the nose.
+      const shine = new T.Mesh(new T.SphereGeometry(1, 12, 8), mats.shine);
+      shine.position.set(center.x + 0.044, center.y + 0.077, center.z + side * (0.058 + raise + 0.004));
+      shine.scale.set(0.022, 0.026, 0.008);
+      head.add(shine);
+    }
+  }
+}
+
+/** The bridle straps and joints from the Blender model, lifted onto the fur where they lie on bare coat. */
+function addModelBridle(head: T.Group, model: HorseModel, leather: T.Material, pileLength: number) {
+  const onCoat = Math.max(STRAP_LIFT * 1.18, pileLength + STRAP_THICKNESS / 2 * 1.18 + 0.0035);
+  const onHood = STRAP_LIFT * 1.18;
+  const toward = new T.Vector3();
+  for (const [name, source] of Object.entries(model.bridle)) {
+    const geometry = modelPart(source);
+    const position = geometry.attributes.position as T.BufferAttribute;
+    const cover = geometry.attributes._cover as T.BufferAttribute | undefined;
+    for (let i = 0; i < position.count; i++) {
+      const lift = T.MathUtils.lerp(onCoat, onHood, cover ? cover.getX(i) : 0) - MODEL_STRAP_LIFT;
+      toward.set(position.getX(i), position.getY(i), position.getZ(i)).sub(HEAD_CENTER).normalize().multiplyScalar(lift);
+      position.setXYZ(i, position.getX(i) + toward.x, position.getY(i) + toward.y, position.getZ(i) + toward.z);
+    }
+    geometry.translate(-HEAD_ORIGIN[0], -HEAD_ORIGIN[1], 0);
+    geometry.computeVertexNormals();
+    const mesh = new T.Mesh(geometry, leather);
+    mesh.name = name.startsWith('horse_bridle_joint') ? 'bridle-joint' : 'bridle-' + name.slice('horse_bridle_'.length);
+    mesh.castShadow = mesh.receiveShadow = true;
+    head.add(mesh);
+  }
+}
+
 export function plush(h: Horse, options: PlushOptions = {}) {
   const layers = options.pileLayers ?? PILE_LAYERS;
   const settings = normalizeHead(options);
   const {headWidth} = settings;
+  const model = options.model === 'blender' ? horseModel() : null;
+  if (options.model === 'blender' && !model) throw new Error("plush: the Blender model is not loaded; await loadHorseModel() first");
   const g = new T.Group();
   const body = new T.Group();
   body.name = 'plush-body';
@@ -1289,7 +1391,9 @@ export function plush(h: Horse, options: PlushOptions = {}) {
 
   const shellMaterial = fabricMaterial('#ffffff', fabrics.body ?? 'current');
   shellMaterial.vertexColors = true;
-  const shell = new T.Mesh(stuffedBodyGeometry(brown.color, settings), shellMaterial);
+  const shell = new T.Mesh(model
+    ? shellGeometry((model.body.attributes.position.array as Float32Array).slice(), (model.body.attributes.normal.array as Float32Array).slice(), brown.color, settings, model.body.index?.array)
+    : stuffedBodyGeometry(brown.color, settings), shellMaterial);
   shell.name = 'seamless-body-and-feet';
   shell.castShadow = shell.receiveShadow = true;
   body.add(shell);
@@ -1313,7 +1417,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
 
   const nodding = [shell];
   if (h.blinker) {
-    const menko = new T.Mesh(hoodGeometry(settings), hood);
+    const menko = new T.Mesh(model ? modelPart(model.menko) : hoodGeometry(settings), hood);
     nodding.push(menko);
     menko.name = 'felt-menko';
     menko.castShadow = menko.receiveShadow = true;
@@ -1322,7 +1426,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
 
   const head = new T.Group();
   head.position.set(0.67, 1.91, 0);
-  head.scale.setScalar(1.18);
+  head.scale.setScalar(model ? 1 : 1.18);                 // the Blender parts are modelled in metres
   body.add(head);
   head.name = h.blinker ? 'menko-head' : 'bare-head';
   const surfaceZ = (x: number, y: number) => {
@@ -1334,7 +1438,8 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     }
     return (lo + hi) / 2;
   };
-  for (const side of [-1, 1]) {
+  if (model) addModelHead(head, model, {hood, brown, eye, shine, dark}, piled, !!h.blinker, bodyFabric, layers, raise);
+  else for (const side of [-1, 1]) {
     const ear = new T.Mesh(earGeometry(), hood);
     ear.position.set(-0.06, 0.58, side * 0.3 * headWidth);
     ear.rotation.x = side * 0.2;
@@ -1352,7 +1457,11 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     ball(head, dark, [1.1, -0.13, side * (noseZ + 0.006 + raise / 1.18)], [0.027, 0.039, 0.02], false);
   }
   // Tube UVs run 0..1 along each strap, so the grain is tiled many times along its length.
-  if (options.bridle) addBridle(head, fabricMaterial('#5b3826', fabrics.bridle ?? 'current', [12, 0.3]), settings, !!h.blinker, pileLength);
+  if (options.bridle) {
+    const leather = fabricMaterial('#5b3826', fabrics.bridle ?? 'current', [12, 0.3]);
+    if (model) addModelBridle(head, model, leather, pileLength);
+    else addBridle(head, leather, settings, !!h.blinker, pileLength);
+  }
 
   // Mane and tail are real hairs that sway in the vertex shader. The mane is grown in body coordinates and hangs from
   // the body: it rides the neck, and the shader turns only the hair at the poll with the head, which now nods far more.

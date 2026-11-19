@@ -5,6 +5,7 @@ import {useEffect, useRef, useState} from 'react';
 import * as T from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {loadHorseModel} from '../blenderHorse';
 import {plush, posePlush, PREVIOUS_HEAD, CURRENT_HEAD, SAVED_HEAD, normalizeHead, type HeadSettings} from '../plushHorse';
 import './preview.css';
 import {disposeScene} from '../sceneBuilders';
@@ -31,6 +32,9 @@ export default function PlushPreview() {
   const [renderSettings, setRenderSettings] = useState(settings);
   const [blinker, setBlinker] = useState(false);
   const [bridle, setBridle] = useState(true);
+  const [blender, setBlender] = useState(false);
+  const [blenderReady, setBlenderReady] = useState(false);
+  const [blenderError, setBlenderError] = useState('');
   const [view, setView] = useState('斜め');
   const [moving, setMoving] = useState(false);
   const [kick, setKick] = useState(0);
@@ -41,6 +45,15 @@ export default function PlushPreview() {
   const modelRef = useRef<T.Group | null>(null);
   const cameraRef = useRef<T.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
+  // The Blender model (public/models/horse.glb) is fetched the first time it is asked for; ?model=blender asks at load.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (new URLSearchParams(location.search).get('model') === 'blender') setBlender(true);
+  }, []);
+  useEffect(() => {
+    if (!blender) return;
+    loadHorseModel().then(() => setBlenderReady(true), error => setBlenderError(String(error)));
+  }, [blender]);
   useEffect(() => {movingRef.current = moving;}, [moving]);
   useEffect(() => {kickRef.current = kick;}, [kick]);
   // Restore after mount: reading localStorage during render would mismatch the server HTML.
@@ -149,12 +162,12 @@ export default function PlushPreview() {
       disposeScene(discarded);
     }
     const horse: Horse = {number: 10, name: 'ぬいぐるみ', coat: '', coatCode, blinker, gate: 1, jockey: '', age: 4, weight: 500, positions: [], last3: 0, history: []};
-    const model = plush(horse, {...renderSettings, bridle});
+    const model = plush(horse, {...renderSettings, bridle, model: blender && blenderReady ? 'blender' : 'code'});
     model.getObjectByName('nameplate')!.visible = false;
     model.getObjectByName('numberplate')!.visible = false;
     modelRef.current = model;
     scene.add(model);
-  }, [coatCode, blinker, bridle, renderSettings]);
+  }, [coatCode, blinker, bridle, renderSettings, blender, blenderReady]);
   useEffect(() => {
     const views: Record<string, [number, number, number]> = {'斜め': [6, 3.9, 7], '横': [0, 2.8, 9], '正面': [9, 2.8, 0], '後ろ': [-7, 3, 4]};
     cameraRef.current?.position.set(...views[view]);
@@ -193,6 +206,7 @@ export default function PlushPreview() {
           <label>毛色 <select aria-label="毛色" value={coatCode} onChange={e => setCoatCode(e.target.value)}><option value="07">芦毛</option><option value="01">栗毛</option><option value="03">鹿毛</option><option value="05">青毛</option><option value="11">白毛</option></select></label>
           <label><input type="checkbox" checked={blinker} onChange={e => setBlinker(e.target.checked)} /> メンコ</label>
           <label><input type="checkbox" checked={bridle} onChange={e => setBridle(e.target.checked)} /> 頭絡</label>
+          <label><input type="checkbox" checked={blender} onChange={e => setBlender(e.target.checked)} /> Blender のモデル{blender && !blenderReady && !blenderError ? '（読み込み中）' : ''}{blenderError ? `（失敗: ${blenderError}）` : ''}</label>
           {['斜め', '横', '正面', '後ろ'].map(angle => <button key={angle} aria-pressed={view === angle} onClick={() => setView(angle)}>{angle}</button>)}
           <button onClick={() => setMoving(!moving)}>{moving ? '一時停止' : '動きを見る'}</button>
           <label>上がりの走り <input type="range" aria-label="上がりの走り" min={0} max={1} step={0.01} value={kick} onChange={e => setKick(Number(e.target.value))} /> {Math.round(kick * 100)}%</label>
