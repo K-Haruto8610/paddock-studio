@@ -80,8 +80,10 @@ def load_runs(refresh=False):
 # ------------------------------------------------------------------------------------------------ opponent rating
 def ratings(runs, alpha=RATING_ALPHA, prior=RATING_PRIOR):
     """Per-run rating columns (see the module docstring); returns a frame with RACE_CODE, UMABAN and the columns. `runs` sorted by date.
-    Only runs that finished normally (a finish place and a normal result code) are rated and rated against."""
-    ok = runs[runs.normal & runs.KAISAI_NEN.notna() & runs.KAKUTEI_CHAKUJUN.between(1, 18)]
+    The field of a race is every horse that was in it before the off (not scratched / excluded before the race: `normal`), whether or not it
+    finished, so `opp_mean` and `rating_pct` never use who failed to finish (post-race information). Only horses with a finish place are
+    scored and updated (their y is scaled by the number of finishers)."""
+    ok = runs[runs.normal & runs.KAISAI_NEN.notna()]
     out = []
     num, den = {}, {}
     for date, day in ok.groupby('date', sort=True):
@@ -94,16 +96,20 @@ def ratings(runs, alpha=RATING_ALPHA, prior=RATING_PRIOR):
             nu = np.array([num.get(h, 0.0) for h in ids])
             de = np.array([den.get(h, 0.0) for h in ids])
             r = nu / (de + prior)
-            fin = x.KAKUTEI_CHAKUJUN.to_numpy(float)
-            fin_rank = pd.Series(fin).rank(method='average').to_numpy()  # ties (dead heats) share a place
-            y = ((n + 1) / 2 - fin_rank) / ((n - 1) / 2)
             opp = (r.sum() - r) / (n - 1)
+            fin = x.KAKUTEI_CHAKUJUN.to_numpy(float)
+            fin_ok = (fin >= 1) & (fin <= 18)
+            m = int(fin_ok.sum())
+            y = np.full(n, np.nan)
+            if m >= 3:
+                fin_rank = pd.Series(np.where(fin_ok, fin, np.nan)).rank(method='average').to_numpy()  # ties (dead heats) share a place
+                y = np.where(fin_ok, ((m + 1) / 2 - fin_rank) / ((m - 1) / 2), np.nan)
             perf = opp + y
             pct = pd.Series(r).rank(pct=True).to_numpy()
             out.append(pd.DataFrame({'RACE_CODE': x.RACE_CODE.to_numpy(), 'UMABAN': x.UMABAN.to_numpy(), 'rating_pre': r, 'rating_conf': de,
                                      'opp_mean': opp, 'perf': perf, 'perf_raw': y, 'rating_pct': pct}))
-            updates.extend(zip(ids, perf, y))
-        for h, p, _ in updates:  # the day's results enter only after the whole day is scored
+            updates.extend((h, p) for h, p, f in zip(ids, perf, fin_ok) if f and m >= 3)
+        for h, p in updates:  # the day's results enter only after the whole day is scored
             num[h] = (1 - alpha) * num.get(h, 0.0) + p
             den[h] = (1 - alpha) * den.get(h, 0.0) + 1.0
     return pd.concat(out, ignore_index=True)
@@ -111,7 +117,7 @@ def ratings(runs, alpha=RATING_ALPHA, prior=RATING_PRIOR):
 
 def plain_form(runs, alpha=RATING_ALPHA, prior=RATING_PRIOR):
     """The same exponentially weighted, shrunk mean of the finish position y WITHOUT the opponent term (baseline for the rating)."""
-    ok = runs[runs.normal & runs.KAKUTEI_CHAKUJUN.between(1, 18)]
+    ok = runs[runs.normal]
     out, num, den = [], {}, {}
     for date, day in ok.groupby('date', sort=True):
         updates = []
@@ -121,9 +127,14 @@ def plain_form(runs, alpha=RATING_ALPHA, prior=RATING_PRIOR):
                 continue
             ids = x.KETTO_TOROKU_BANGO.to_numpy()
             r = np.array([num.get(h, 0.0) / (den.get(h, 0.0) + prior) for h in ids])
-            y = ((n + 1) / 2 - pd.Series(x.KAKUTEI_CHAKUJUN.to_numpy(float)).rank().to_numpy()) / ((n - 1) / 2)
+            fin = x.KAKUTEI_CHAKUJUN.to_numpy(float)
+            fin_ok = (fin >= 1) & (fin <= 18)
+            m = int(fin_ok.sum())
             out.append(pd.DataFrame({'RACE_CODE': x.RACE_CODE.to_numpy(), 'UMABAN': x.UMABAN.to_numpy(), 'plain_pre': r}))
-            updates.extend(zip(ids, y))
+            if m >= 3:
+                fr = pd.Series(np.where(fin_ok, fin, np.nan)).rank().to_numpy()
+                y = ((m + 1) / 2 - fr) / ((m - 1) / 2)
+                updates.extend((h, v) for h, v, f in zip(ids, y, fin_ok) if f)
         for h, y in updates:
             num[h] = (1 - alpha) * num.get(h, 0.0) + y
             den[h] = (1 - alpha) * den.get(h, 0.0) + 1.0

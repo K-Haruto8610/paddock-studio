@@ -139,12 +139,30 @@ def cmd_indices(_):
     x = m[m.date.between('20220101', '20251231') & (m.rating_conf > 0)]
     res['opponentAdjustment'] = {'corr_oppMean_vs_perfRaw': float(np.corrcoef(x.opp_mean, x.perf_raw)[0, 1]),
                                  'note': 'perf_raw is the finish position y; its mean within a race is 0, so a correlation with opp_mean would be a bias'}
-    # leakage check: ratings as of a day must not move when the future is dropped
+    # leakage checks. (1) dropping the future must not move a rating; (2) scrambling a day's own results (and making one horse per race a
+    # non-finisher) must not move ANY pre-race rating column of that day, only the later ones; (3) the field of a race is every horse that
+    # was in it before the off, so opp_mean / rating_pct do not use who failed to finish.
     cut = '20250301'
     early = ci.ratings(runs[runs.date < cut])
     both = early.merge(rt, on=['RACE_CODE', 'UMABAN'], suffixes=('_cut', ''))
-    res['leakCheck'] = {'rows': int(len(both)), 'maxAbsDiff': float((both.rating_pre_cut - both.rating_pre).abs().max()),
-                        'oppMaxAbsDiff': float((both.opp_mean_cut - both.opp_mean).abs().max())}
+    day = '20250914'
+    codes = runs[runs.date == day].RACE_CODE.unique()
+    r2 = runs.copy()
+    rng = np.random.default_rng(1)
+    for code in codes:
+        idx = r2.index[(r2.RACE_CODE == code) & r2.KAKUTEI_CHAKUJUN.between(1, 18)]
+        r2.loc[idx, 'KAKUTEI_CHAKUJUN'] = rng.permutation(r2.loc[idx, 'KAKUTEI_CHAKUJUN'].to_numpy())
+        r2.loc[idx[0], 'KAKUTEI_CHAKUJUN'] = 0
+    rt2 = ci.ratings(r2)
+    a = rt[rt.RACE_CODE.isin(codes)].set_index(['RACE_CODE', 'UMABAN'])
+    b = rt2[rt2.RACE_CODE.isin(codes)].set_index(['RACE_CODE', 'UMABAN'])
+    later = runs[(runs.date > day) & (runs.date <= '20251130') & runs.KETTO_TOROKU_BANGO.isin(set(runs[runs.date == day].KETTO_TOROKU_BANGO))].RACE_CODE.unique()
+    mm = rt[rt.RACE_CODE.isin(later)].merge(rt2[rt2.RACE_CODE.isin(later)], on=['RACE_CODE', 'UMABAN'], suffixes=('_a', '_b'))
+    res['leakCheck'] = {'rowsCompared': int(len(both)), 'dropFutureMaxAbsDiff': float((both.rating_pre_cut - both.rating_pre).abs().max()),
+                        'dropFutureOppMaxAbsDiff': float((both.opp_mean_cut - both.opp_mean).abs().max()),
+                        'sameDayScrambleMaxAbsDiff': {c: float((a[c] - b[c]).abs().max()) for c in ('rating_pre', 'opp_mean', 'rating_pct', 'rating_conf')},
+                        'sameDayScrambleRaces': int(len(codes)),
+                        'laterRacesOfThoseHorses': int(len(later)), 'laterRatingMaxChange': float((mm.rating_pre_a - mm.rating_pre_b).abs().max())}
     # ---- day clock
     t = ci.race_table(runs)
     c = ci.day_clock(t)

@@ -91,7 +91,13 @@ def cmd_select(args, variants):
     out = e1.OUT
     P = e1.contention_params()
     res = {'seed': args.seed, 'params': P, 'runs': {}}
+    f = out / f'select_seed{args.seed}.json'
+    only = set(args.only.split(',')) if args.only else None
+    if only and f.exists():  # re-run some variants and keep the others
+        res = json.loads(f.read_text(encoding='utf-8'))
     for name, v in variants.items():
+        if only and name not in only:
+            continue
         ex.set_seed(args.seed)
         prepare(d, v)
         models = pm.fit_models(d, SEL[0])
@@ -158,10 +164,10 @@ def corner_mean(s, key, corners):
     return float(np.mean([s[f'c{c}'][key] for c in corners if f'c{c}' in s]))
 
 
-def decide(variants, focus, out_name=None, choose_by='tau'):
+def decide(variants, focus, last3_focus=False, exclude=(), choose_by='tau'):
     """Print and save the selection table and the three adoption conditions for the variant chosen on the selection window."""
     sel = [json.loads((e1.OUT / f'select_seed{s}.json').read_text(encoding='utf-8'))['runs'] for s in (42, 7)]
-    names = [n for n in variants if n != 'base']
+    names = [n for n in variants if n != 'base' and n not in exclude]
     rows = {}
     for n in names:
         row = {}
@@ -180,13 +186,13 @@ def decide(variants, focus, out_name=None, choose_by='tau'):
     key = {'tau': lambda n: np.mean([rows[n][s]['tauFocus'] for s in (42, 7)])}[choose_by]
     best = max(names, key=key)
     ok1 = all(rows[best][s]['tauFocus'] > 0 and rows[best][s]['integerFocus'] < 0 and rows[best][s]['modelFocus'] < 0
-              and rows[best][s]['tauAll'] > -0.002 for s in (42, 7))
+              and rows[best][s]['tauAll'] > -0.002 and (not last3_focus or rows[best][s]['last3'] < 0) for s in (42, 7))
     print(f'chosen on the selection window: {best} (2-seed focus tau gain {key(best):+.4f}); condition 1 (both seeds, focus tau / integer / '
           f'continuous, corner-averaged tau not falling): {ok1}', flush=True)
     return best, rows, ok1
 
 
-def decide_report(best, focus, retune=True):
+def decide_report(best, focus, retune=True, last3_focus=False):
     suffix = '_retune' if retune else ''
     reps = [json.loads((e1.OUT / f'report_seed{s}{suffix}.json').read_text(encoding='utf-8')) for s in (42, 7)]
     out = {'candidate': best, 'seeds': {}}
@@ -201,7 +207,7 @@ def decide_report(best, focus, retune=True):
                'lane': {k: c[f'c{k}']['lane'] - b[f'c{k}']['lane'] for k in pm.CORNERS if f'c{k}' in c},
                'laneRatioToZero': {k: (c[f'c{k}']['laneRatioToZero'], b[f'c{k}']['laneRatioToZero']) for k in pm.CORNERS if f'c{k}' in c},
                'diffs': {k: v for k, v in r['diffs'].items()}}
-        row['same'] = row['tauFocus'] > 0 and row['integerFocus'] < 0 and row['modelFocus'] < 0
+        row['same'] = row['tauFocus'] > 0 and row['integerFocus'] < 0 and row['modelFocus'] < 0 and (not last3_focus or row['last3'] < 0)
         row['guards'] = (max(row['gap'].values()) <= TOL['g'] and max(row['lane'].values()) <= TOL['l'] and row['last3'] <= TOL['last3'])
         ok2, ok3 = ok2 and row['same'], ok3 and row['guards']
         out['seeds'][s] = row
@@ -216,11 +222,12 @@ def decide_report(best, focus, retune=True):
     return out
 
 
-def main(variants, focus, out_name, extra_cmds=None):
+def main(variants, focus, out_name, extra_cmds=None, last3_focus=False, exclude=()):
     ap = argparse.ArgumentParser()
     ap.add_argument('cmd', choices=['select', 'report', 'decide'] + list(extra_cmds or {}))
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--variant')
+    ap.add_argument('--only', help='select: only these variants (comma separated), the others stay as recorded')
     ap.add_argument('--retune', action='store_true')
     args = ap.parse_args()
     e1.OUT = ROOT / 'outputs' / out_name
@@ -232,11 +239,11 @@ def main(variants, focus, out_name, extra_cmds=None):
     elif args.cmd == 'report':
         cmd_report(args, variants)
     else:
-        best, rows, ok1 = decide(variants, focus)
+        best, rows, ok1 = decide(variants, focus, last3_focus, exclude)
         res = {'chosen': best, 'selection': rows, 'condition1': ok1}
         for retune in (False, True):
             try:
-                res['report_retune' if retune else 'report_fixed'] = decide_report(best, focus, retune)
+                res['report_retune' if retune else 'report_fixed'] = decide_report(best, focus, retune, last3_focus)
             except FileNotFoundError:
                 pass
         e1.OUT.mkdir(parents=True, exist_ok=True)
