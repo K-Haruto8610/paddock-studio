@@ -840,8 +840,8 @@ function outlineSpan(table: [number, number, number][], y: number): [number, num
 }
 
 /** The mane, in body coordinates: locks of hair rising from the crest and swept back, from the poll to the withers. */
-function maneGeometry(settings: HeadSettings, menko: boolean) {
-  const cacheKey = JSON.stringify(settings) + menko + HAIR_TEMPLATE_VERSION;
+function maneGeometry(settings: HeadSettings, menko: boolean, model: HorseModel | null = null) {
+  const cacheKey = JSON.stringify(settings) + menko + HAIR_TEMPLATE_VERSION + (model ? 'B' : '');
   let template = maneTemplates.get(cacheKey);
   if (!template) {
     const {headWidth} = settings;
@@ -941,31 +941,11 @@ function maneGeometry(settings: HeadSettings, menko: boolean) {
       while (i < crestLength.length - 1 && crestLength[i] < target) i++;
       return T.MathUtils.mapLinear(target, crestLength[i - 1], crestLength[i], crestX[i - 1], crestX[i]);
     };
-    for (let tries = 0; strands.length < 9000 && tries < 6000; tries++) {
-      // Roots along the sewn crest line, which widens into a patch between the ears.
-      const x = crestAt(random());
-      const poll = T.MathUtils.smoothstep(x, 0.15, 0.5);
-      const halfWidth = T.MathUtils.lerp(0.15, 0.2, poll);
-      const across = random() * 2 - 1;
-      const surface = surfaceBelow(x, across * halfWidth);
-      if (!surface || !inside(surface, 0.03)) continue;
-      const root = surface.addScaledVector(normalAt(surface), -0.01);
-      const drape = x > 0.05 && Math.abs(across) > 0.6 && random() < 0.3;
-      // Hair fans away from the centre line in proportion to how far out it is rooted, so no two locks cross;
-      // further at the poll, where the outline is widest.
-      const fan = (across + (random() - 0.5) * 0.3) * T.MathUtils.lerp(0.9, 0.7, poll);
-      // Upright at the poll to reach the top of the outline; swept further back down the neck.
-      const sweep = T.MathUtils.lerp(0.35 + random() * 0.9, random() * 0.55, poll);
-      const curl = T.MathUtils.lerp(0.05, 0.008, poll) * (0.6 + random() * 0.8);
-      let guide: T.Vector3[] = [];
-      for (let attempt = 0; attempt < 5 && guide.length < 6; attempt++) {
-        // Try the full backward sweep first; near the back edge of the outline only upright locks have room.
-        guide = growGuide(root, sweep * (1 - attempt / 5), fan, curl, drape);
-      }
-      if (guide.length < 4) continue;
+    // Hairs scattered around one guide: each starts a little apart from the root and gathers toward the guide.
+    const scatter = (root: T.Vector3, guide: T.Vector3[], locks: number) => {
       const phase = random() * Math.PI * 2, twist = (random() - 0.5) * 2.4;
       const shade = 0.9 + random() * 0.22;
-      for (let n = 0; n < perLock; n++) {
+      for (let n = 0; n < locks; n++) {
         // Each hair starts a little apart from the guide and gathers toward it, so the lock tapers to a tip.
         const angle = random() * Math.PI * 2, r = 0.055 * Math.sqrt(random());
         const at = surfaceBelow(root.x + Math.cos(angle) * r, root.z + Math.sin(angle) * r);
@@ -993,6 +973,39 @@ function maneGeometry(settings: HeadSettings, menko: boolean) {
         }
         strands.push({points, radius: 0.0016 + random() * 0.001, shade: shade * (0.94 + random() * 0.12)});
       }
+    };
+    const guides = model ? (menko ? model.hair.maneGuidesMenko : model.hair.maneGuides) : null;
+    if (guides) {
+      // Guides modelled in Blender: the same lock-by-lock scattering around them, the crest set by where the roots were put.
+      const locks = Math.max(1, Math.round(9000 / guides.length));
+      for (const modelled of guides) {
+        const guide = modelled.map(point => point.clone());
+        for (const point of guide) point.y = base + (point.y - base) * stretch;
+        scatter(guide[0].clone(), guide, locks);
+      }
+    } else     for (let tries = 0; strands.length < 9000 && tries < 6000; tries++) {
+      // Roots along the sewn crest line, which widens into a patch between the ears.
+      const x = crestAt(random());
+      const poll = T.MathUtils.smoothstep(x, 0.15, 0.5);
+      const halfWidth = T.MathUtils.lerp(0.15, 0.2, poll);
+      const across = random() * 2 - 1;
+      const surface = surfaceBelow(x, across * halfWidth);
+      if (!surface || !inside(surface, 0.03)) continue;
+      const root = surface.addScaledVector(normalAt(surface), -0.01);
+      const drape = x > 0.05 && Math.abs(across) > 0.6 && random() < 0.3;
+      // Hair fans away from the centre line in proportion to how far out it is rooted, so no two locks cross;
+      // further at the poll, where the outline is widest.
+      const fan = (across + (random() - 0.5) * 0.3) * T.MathUtils.lerp(0.9, 0.7, poll);
+      // Upright at the poll to reach the top of the outline; swept further back down the neck.
+      const sweep = T.MathUtils.lerp(0.35 + random() * 0.9, random() * 0.55, poll);
+      const curl = T.MathUtils.lerp(0.05, 0.008, poll) * (0.6 + random() * 0.8);
+      let guide: T.Vector3[] = [];
+      for (let attempt = 0; attempt < 5 && guide.length < 6; attempt++) {
+        // Try the full backward sweep first; near the back edge of the outline only upright locks have room.
+        guide = growGuide(root, sweep * (1 - attempt / 5), fan, curl, drape);
+      }
+      if (guide.length < 4) continue;
+      scatter(root, guide, perLock);
     }
     template = strandTemplate(strands);
     if (maneTemplates.size >= 8) maneTemplates.delete(maneTemplates.keys().next().value!);
@@ -1004,8 +1017,8 @@ function maneGeometry(settings: HeadSettings, menko: boolean) {
 const TAIL_ROOT: Point = [-1.22, 1.38, 0];
 const tailTemplates = new Map<string, HairTemplate>();
 /** The tail, in the tail group's coordinates: long hairs that leave the dock, arch, and hang clear of the hindquarters. */
-function tailGeometry(settings: HeadSettings) {
-  const cacheKey = JSON.stringify(settings) + HAIR_TEMPLATE_VERSION;
+function tailGeometry(settings: HeadSettings, model: HorseModel | null = null) {
+  const cacheKey = JSON.stringify(settings) + HAIR_TEMPLATE_VERSION + (model ? 'B' : '');
   let template = tailTemplates.get(cacheKey);
   if (!template) {
     const solid: Solid = (x, y, z) => bodyDistance(x + TAIL_ROOT[0], y + TAIL_ROOT[1], z + TAIL_ROOT[2], settings, false);
@@ -1014,8 +1027,11 @@ function tailGeometry(settings: HeadSettings) {
     const gravity = new T.Vector3(-0.04, -1, 0).normalize();
     const strands: Strand[] = [];
     // One curved centre line keeps the long hairs together at the tip.
-    const spine = growStrand(new T.Vector3(-0.15, 0, 0), new T.Vector3(-1, 0.4, 0), 1.5, 36,
-      {gravity, droop: 0.085, solid, clearance: 0.12, wave: 0, random});
+    // The Blender model's spine (in the horse frame) replaces the grown one; the hairs wrap around either.
+    const spine = model
+      ? model.hair.tailSpine.map(point => point.clone().sub(new T.Vector3(...TAIL_ROOT)))
+      : growStrand(new T.Vector3(-0.15, 0, 0), new T.Vector3(-1, 0.4, 0), 1.5, 36,
+        {gravity, droop: 0.085, solid, clearance: 0.12, wave: 0, random});
     for (let n = 0; n < 1500; n++) {
       const angle = random() * Math.PI * 2, spread = Math.sqrt(random());
       // Outer hairs finish earlier; only a few central hairs reach the very end.
@@ -1334,6 +1350,24 @@ function addModelHead(
   }
 }
 
+/**
+ * Saddle cloth or number panel from the Blender model, lifted radially (about the back's axis, y = 1.22) so it clears
+ * the fur: the model stands 25 mm off the trunk, the code wants pile length + 12 mm.
+ */
+function modelCloth(source: T.BufferGeometry, pileLength: number) {
+  const geometry = source.clone();
+  const lift = Math.max(0.025, pileLength + 0.012) - 0.025;
+  const position = geometry.attributes.position as T.BufferAttribute;
+  const radial = new T.Vector2();
+  for (let i = 0; i < position.count; i++) {
+    radial.set(position.getY(i) - 1.22, position.getZ(i)).normalize().multiplyScalar(lift);
+    position.setY(i, position.getY(i) + radial.x);
+    position.setZ(i, position.getZ(i) + radial.y);
+  }
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 /** The bridle straps and joints from the Blender model, lifted onto the fur where they lie on bare coat. */
 function addModelBridle(head: T.Group, model: HorseModel, leather: T.Material, pileLength: number) {
   const onCoat = Math.max(STRAP_LIFT * 1.18, pileLength + STRAP_THICKNESS / 2 * 1.18 + 0.0035);
@@ -1466,7 +1500,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   // Mane and tail are real hairs that sway in the vertex shader. The mane is grown in body coordinates and hangs from
   // the body: it rides the neck, and the shader turns only the hair at the poll with the head, which now nods far more.
   const maneHair = hairMaterials('mane'), tailHair = hairMaterials('tail');
-  const mane = new T.Mesh(maneGeometry(settings, !!h.blinker), maneHair.material);
+  const mane = new T.Mesh(maneGeometry(settings, !!h.blinker, model), maneHair.material);
   mane.name = 'hair-mane';
   mane.castShadow = mane.receiveShadow = true;
   mane.customDepthMaterial = maneHair.depth;
@@ -1478,7 +1512,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   body.add(tail);
   // A small stuffed dock closes the root, where the hairs are sewn in.
   ball(tail, hair, [-0.12, 0, 0], [0.12, 0.1, 0.1]).name = 'tail-dock';
-  const tailMesh = new T.Mesh(tailGeometry(settings), tailHair.material);
+  const tailMesh = new T.Mesh(tailGeometry(settings, model), tailHair.material);
   tailMesh.name = 'hair-tail';
   tailMesh.castShadow = tailMesh.receiveShadow = true;
   tailMesh.customDepthMaterial = tailHair.depth;
@@ -1498,13 +1532,15 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     const r = (low + high) / 2 + Math.max(0.025, pileLength + 0.012) + lift;
     return [x, 1.22 + r * Math.cos(t), r * Math.sin(t)];
   };
-  const clothGeometry = new T.PlaneGeometry(1.08, 2.8, 10, 24);
-  const pos = clothGeometry.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const t = pos.getY(i) / 1.4 * 1.72;
-    pos.setXYZ(i, ...clothPoint(pos.getX(i) - 0.65, t));
+  const clothGeometry = model ? modelCloth(model.saddle.cloth, pileLength) : new T.PlaneGeometry(1.08, 2.8, 10, 24);
+  if (!model) {
+    const pos = clothGeometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const t = pos.getY(i) / 1.4 * 1.72;
+      pos.setXYZ(i, ...clothPoint(pos.getX(i) - 0.65, t));
+    }
+    clothGeometry.computeVertexNormals();
   }
-  clothGeometry.computeVertexNormals();
   blue.side = T.DoubleSide;
   const saddle = new T.Mesh(clothGeometry, blue);
   saddle.castShadow = saddle.receiveShadow = true;
@@ -1524,14 +1560,16 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   printMap.colorSpace = T.SRGBColorSpace;
   const printMaterial = new T.MeshStandardMaterial({map: printMap, roughness: 1, transparent: true, depthWrite: false});
   for (const side of [-1, 1]) {
-    const geometry = new T.PlaneGeometry(1, 1, 12, 12);
-    const vertices = geometry.attributes.position;
-    for (let i = 0; i < vertices.count; i++) {
-      const x = -0.65 + vertices.getX(i) * 0.9 * side;
-      const t = side * (1.25 - vertices.getY(i) * 0.85);
-      vertices.setXYZ(i, ...clothPoint(x, t, 0.008));
+    const geometry = model ? modelCloth(model.saddle[side < 0 ? 'printL' : 'printR'], pileLength) : new T.PlaneGeometry(1, 1, 12, 12);
+    if (!model) {
+      const vertices = geometry.attributes.position;
+      for (let i = 0; i < vertices.count; i++) {
+        const x = -0.65 + vertices.getX(i) * 0.9 * side;
+        const t = side * (1.25 - vertices.getY(i) * 0.85);
+        vertices.setXYZ(i, ...clothPoint(x, t, 0.008));
+      }
+      geometry.computeVertexNormals();
     }
-    geometry.computeVertexNormals();
     const print = new T.Mesh(geometry, printMaterial);
     body.add(print);
   }

@@ -20,6 +20,6 @@ bpy.context.view_layer.objects.active = bpy.data.objects["horse_body"]
 bpy.ops.export_scene.gltf(
     filepath=out, export_format="GLB", use_selection=True, export_yup=True,
     export_materials="NONE", export_apply=True, export_normals=True, export_texcoords=True,
-    export_attributes=True, export_cameras=False, export_lights=False, export_extras=False,
+    export_attributes=True, use_mesh_edges=True, export_cameras=False, export_lights=False, export_extras=False,
 )
 print("exported", out, os.path.getsize(out), "bytes")

@@ -4,15 +4,18 @@
 
   horse_body   torso + neck + head + legs as one seamless shell                        (blender/body.py)
   horse_head   empty at the neck pivot (0.55, 1.6); ears, eyes, nostrils, menko and bridle hang on it  (head.py, menko.py)
-Mane, tail, saddle cloth come later, one part at a time.
+  horse_saddle, horse_saddle_print_L/R   the saddle cloth and number panels                  (saddle.py)
+  horse_mane_guides[_menko], horse_tail_spine   guide hairs the app grows the mane and tail around   (hair.py)
 """
 ARGS["lib"], ARGS["unified"] = "1", "1"
-for part in ("head.py", "body.py", "menko.py"):
+for part in ("head.py", "body.py", "menko.py", "saddle.py", "hair.py"):
     exec(open(ARGS["root"] + "/blender/" + part, encoding="utf-8").read())
 
 build_body()
 build()                                   # head group + ears, eyes, nostrils
 info = build_menko_and_bridle()           # hood + bridle
+print(build_saddle())                     # saddle cloth and its two number panels
+print(build_hair())                       # mane and tail guides
 tri = lambda o: sum(len(p.vertices) - 2 for p in o.data.polygons) if o.type == "MESH" else 0
 counts = {o.name: tri(o) for o in bpy.data.objects if o.name.startswith("horse_")}
 body_tris = counts["horse_body"]

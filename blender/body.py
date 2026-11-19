@@ -62,7 +62,8 @@ def face_np(px, py, pz):
     return _su(forehead, nose, 0.2 * FACE_BLEND) * HEAD_S * WIDTH
 
 
-def body_np(px, py, pz):
+def trunk_np(px, py, pz):
+    """Torso with its legs, no neck or head: bodyDistance(..., includeHead = false), what the saddle cloth and tail lie on."""
     power = 2 / 0.82
     d = ((np.abs((px + 0.15) / 1.22) ** power + np.abs((py - 1.22) / 0.87) ** power + np.abs(pz / 0.8) ** power) ** (1 / power) - 1) * 0.8
     feet = np.full(np.shape(d), np.inf)
@@ -73,7 +74,12 @@ def body_np(px, py, pz):
             vertical = np.abs(py - 0.59) - (0.59 - 0.06)
             foot = np.hypot(np.maximum(radial, 0), np.maximum(vertical, 0)) + np.minimum(np.maximum(radial, vertical), 0) - 0.06
             feet = np.minimum(feet, foot)
-    torso = _blend(py, d, feet)
+    return _blend(py, d, feet)
+
+
+def body_np(px, py, pz):
+    power = 2 / 0.82
+    torso = trunk_np(px, py, pz)
     face = face_np(px, py, pz)
     lean = np.clip(((px - 0.55) * 0.38 + (py - 1.25) * 0.65) / 0.5669, 0, 1)
     chest = (np.hypot(np.hypot(px - (0.55 + 0.38 * lean), py - (1.25 + 0.65 * lean)), pz / WIDTH) - (0.57 - 0.08 * lean)) * WIDTH

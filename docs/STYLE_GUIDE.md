@@ -91,3 +91,11 @@ Paddock Studio の3Dモデルと質感の共通仕様。Blender でのモデリ�
 - 確認: `/plush-preview` の「Blender のモデル」チェック、または `/plush-preview?model=blender`。コード版と並べた比較は `blender/previews/app-code-vs-blender.png`（上がコード、下が Blender。左が静止、右が走り）。
 - 脚の振りと頭の上下は、従来どおりアプリが頂点の位置から計算する。
 - 革ひもは、毛足の上に乗るよう、アプリ側で外へ持ち上げる（`_cover` が 1 の頭巾の上では持ち上げ量が小さい）。
+
+## 付記: たてがみ・尾・ゼッケン（2026-11-19）
+
+- **ゼッケン**（`blender/saddle.py`）: 布 `horse_saddle`（10×24）と、左右の番号面 `horse_saddle_print_L/R`（12×12、UV 0..1）。胴体（脚つき、首と頭なし）の上に、アプリの `clothPoint` と同じ線で掛ける。布は胴から 25 mm 浮かせてあり、アプリが毛足の長さに合わせて放射状に持ち上げる。番号と馬名の文字は、これまでどおりアプリが実行時に描く。
+- **たてがみ・尾**（`blender/hair.py`）: 毛そのものは数万本の細い管で、揺れは頂点シェーダーで付けている。手で作るものではないので、Blender が持つのは**ガイドの毛**。`horse_mane_guides`（メンコなし、150 房）、`horse_mane_guides_menko`（メンコの上に掛かる版）、`horse_tail_spine`（尾の中心線、37 点）。点を動かす、房を足す・消すと、アプリがその周りに毛を生やす。ガイドは辺だけのメッシュで、点ごとに `_strand`（房の番号）を持つ。
+- アプリ側は `plush(h, {model: 'blender'})` で、ゼッケン、たてがみ、尾もモデルのものを使う。毛の生やし方（1房あたり約 60 本、散らし方、揺れ）は従来のコードのまま。
+- 三角形: ゼッケン 1,056（布 480、番号面 288×2）。合計（毛のガイドを除く）は 16,680。
+- 確認画像: `blender/previews/app-code-vs-blender-full.png`（上がコード、下が Blender）、`blender-full-horse.png`、`blender-guides-saddle.png`（Blender の中の見え方。毛のガイドは細い管で表示）。

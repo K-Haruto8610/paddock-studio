@@ -47,6 +47,30 @@ fm.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.35
 floor.data.materials.append(fm)
 sc.collection.objects.link(floor)
 
+# Guide hairs are loose edges, which do not render: draw them as thin tubes (preview only; the bare-head mane is left out
+# because the preview wears the menko).
+for src in ("horse_mane_guides_menko", "horse_tail_spine"):
+    obj = bpy.data.objects.get(src)
+    if not obj: continue
+    cu = bpy.data.curves.new("preview_" + src, "CURVE")
+    cu.dimensions, cu.bevel_depth, cu.bevel_resolution = "3D", 0.006, 1
+    strand = obj.data.attributes["_strand"].data
+    runs = {}
+    for i, v in enumerate(obj.data.vertices):
+        runs.setdefault(int(strand[i].value), []).append(obj.matrix_world @ v.co)
+    for pts in runs.values():
+        sp = cu.splines.new("POLY")
+        sp.points.add(len(pts) - 1)
+        for p, co in zip(sp.points, pts): p.co = (co.x, co.y, co.z, 1)
+    gm = bpy.data.materials.get("preview_hair") or bpy.data.materials.new("preview_hair")
+    gm.use_nodes = True
+    gm.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.05, 0.04, 0.04, 1)
+    cu.materials.append(gm)
+    o = bpy.data.objects.new("preview_" + src, cu)
+    sc.collection.objects.link(o)
+for src in ("horse_mane_guides", "horse_mane_guides_menko", "horse_tail_spine"):
+    if bpy.data.objects.get(src): bpy.data.objects[src].hide_render = True
+
 cam = bpy.data.objects.new("preview_cam", bpy.data.cameras.new("preview_cam"))
 sc.collection.objects.link(cam)
 sc.camera = cam
