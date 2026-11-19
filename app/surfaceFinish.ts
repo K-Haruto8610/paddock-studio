@@ -1,6 +1,5 @@
 import * as T from 'three';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
-import {mergeGeometries, mergeVertices} from 'three/addons/utils/BufferGeometryUtils.js';
 import {apronTexture, seeded, tileNoise} from './scenery';
 import {photoTextures, type PhotoSet} from './photoTextures';
 
@@ -10,7 +9,7 @@ import {photoTextures, type PhotoSet} from './photoTextures';
 /** Metres of felt covered by one repeat of the nap map. */
 export const FELT_TILE = 1.6;
 
-function normalFromHeight(height: Float32Array, size: number, strength: number) {
+export function normalFromHeight(height: Float32Array, size: number, strength: number) {
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const g = c.getContext('2d')!;
@@ -212,142 +211,6 @@ export function bevelBox(w: number, h: number, d: number, bevel = 0.18, tile = C
     else uv.setXY(i, p.getX(i) / tile, p.getY(i) / tile);
   }
   return geometry;
-}
-
-function valueNoise3(x: number, y: number, z: number) {
-  const hash = (i: number, j: number, k: number) => {
-    const h = Math.sin(i * 127.1 + j * 311.7 + k * 74.7) * 43758.5453;
-    return h - Math.floor(h);
-  };
-  const ease = (t: number) => t * t * (3 - 2 * t);
-  const x0 = Math.floor(x), y0 = Math.floor(y), z0 = Math.floor(z);
-  const fx = ease(x - x0), fy = ease(y - y0), fz = ease(z - z0);
-  const L = T.MathUtils.lerp;
-  return L(
-    L(L(hash(x0, y0, z0), hash(x0 + 1, y0, z0), fx), L(hash(x0, y0 + 1, z0), hash(x0 + 1, y0 + 1, z0), fx), fy),
-    L(L(hash(x0, y0, z0 + 1), hash(x0 + 1, y0, z0 + 1), fx), L(hash(x0, y0 + 1, z0 + 1), hash(x0 + 1, y0 + 1, z0 + 1), fx), fy),
-    fz) * 2 - 1;
-}
-
-const foliage = new Map<number, T.BufferGeometry>();
-
-/**
- * The crown of a broadleaf tree, about 1 m in radius: a cluster of lumpy lobes (each a sphere pushed in and out by noise, so
- * the outline is irregular and the volume has hollows), joined into one smooth surface, darker underneath and lighter on top.
- * One geometry per `detail` (icosahedron subdivisions of a lobe: 3 is 10k triangles, 2 is 2.6k for the dense rows), shared
- * by every tree; the colour of each tree comes from its instance.
- */
-export function foliageGeometry(detail = 3) {
-  const cached = foliage.get(detail);
-  if (cached) return cached;
-  const lobes: [number, number, number, number][] = [
-    [0, 0, 0, 0.66], [0.5, -0.12, 0.18, 0.5], [-0.48, -0.1, 0.2, 0.52], [0.12, 0.34, -0.46, 0.5],
-    [0.05, -0.08, 0.55, 0.48], [-0.2, 0.4, 0.12, 0.45], [0.38, 0.28, 0.3, 0.4], [-0.4, 0.2, -0.4, 0.42],
-  ];
-  const parts = lobes.map(([x, y, z, r], index) => {
-    const sphere = new T.IcosahedronGeometry(1, detail);
-    const p = sphere.attributes.position;
-    for (let i = 0; i < p.count; i++) {
-      const vx = p.getX(i), vy = p.getY(i), vz = p.getZ(i);
-      const bump = 1 + 0.2 * valueNoise3(vx * 2.4 + index * 7.1, vy * 2.4, vz * 2.4) + 0.1 * valueNoise3(vx * 6 + index, vy * 6, vz * 6);
-      p.setXYZ(i, x + vx * r * bump, y + vy * r * bump * 0.86, z + vz * r * bump);
-    }
-    return sphere;
-  });
-  let merged = mergeGeometries(parts)!;
-  parts.forEach(part => part.dispose());
-  merged.deleteAttribute('normal');
-  merged.deleteAttribute('uv');
-  merged = mergeVertices(merged, 1e-4);
-  merged.computeVertexNormals();
-  const position = merged.attributes.position;
-  const colors = new Float32Array(position.count * 3);
-  for (let i = 0; i < position.count; i++) {
-    const y = position.getY(i);
-    // Darker in the hollows and underneath, lit on top, with leaf-sized patches of light and dark.
-    const shade = T.MathUtils.clamp(0.74 + 0.34 * y + 0.2 * valueNoise3(position.getX(i) * 7, y * 7, position.getZ(i) * 7), 0.42, 1.25);
-    colors[i * 3] = shade * 0.98;
-    colors[i * 3 + 1] = shade;
-    colors[i * 3 + 2] = shade * 0.9;
-  }
-  merged.setAttribute('color', new T.BufferAttribute(colors, 3));
-  // Spherical uv for the leaf normal map: tiled several times round the crown.
-  const uv = new Float32Array(position.count * 2);
-  for (let i = 0; i < position.count; i++) {
-    uv[i * 2] = (Math.atan2(position.getZ(i), position.getX(i)) / (2 * Math.PI)) * 6;
-    uv[i * 2 + 1] = position.getY(i) * 2.2;
-  }
-  merged.setAttribute('uv', new T.BufferAttribute(uv, 2));
-  foliage.set(detail, merged);
-  return merged;
-}
-
-let leafMap: T.CanvasTexture | null = null;
-
-/** Normal map of leaf clusters: small rounded clumps and gaps, so a crown's surface is leafy rather than smooth. */
-export function leafNormalMap() {
-  if (!leafMap) {
-    const size = 256, rand = seeded(149);
-    const n = [10, 24, 56].map(k => tileNoise(rand, k));
-    const height = new Float32Array(size * size);
-    for (let y = 0; y < size; y++)
-      for (let x = 0; x < size; x++) {
-        const u = x / size, v = y / size;
-        // Clumps: the noise folded so its ridges make rounded tufts.
-        height[y * size + x] = 2.2 * Math.abs(n[0](u, v)) + 1.6 * Math.abs(n[1](u, v)) + 1.0 * n[2](u, v) + 0.6 * (rand() - 0.5);
-      }
-    leafMap = normalFromHeight(height, size, 0.9);
-  }
-  return leafMap;
-}
-
-/** A tree trunk: tapering, with a flared foot; 1 m tall, centred, unit width at the foot. */
-export function trunkGeometry() {
-  const profile = [[0, -0.5], [0.5, -0.5], [0.58, -0.45], [0.42, -0.2], [0.34, 0.2], [0.28, 0.5], [0, 0.5]].map(([r, y]) => new T.Vector2(r, y));
-  return new T.LatheGeometry(profile, 10);
-}
-
-let branches: T.BufferGeometry | null = null;
-
-/**
- * The bare wood of a broadleaf tree, for winter and the weeks around it: five limbs from the top of the trunk, each forking
- * twice into thinner branches that reach the outline of the crown (a vase, as zelkova and cherry grow). In the tree's
- * instance frame: x and z in crown widths, y in tree heights, standing on y = 0 (the trunk's own geometry ends at 0.5).
- */
-export function branchGeometry() {
-  if (branches) return branches;
-  const random = seeded(4417);
-  const parts: T.BufferGeometry[] = [];
-  const up = new T.Vector3(0, 1, 0);
-  const limb = (from: T.Vector3, to: T.Vector3, r0: number, r1: number) => {
-    const length = from.distanceTo(to);
-    const piece = new T.CylinderGeometry(r1, r0, length, 5, 1, true);
-    piece.applyQuaternion(new T.Quaternion().setFromUnitVectors(up, to.clone().sub(from).normalize()));
-    piece.translate((from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2);
-    parts.push(piece);
-  };
-  const grow = (from: T.Vector3, direction: T.Vector3, length: number, radius: number, depth: number) => {
-    const to = from.clone().addScaledVector(direction, length);
-    limb(from, to, radius, radius * 0.62);
-    if (depth === 0) return;
-    for (let k = 0; k < 3; k++) {
-      const turn = (k - 1) * 0.9 + (random() - 0.5) * 0.5;
-      const child = direction.clone().applyAxisAngle(up, turn);
-      child.y += 0.25 + random() * 0.3;
-      grow(from.clone().lerp(to, 0.55 + 0.4 * random()), child.normalize(), length * (0.55 + 0.15 * random()), radius * 0.55, depth - 1);
-    }
-  };
-  const base = new T.Vector3(0, 0.46, 0);
-  limb(new T.Vector3(0, 0.3, 0), base, 0.055, 0.045);
-  for (let i = 0; i < 5; i++) {
-    const angle = (i / 5) * Math.PI * 2 + random() * 0.6;
-    const direction = new T.Vector3(Math.cos(angle) * 0.55, 0.8, Math.sin(angle) * 0.55).normalize();
-    grow(base, direction, 0.36 + random() * 0.08, 0.04, 2);
-  }
-  grow(base, up.clone(), 0.42, 0.04, 1);
-  branches = mergeGeometries(parts)!;
-  parts.forEach(part => part.dispose());
-  return branches;
 }
 
 /** Metres covered by one repeat of the scanned wall and roof photos (a precast panel, a few corrugations). */

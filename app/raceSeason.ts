@@ -13,10 +13,15 @@ export type Foliage = {
   leaf: number;
   /** Fine twigs showing where the leaves are gone (0 for evergreens). */
   twig: number;
-  /** Main colour of the crown and the colour of its patches (sRGB). */
+  /** Main colour of the leaves and the colour of their patches (sRGB). */
   main: T.Color;
   patch: T.Color;
+  /** Share of the crown in flower (0 none) and the flowers' colour. */
+  bloom: number;
+  blossom: T.Color;
 };
+
+const NO_BLOOM = new T.Color('#ffffff');
 
 /** Day of the year (1 Jan = 0) of a race date `YYYYMMDD` or `YYYY-MM-DD`; midsummer if it does not parse. */
 export function dayOfYear(date: string) {
@@ -41,7 +46,7 @@ export function foliage(species: Species, day: number, jitter = 0): Foliage {
   if (species === 'evergreen') {
     // Dark, with lighter new growth in May.
     const main = colour('#3d5b3a').lerp(colour('#5f7f45'), 0.5 * ramp(d, 120, 140) * (1 - ramp(d, 160, 200)));
-    return {leaf: 1, twig: 0, main, patch: colour('#4c6a40')};
+    return {leaf: 1, twig: 0, main, patch: colour('#4c6a40'), bloom: 0, blossom: NO_BLOOM};
   }
   if (species === 'cherry') {
     // Blossom from late March to mid April on bare wood, then leaves; turning red-orange early (October), bare by December.
@@ -50,12 +55,11 @@ export function foliage(species: Species, day: number, jitter = 0): Foliage {
     const leaves = out * (1 - fall);
     const green = leafGreen(d, 100);
     const autumn = green.clone().lerp(colour('#b4553a'), turn);
-    const blossom = colour('#f6dde4');
     const share = bloom / Math.max(bloom + leaves, 1e-3);
     return {
       leaf: Math.min(1, Math.max(bloom * 0.92, leaves * 0.95)), twig: 0.45,
-      main: autumn.clone().lerp(blossom, share),
-      patch: autumn.clone().lerp(colour('#c98a3c'), turn).lerp(colour('#eab9c9'), share),
+      main: autumn, patch: autumn.clone().lerp(colour('#c98a3c'), turn),
+      bloom: share, blossom: colour('#f6dde4'),
     };
   }
   const [out, turnFrom, turnTo, fallFrom, fallTo, autumn, patch] = {
@@ -71,5 +75,34 @@ export function foliage(species: Species, day: number, jitter = 0): Foliage {
     main: green.clone().lerp(colour(autumn), turn),
     // Turning starts in patches: part of the crown is still green while the rest has coloured.
     patch: green.clone().lerp(colour(patch), turn * turn),
+    bloom: 0, blossom: NO_BLOOM,
   };
+}
+
+/**
+ * Clipped shrubs: azalea (ツツジ, nearly evergreen; in flower from late April to mid May, pink, magenta, white or coral, one
+ * colour to a bush), enkianthus hedges (ドウダンツツジ, leafing in April, bright red in November, bare twigs in winter) and
+ * box-leaved holly (イヌツゲ, dark evergreen, lighter new growth in May). `hue` picks the azalea's flower colour.
+ */
+export type Shrub = 'azalea' | 'enkianthus' | 'box';
+const AZALEA = ['#e45f9c', '#cf3f80', '#f3ecef', '#ee8a86'];
+
+export function shrubFoliage(kind: Shrub, day: number, jitter = 0, hue = 0): Foliage {
+  const d = day + jitter;
+  if (kind === 'azalea') {
+    const bloom = ramp(d, 106, 118) * (1 - ramp(d, 134, 148));
+    // A little bronze in the cold months.
+    const main = colour('#4d6a39').lerp(colour('#5a5a34'), Math.min(1, ramp(d, 330, 360) + 1 - ramp(d, 40, 80)));
+    return {leaf: 1, twig: 0.2, main, patch: main.clone().lerp(FRESH, 0.35 * ramp(d, 130, 150) * (1 - ramp(d, 170, 200))),
+      bloom: 0.85 * bloom, blossom: colour(AZALEA[Math.floor(hue * AZALEA.length) % AZALEA.length])};
+  }
+  if (kind === 'enkianthus') {
+    const leaves = ramp(d, 92, 112) * (1 - ramp(d, 326, 345));
+    const turn = ramp(d, 300, 324);
+    const green = leafGreen(d, 92, colour('#5b7d40'));
+    return {leaf: leaves, twig: 0.7, main: green.clone().lerp(colour('#c8352a'), turn),
+      patch: green.clone().lerp(colour('#e2662f'), turn * turn), bloom: 0, blossom: NO_BLOOM};
+  }
+  const main = colour('#3b5532').lerp(colour('#6a8a42'), 0.45 * ramp(d, 125, 140) * (1 - ramp(d, 165, 200)));
+  return {leaf: 1, twig: 0, main, patch: colour('#46613a'), bloom: 0, blossom: NO_BLOOM};
 }

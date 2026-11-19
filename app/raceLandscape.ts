@@ -5,6 +5,7 @@ import {seeded} from './scenery';
 import {standSeatGeometry} from './standSeat';
 import {bevelBox, CONCRETE_TILE, standMaterials} from './surfaceFinish';
 import {addTrees} from './raceTrees';
+import {addShrubs} from './raceShrubs';
 import {WEATHER_LOOKS, type WeatherLook} from './raceWeather';
 
 const FAIR = WEATHER_LOOKS.clear;
@@ -262,7 +263,7 @@ export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Ter
   const {look} = options;
   const tree = new T.IcosahedronGeometry(1, 1);
   const box = new T.BoxGeometry(1, 1, 1);
-  const shrub = new T.MeshStandardMaterial({color: '#55764b', roughness: 1});
+  const soil = new T.MeshStandardMaterial({color: '#3b2f26', roughness: 1});
   // Scanned concrete panels and corrugated roofing (procedural concrete if the photos did not load).
   const {concrete, roof} = standMaterials();
   const seats = new T.MeshStandardMaterial({color: '#809491', roughness: 0.95});
@@ -347,9 +348,14 @@ export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Ter
   face.rotation.y = Math.PI;
   board.add(face);
   for (const x of [-8, 8]) piece(board, box, concrete, x, 2, 0, 1, 5, 1);
+  // Infield beds: a concrete kerb round dark soil; the shrubs in them come from app/raceShrubs.ts.
+  const beds: T.Matrix4[] = [];
   for (const fraction of [0.04, 0.16, 0.39, 0.57, 0.76, 0.92]) {
     const bed = groupAt(track.lap * fraction, -38);
     piece(bed, box, concrete, 0, 0.2, 0, 24, 0.6, 7);
-    for (const x of [-9, -6, -3, 0, 3, 6, 9]) piece(bed, tree, shrub, x, 1.35, 0, 2, 1.8, 2.6);
+    piece(bed, box, soil, 0, 0.5, 0, 23, 0.1, 6.2);
+    bed.updateMatrixWorld(true);
+    beds.push(bed.matrixWorld.clone().multiply(new T.Matrix4().makeTranslation(0, 0.52, 0)));
   }
+  addShrubs(scene, track, (distance, lane) => at(distance, lane).point, beds, options.day, look.snowCover);
 }
