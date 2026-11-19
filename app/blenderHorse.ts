@@ -1,5 +1,6 @@
 import {useSyncExternalStore} from 'react';
 import * as T from 'three';
+import {loadPhotoTextures} from './photoTextures';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 
 // The plush horse's shapes as modelled in Blender (blender/horse.py, exported by blender/export.py): the body
@@ -82,13 +83,17 @@ export function loadHorseModel(url = HORSE_MODEL_URL): Promise<HorseModel> {
 }
 
 /**
- * Loads the model and never rejects: if the file cannot be read, horses fall back to the code-built shapes and the failure
- * is logged. Await it before building any scene, so every horse in a scene is made the same way.
+ * Loads the model (and the scanned textures) and never rejects: if the model cannot be read, horses fall back to the code-built
+ * shapes, and if the textures cannot, the stands fall back to procedural concrete; either failure is logged. Await it before building any scene, so every horse in a scene is made the same way.
  */
 export function ensureHorseModel(): Promise<void> {
-  return loadHorseModel().then(() => undefined, error => {
+  // The scanned textures for the stands load alongside: a scene builds once both are in (or have failed, and fall back).
+  const textures = loadPhotoTextures().then(() => undefined, error => {
+    console.error('Photo textures unavailable; using the procedural concrete.', error);
+  });
+  return Promise.all([loadHorseModel().then(() => undefined, error => {
     console.error('Blender horse model unavailable; using the code-built horse.', error);
-  }).finally(() => {
+  }), textures]).then(() => undefined).finally(() => {
     settled = true;
     listeners.forEach(listener => listener());
   });

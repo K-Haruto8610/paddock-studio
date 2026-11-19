@@ -115,9 +115,17 @@ STYLE_GUIDE の「素材ごとの指定」を、レース画面のコードに�
 | スタンド・建物 | 箱の角にベベル（0.2 m）。コンクリートの PBR（法線、粗さ、汚れの模様）、UV はメートル基準。 | `app/surfaceFinish.ts`（`concreteMaterial`、`bevelBox`）、`app/raceLandscape.ts` |
 | 空・照明 | 空に雲を追加。環境光を、スタジオの箱ではなく空そのものから作る。トーンマッピング（ACES）、柔らかい影は全要素で共通だった。 | `app/raceLandscape.ts`（`skyDome`、`skyEnvironment`） |
 
+**あとから足した点（同日）**
+| 素材 | 反映したこと | 場所 |
+|---|---|---|
+| 馬 | 逆光の輪郭光：面が真横を向き、太陽が後ろにあるとき、毛足が光を拾って輪郭がうっすら光る（体・毛足・メンコ）。縫い目は、4本の脚の付け根に輪（針目つき、毛足も短く詰まる）を追加。 | `app/plushHorse.ts`（`rimLight`、`LEG_RING_GLSL`、`stitchSeam`） |
+| スタンド・建物（写真素材） | ポリゴンの箱は、実写スキャンの PBR（色・粗さ・法線）に置き換えた。壁は「Concrete Slab Wall 02」、屋根は「Corrugated Iron」（どちらも Poly Haven の CC0、1k）。取得元・作者・用途は `public/textures/README.md`。読み込みに失敗したときは、手続きで作ったコンクリートに戻る。 | `app/photoTextures.ts`、`app/surfaceFinish.ts`（`standMaterials`）、`public/textures/` |
+| 樹木 | 丸めた塊をやめ、ノイズで凹凸をつけた葉の房を8個重ねた樹冠（下が暗く上が明るい、葉の塊の法線）と、裾の広がった幹。 | `app/surfaceFinish.ts`（`foliageGeometry`、`leafNormalMap`、`trunkGeometry`）、`app/raceLandscape.ts` |
+| 空 | 色を塗ったグラデーションをやめ、レイリー散乱とミー散乱（Preetham 方式、three の Sky と同じ式）で空の青と地平線の霞を出す。地平線では霧の色に溶け込ませる。雲は従来どおり。 | `app/raceLandscape.ts`（`skyDome`） |
+
+確認画像: `horse-side-front.png`、`horse-leg-rings.png`、`sky-trees.png`、`stand-photo-pbr.png`。
+
 **まだ満たしていない点**
-- 建物とスタンドは「写真テクスチャの PBR」ではなく、手続きで作ったコンクリートの質感。写真の素材（アルベド・粗さ・法線）をもらえれば `concreteMaterial` に差し替える。
-- 樹木は、丸めた塊のまま（リアル調ではない）。
-- 逆光の輪郭光は、既存の毛足とシーン光源に任せていて、専用の調整はしていない。
-- 縫い目は中心線だけ。脚の付け根や口まわりの縫い目は入れていない。
-- 空は雲付きのグラデーションで、大気散乱の物理モデルではない。
+- 縫い目は、中心線と脚の付け根の輪だけ。口まわりなどには入れていない。
+- 写真素材は 1k の 2 組だけ（壁、屋根）。座席は単色のまま。
+- 空は大気散乱の単純な近似（Preetham）。太陽に近い側は、低い冬の太陽で淡く霞む。

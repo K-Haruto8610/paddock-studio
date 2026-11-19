@@ -1,8 +1,8 @@
 import * as T from 'three';
 import type {TrackModel} from './trackGeometry';
 import type {Terrain} from './sceneBuilders';
-import {apronTexture, seeded} from './scenery';
-import {bevelBox, concreteMaterial} from './surfaceFinish';
+import {seeded} from './scenery';
+import {bevelBox, CONCRETE_TILE, foliageGeometry, leafNormalMap, standMaterials, trunkGeometry} from './surfaceFinish';
 
 /** Horizon and zenith colours of the day's sky: pale haze in winter, a deeper blue near the summer sun. */
 function skyColours(sunOffset: T.Vector3) {
@@ -28,12 +28,31 @@ function skyDome(sunOffset: T.Vector3) {
       horizon: {value: horizon}, zenith: {value: zenith},
       sun: {value: sunOffset.clone().normalize()},
       cover: {value: 0.5 - 0.12 * summer},
+      turbidity: {value: 2}, rayleigh: {value: 2.4}, mieCoefficient: {value: 0.003},
     },
+    // Atmospheric scattering after Preetham et al., as in three's Sky (MIT): the blue of the sky and the pale haze toward the
+    // horizon come from Rayleigh and Mie scattering of the sun's light, not from a painted gradient.
     vertexShader: `
+      uniform vec3 sun;
+      uniform float rayleigh;
+      uniform float turbidity;
+      uniform float mieCoefficient;
       varying vec3 direction;
+      varying float vSunfade;
+      varying vec3 vBetaR;
+      varying vec3 vBetaM;
+      varying float vSunE;
+      const float e = 2.718281828459045;
+      const vec3 totalRayleigh = vec3(5.804542996261093E-6, 1.3562911419845635E-5, 3.0265902468824876E-5);
+      const vec3 MieConst = vec3(1.8399918514433978E14, 2.7798023919660528E14, 4.0790479543861094E14);
       void main() {
         direction = position;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        float zenithCos = clamp(sun.y, -1.0, 1.0);
+        vSunE = 1000.0 * max(0.0, 1.0 - pow(e, -((1.6110731556870734 - acos(zenithCos)) / 1.5)));
+        vSunfade = 1.0 - clamp(1.0 - exp(sun.y * 400000.0 / 450000.0), 0.0, 1.0);
+        vBetaR = totalRayleigh * (rayleigh - (1.0 - vSunfade));
+        vBetaM = 0.434 * (0.2 * turbidity * 10E-18) * MieConst * mieCoefficient;
       }`,
     fragmentShader: `
       varying vec3 direction;
@@ -41,6 +60,26 @@ function skyDome(sunOffset: T.Vector3) {
       uniform vec3 zenith;
       uniform vec3 sun;
       uniform float cover;
+      varying float vSunfade;
+      varying vec3 vBetaR;
+      varying vec3 vBetaM;
+      varying float vSunE;
+      float rayleighPhase(float c) { return 0.05968310365946075 * (1.0 + c * c); }
+      float hgPhase(float c, float g) { float g2 = g * g; return 0.07957747154594767 * ((1.0 - g2) / pow(1.0 - 2.0 * g * c + g2, 1.5)); }
+      // The sky's colour looking along the ray: sunlight scattered into the line of sight.
+      vec3 scattering(vec3 ray) {
+        float zenith = acos(max(0.0, ray.y));
+        float inv = 1.0 / (cos(zenith) + 0.15 * pow(93.885 - degrees(zenith), -1.253));
+        vec3 Fex = exp(-(vBetaR * 8.4E3 * inv + vBetaM * 1.25E3 * inv));
+        float c = dot(ray, sun);
+        vec3 betaRTheta = vBetaR * rayleighPhase(c * 0.5 + 0.5);
+        vec3 betaMTheta = vBetaM * hgPhase(c, 0.8);
+        vec3 inscatter = vSunE * ((betaRTheta + betaMTheta) / (vBetaR + vBetaM));
+        vec3 Lin = pow(inscatter * (1.0 - Fex), vec3(1.5));
+        Lin *= mix(vec3(1.0), pow(inscatter * Fex, vec3(0.5)), clamp(pow(1.0 - sun.y, 5.0), 0.0, 1.0));
+        vec3 colour = (Lin + vec3(0.1) * Fex) * 0.04 + vec3(0.0, 0.0003, 0.00075);
+        return pow(colour, vec3(1.0 / (1.2 + 1.2 * vSunfade)));
+      }
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p) {
         vec2 i = floor(p), f = fract(p);
@@ -54,7 +93,8 @@ function skyDome(sunOffset: T.Vector3) {
       }
       void main() {
         vec3 ray = normalize(direction);
-        vec3 colour = mix(horizon, zenith, smoothstep(-0.02, 0.66, ray.y));
+        // Scattered sky above, the haze colour (the fog's) at and below the horizon, so the two meet without a seam.
+        vec3 colour = mix(horizon, min(scattering(ray) * 0.62, vec3(0.95)), smoothstep(0.0, 0.3, ray.y));
         float glow = pow(max(dot(ray, sun), 0.0), 18.0);
         colour = mix(colour, vec3(1.0, 0.82, 0.55), 0.28 * glow);
         // Clouds on a flat layer: the further toward the horizon, the closer together and the fainter.
@@ -102,13 +142,14 @@ export function skyEnvironment(renderer: T.WebGLRenderer, sunOffset: T.Vector3) 
 
 export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Terrain, floor: number) {
   const tree = new T.IcosahedronGeometry(1, 1);
-  const leaf = new T.MeshStandardMaterial({color: '#fff', roughness: 1});
+  // Broadleaf crowns: lumpy lobes with leaf-clump relief (colour per tree from the instance, shading from the vertices).
+  const leaf = new T.MeshStandardMaterial({color: '#fff', roughness: 1, vertexColors: true, normalMap: leafNormalMap(), normalScale: new T.Vector2(0.7, 0.7)});
   const trunk = new T.MeshStandardMaterial({color: '#665845', roughness: 1});
   const box = new T.BoxGeometry(1, 1, 1);
   const shrub = new T.MeshStandardMaterial({color: '#55764b', roughness: 1});
-  const concrete = concreteMaterial(apronTexture(), '#f2e8d2');
+  // Scanned concrete panels and corrugated roofing (procedural concrete if the photos did not load).
+  const {concrete, roof} = standMaterials();
   const seats = new T.MeshStandardMaterial({color: '#809491', roughness: 0.95});
-  const roof = new T.MeshStandardMaterial({color: '#405d62', roughness: 0.85});
 
   const at = (distance: number, lane: number) => {
     const frame = track.sample(distance, lane);
@@ -118,7 +159,7 @@ export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Ter
   const piece = (group: T.Group, geometry: T.BufferGeometry, material: T.Material,
     x: number, y: number, z: number, w: number, h: number, d: number) => {
     // Boxes get small bevelled edges (and uv in metres); anything else keeps the unit-geometry scaling.
-    const bevelled = geometry === box ? bevelBox(w, h, d, 0.2) : null;
+    const bevelled = geometry === box ? bevelBox(w, h, d, 0.2, (material.userData.tile as number | undefined) ?? CONCRETE_TILE) : null;
     const mesh = new T.Mesh(bevelled ?? geometry, material);
     mesh.position.set(x, y, z);
     if (!bevelled) mesh.scale.set(w, h, d);
@@ -160,18 +201,18 @@ export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Ter
       }
     }
   }
-  const crowns = new T.InstancedMesh(tree, leaf, trees.length);
-  const trunks = new T.InstancedMesh(box, trunk, trees.length);
+  const crowns = new T.InstancedMesh(foliageGeometry(), leaf, trees.length);
+  const trunks = new T.InstancedMesh(trunkGeometry(), trunk, trees.length);
   const instance = new T.Object3D();
   trees.forEach(({position, height, width, color}, i) => {
     instance.position.copy(position).y += height * 0.72;
-    instance.scale.set(width, height * 0.55, width);
+    instance.scale.set(width * 0.9, height * 0.5, width * 0.9);
     instance.rotation.y = i;
     instance.updateMatrix();
     crowns.setMatrixAt(i, instance.matrix);
     crowns.setColorAt(i, color);
     instance.position.copy(position).y += height * 0.2;
-    instance.scale.set(width * 0.15, height * 0.6, width * 0.15);
+    instance.scale.set(width * 0.16, height * 0.6, width * 0.16);
     instance.updateMatrix();
     trunks.setMatrixAt(i, instance.matrix);
   });

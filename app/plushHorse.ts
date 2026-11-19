@@ -553,6 +553,47 @@ function fabricMaterial(color: T.ColorRepresentation, kind: FabricKind, stretch:
 }
 
 /**
+ * GLSL: distance from a rest position to the nearest of four rings sewn round the legs where they meet the body (a plush's
+ * legs are sewn on), and how far round the ring it is (arc length / 0.3 m, for the stitches). Large away from the legs.
+ */
+const LEG_RING_GLSL = `
+const vec2 LEG_AT[4] = vec2[4](vec2(${LEGS[0].x.toFixed(2)}, ${LEGS[0].z.toFixed(2)}), vec2(${LEGS[1].x.toFixed(2)}, ${LEGS[1].z.toFixed(2)}), vec2(${LEGS[2].x.toFixed(2)}, ${LEGS[2].z.toFixed(2)}), vec2(${LEGS[3].x.toFixed(2)}, ${LEGS[3].z.toFixed(2)}));
+float legRingDistance(vec3 rest, out float along) {
+  float best = 1e3;
+  along = 0.0;
+  for (int i = 0; i < 4; i++) {
+    vec2 d = rest.xz - LEG_AT[i];
+    float dist = abs(rest.y - 0.55) + 4.0 * max(length(d) - 0.31, 0.0);
+    if (dist < best) { best = dist; along = atan(d.y, d.x) * 0.3; }
+  }
+  return best;
+}`;
+
+/**
+ * The soft light that outlines a short pile against the light behind it: where the surface turns edge-on to the viewer and
+ * the sun is behind it, fibres catch the light and the silhouette glows a little. Adds to the material's own patch.
+ */
+function rimLight<M extends T.Material>(material: M, strength = 0.32): M {
+  const previous = material.onBeforeCompile;
+  const baseKey = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    previous.call(material, shader, renderer);
+    shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', `
+#if NUM_DIR_LIGHTS > 0
+{
+  vec3 toEye = normalize(vViewPosition);
+  float edge = pow(1.0 - clamp(dot(normalize(normal), toEye), 0.0, 1.0), 2.6);
+  float behind = clamp(-dot(toEye, directionalLights[0].direction), 0.0, 1.0);
+  outgoingLight += diffuseColor.rgb * directionalLights[0].color * edge * behind * ${strength.toFixed(2)};
+}
+#endif
+#include <opaque_fragment>`);
+  };
+  material.customProgramCacheKey = () => baseKey + '|rim' + strength;
+  return material;
+}
+
+/**
  * A sewn seam down the centre line, where the two halves of the plush meet: a groove, and short stitches of thread across it.
  * It reads the geometry's `rest` positions (the shape before the rig moves it), so the stitches stay on the cloth as the legs
  * swing. Pile is pinched short along this line, so the thread shows through it.
@@ -567,7 +608,8 @@ varying vec3 vSeamRest;`)
 vSeamRest = rest;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-varying vec3 vSeamRest;`)
+varying vec3 vSeamRest;
+${LEG_RING_GLSL}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 {
   float across = abs(vSeamRest.z);
@@ -580,7 +622,11 @@ varying vec3 vSeamRest;`)
   float light = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
   vec3 cloth = diffuseColor.rgb;
   vec3 stitch = light > 0.55 ? cloth * vec3(0.55, 0.5, 0.45) : min(cloth * 1.9 + vec3(0.14, 0.12, 0.1), vec3(1.0));
-  diffuseColor.rgb = mix(cloth * (1.0 - 0.08 * groove), stitch, thread * dash);
+  float ringAlong;
+  float ring = 1.0 - smoothstep(0.0055, 0.0085, legRingDistance(vSeamRest, ringAlong));
+  float ringDash = 1.0 - smoothstep(0.55, 0.65, abs(fract(ringAlong * 38.0) - 0.5) * 2.0);
+  vec3 sewn = mix(cloth * (1.0 - 0.08 * groove), stitch, thread * dash);
+  diffuseColor.rgb = mix(sewn, stitch, ring * ringDash);
 }`);
   };
   material.customProgramCacheKey = () => 'plush-seam';
@@ -675,6 +721,7 @@ transformed += objectNormal * pileHeight + lean * (pileHeight * vPile);`);
       .replace('#include <common>', `#include <common>
 uniform sampler2D pileMap;
 uniform float pileSeam;
+${LEG_RING_GLSL}
 varying float vPileScale;
 varying vec3 vRest;
 varying vec3 vRestNormal;
@@ -699,7 +746,8 @@ varying float vPile;`)
   float tuft = textureGrad(pileMap, fuv * 3.2, gx * 3.2, gy * 3.2).b;
   float brushed = texture2D(pileMap, vRest.xy * 0.21 + 0.13).g + texture2D(pileMap, vRest.zy * 0.21 + 0.57).g - 1.0;
   // The pile is pinched short along the centre seam where the two halves are sewn together.
-  float seam = pileSeam * (1.0 - smoothstep(0.004, 0.034, abs(vRest.z)));
+  float ringAlong;
+  float seam = pileSeam * max(1.0 - smoothstep(0.004, 0.034, abs(vRest.z)), 1.0 - smoothstep(0.004, 0.03, legRingDistance(vRest, ringAlong)));
   float reach = (1.0 - 0.7 * seam) * (0.8 + 0.25 * brushed) * mix(0.6, 1.0, tuft);
   diffuseColor.a = fibre - 0.92 * pow(min(vPile / reach, 1.5), 1.2) + 0.5;
   diffuseColor.rgb *= mix(${PILE_ROOT_SHADE.toFixed(2)}, 1.05, pow(vPile, 1.5)) * (1.0 + 0.2 * brushed) * (1.0 - 0.25 * (1.0 - tuft)) * (1.0 - 0.15 * seam);
@@ -710,7 +758,7 @@ varying float vPile;`)
 material.sheenColor *= mix(diffuseColor.rgb, vec3(1.0), 0.08);
 #endif`);
   };
-  return material;
+  return rimLight(material);
 }
 
 /** The shape before any rig moves it, kept as an attribute for shaders that sew or brush by position. */
@@ -1469,7 +1517,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     return m;
   };
 
-  const shellMaterial = stitchSeam(fabricMaterial('#ffffff', fabrics.body ?? 'current'));
+  const shellMaterial = rimLight(stitchSeam(fabricMaterial('#ffffff', fabrics.body ?? 'current')));
   shellMaterial.vertexColors = true;
   const shell = new T.Mesh(model
     ? shellGeometry((model.body.attributes.position.array as Float32Array).slice(), (model.body.attributes.normal.array as Float32Array).slice(), brown.color, settings, model.body.index?.array)
@@ -1501,7 +1549,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     // The hood has its own centre seam; the ears share the plain hood cloth (they have no rest positions to sew by).
     const menkoGeometry = model ? modelPart(model.menko) : hoodGeometry(settings);
     addRest(menkoGeometry);
-    const menko = new T.Mesh(menkoGeometry, stitchSeam(hood.clone()));
+    const menko = new T.Mesh(menkoGeometry, rimLight(stitchSeam(hood.clone())));
     nodding.push(menko);
     menko.name = 'felt-menko';
     menko.castShadow = menko.receiveShadow = true;

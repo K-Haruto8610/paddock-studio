@@ -1,6 +1,8 @@
 import * as T from 'three';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
-import {seeded, tileNoise} from './scenery';
+import {mergeGeometries, mergeVertices} from 'three/addons/utils/BufferGeometryUtils.js';
+import {apronTexture, seeded, tileNoise} from './scenery';
+import {photoTextures, type PhotoSet} from './photoTextures';
 
 // Surface finishes from docs/STYLE_GUIDE.md: the turf is matte felt (a soft green face, faint mottling and mowing stripes,
 // a fine nap that only shows in raking light), the dirt is real sand (grain, and roughness that varies from patch to patch).
@@ -210,4 +212,126 @@ export function bevelBox(w: number, h: number, d: number, bevel = 0.18, tile = C
     else uv.setXY(i, p.getX(i) / tile, p.getY(i) / tile);
   }
   return geometry;
+}
+
+function valueNoise3(x: number, y: number, z: number) {
+  const hash = (i: number, j: number, k: number) => {
+    const h = Math.sin(i * 127.1 + j * 311.7 + k * 74.7) * 43758.5453;
+    return h - Math.floor(h);
+  };
+  const ease = (t: number) => t * t * (3 - 2 * t);
+  const x0 = Math.floor(x), y0 = Math.floor(y), z0 = Math.floor(z);
+  const fx = ease(x - x0), fy = ease(y - y0), fz = ease(z - z0);
+  const L = T.MathUtils.lerp;
+  return L(
+    L(L(hash(x0, y0, z0), hash(x0 + 1, y0, z0), fx), L(hash(x0, y0 + 1, z0), hash(x0 + 1, y0 + 1, z0), fx), fy),
+    L(L(hash(x0, y0, z0 + 1), hash(x0 + 1, y0, z0 + 1), fx), L(hash(x0, y0 + 1, z0 + 1), hash(x0 + 1, y0 + 1, z0 + 1), fx), fy),
+    fz) * 2 - 1;
+}
+
+let foliage: T.BufferGeometry | null = null;
+
+/**
+ * The crown of a broadleaf tree, about 1 m in radius: a cluster of lumpy lobes (each a sphere pushed in and out by noise, so
+ * the outline is irregular and the volume has hollows), joined into one smooth surface, darker underneath and lighter on top.
+ * One geometry, shared by every tree; the colour of each tree comes from its instance.
+ */
+export function foliageGeometry() {
+  if (foliage) return foliage;
+  const lobes: [number, number, number, number][] = [
+    [0, 0, 0, 0.66], [0.5, -0.12, 0.18, 0.5], [-0.48, -0.1, 0.2, 0.52], [0.12, 0.34, -0.46, 0.5],
+    [0.05, -0.08, 0.55, 0.48], [-0.2, 0.4, 0.12, 0.45], [0.38, 0.28, 0.3, 0.4], [-0.4, 0.2, -0.4, 0.42],
+  ];
+  const parts = lobes.map(([x, y, z, r], index) => {
+    const sphere = new T.IcosahedronGeometry(1, 3);
+    const p = sphere.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const vx = p.getX(i), vy = p.getY(i), vz = p.getZ(i);
+      const bump = 1 + 0.2 * valueNoise3(vx * 2.4 + index * 7.1, vy * 2.4, vz * 2.4) + 0.1 * valueNoise3(vx * 6 + index, vy * 6, vz * 6);
+      p.setXYZ(i, x + vx * r * bump, y + vy * r * bump * 0.86, z + vz * r * bump);
+    }
+    return sphere;
+  });
+  let merged = mergeGeometries(parts)!;
+  parts.forEach(part => part.dispose());
+  merged.deleteAttribute('normal');
+  merged.deleteAttribute('uv');
+  merged = mergeVertices(merged, 1e-4);
+  merged.computeVertexNormals();
+  const position = merged.attributes.position;
+  const colors = new Float32Array(position.count * 3);
+  for (let i = 0; i < position.count; i++) {
+    const y = position.getY(i);
+    // Darker in the hollows and underneath, lit on top, with leaf-sized patches of light and dark.
+    const shade = T.MathUtils.clamp(0.74 + 0.34 * y + 0.2 * valueNoise3(position.getX(i) * 7, y * 7, position.getZ(i) * 7), 0.42, 1.25);
+    colors[i * 3] = shade * 0.98;
+    colors[i * 3 + 1] = shade;
+    colors[i * 3 + 2] = shade * 0.9;
+  }
+  merged.setAttribute('color', new T.BufferAttribute(colors, 3));
+  // Spherical uv for the leaf normal map: tiled several times round the crown.
+  const uv = new Float32Array(position.count * 2);
+  for (let i = 0; i < position.count; i++) {
+    uv[i * 2] = (Math.atan2(position.getZ(i), position.getX(i)) / (2 * Math.PI)) * 6;
+    uv[i * 2 + 1] = position.getY(i) * 2.2;
+  }
+  merged.setAttribute('uv', new T.BufferAttribute(uv, 2));
+  foliage = merged;
+  return foliage;
+}
+
+let leafMap: T.CanvasTexture | null = null;
+
+/** Normal map of leaf clusters: small rounded clumps and gaps, so a crown's surface is leafy rather than smooth. */
+export function leafNormalMap() {
+  if (!leafMap) {
+    const size = 256, rand = seeded(149);
+    const n = [10, 24, 56].map(k => tileNoise(rand, k));
+    const height = new Float32Array(size * size);
+    for (let y = 0; y < size; y++)
+      for (let x = 0; x < size; x++) {
+        const u = x / size, v = y / size;
+        // Clumps: the noise folded so its ridges make rounded tufts.
+        height[y * size + x] = 2.2 * Math.abs(n[0](u, v)) + 1.6 * Math.abs(n[1](u, v)) + 1.0 * n[2](u, v) + 0.6 * (rand() - 0.5);
+      }
+    leafMap = normalFromHeight(height, size, 0.9);
+  }
+  return leafMap;
+}
+
+/** A tree trunk: tapering, with a flared foot; 1 m tall, centred, unit width at the foot. */
+export function trunkGeometry() {
+  const profile = [[0, -0.5], [0.5, -0.5], [0.58, -0.45], [0.42, -0.2], [0.34, 0.2], [0.28, 0.5], [0, 0.5]].map(([r, y]) => new T.Vector2(r, y));
+  return new T.LatheGeometry(profile, 10);
+}
+
+/** Metres covered by one repeat of the scanned wall and roof photos (a precast panel, a few corrugations). */
+export const PHOTO_TILE = {concrete: 9, roof: 3};
+
+function photoMaterial(set: PhotoSet, repeatTile: number, tint: T.ColorRepresentation) {
+  // The maps are shared; a copy of each per material would only repeat them differently, and uv are already in metres / tile.
+  const material = new T.MeshStandardMaterial({
+    color: tint, map: set.map, roughnessMap: set.roughnessMap, roughness: 1, normalMap: set.normalMap,
+    normalScale: new T.Vector2(0.8, 0.8), metalness: 0,
+  });
+  material.userData.tile = repeatTile;
+  return material;
+}
+
+/**
+ * Materials of the stands and buildings: the scanned photo PBR sets (concrete panels, corrugated roofing) when they have
+ * loaded, the procedural concrete otherwise. `userData.tile` is the metres one uv repeat should cover (see `bevelBox`).
+ */
+export function standMaterials() {
+  const photos = photoTextures();
+  if (photos) {
+    return {
+      // The scans are dark: lift them a little (colour values above 1 simply brighten the map).
+      concrete: photoMaterial(photos.concrete, PHOTO_TILE.concrete, new T.Color(1.55, 1.5, 1.4)),
+      roof: photoMaterial(photos.roof, PHOTO_TILE.roof, new T.Color(0.6, 0.85, 0.92)),
+    };
+  }
+  const concrete = concreteMaterial(apronTexture(), '#f2e8d2');
+  concrete.userData.tile = CONCRETE_TILE;
+  return {concrete, roof: new T.MeshStandardMaterial({color: '#405d62', roughness: 0.85})};
 }
