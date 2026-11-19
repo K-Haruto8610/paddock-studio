@@ -492,6 +492,9 @@ def race_level(x, key, c):
     return out
 
 
+RECON_RATIO_CAP = 4.0  # largest allowed gap shape / gap at SPREAD_Q (see reconstruct)
+
+
 def reconstruct(rank_pred, gap_pred, spread, numbers):
     """Order from the rank model; shape of the gaps from the per-horse gap model (never decreasing down
     the order); total spread from the race-level model. Per-horse regression alone shrinks every gap
@@ -504,7 +507,9 @@ def reconstruct(rank_pred, gap_pred, spread, numbers):
     anchor = shape[int(round(SPREAD_Q * (n - 1)))]
     even = np.linspace(0, 1 / SPREAD_Q, n)
     # Half model shape, half even spacing: the median fits plateau, which would stack horses.
-    shape = .5 * shape / anchor + .5 * even if anchor > 1e-6 else even
+    # v2.0: the ratio shape / anchor is capped. A nearly flat gap prediction made `anchor` tiny, and a tailed-off horse then got a gap of up to 22,813 lengths
+    # (797 validation calls: median ratio 1.3, 99th percentile 4.4, five calls above 10). RECON_RATIO_CAP keeps the horse at SPREAD_Q on the predicted length.
+    shape = .5 * np.minimum(shape / anchor, RECON_RATIO_CAP) + .5 * even if anchor > 1e-6 else even
     ranks, gaps = [0] * n, [0.0] * n
     for pos, i in enumerate(order):
         ranks[i], gaps[i] = pos + 1, float(shape[pos] * max(0.0, spread))
