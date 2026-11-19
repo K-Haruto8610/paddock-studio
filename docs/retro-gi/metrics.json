@@ -1,0 +1,1512 @@
+{
+ "tenno": {
+  "race": "天皇賞（秋）",
+  "raceId": "2026110105041111",
+  "date": "20261101",
+  "field": 17,
+  "corners": [
+   2,
+   3,
+   4
+  ],
+  "ranks": {
+   "2": {
+    "v19pub": {
+     "tau": 0.49073727534742323,
+     "maePlaces": 3.1176470588235294,
+     "maeNorm": 0.1948529411764706,
+     "within1": 0.23529411764705882,
+     "maxErr": 6.0
+    },
+    "v20retro": {
+     "tau": 0.49073727534742323,
+     "maePlaces": 3.1176470588235294,
+     "maeNorm": 0.1948529411764706,
+     "within1": 0.23529411764705882,
+     "maxErr": 6.0
+    },
+    "v19spec": {
+     "tau": 0.49073727534742323,
+     "maePlaces": 3.1176470588235294,
+     "maeNorm": 0.1948529411764706,
+     "within1": 0.23529411764705882,
+     "maxErr": 6.0
+    },
+    "v20pub": {
+     "tau": 0.5360361007641085,
+     "maePlaces": 3.0,
+     "maeNorm": 0.1875,
+     "within1": 0.17647058823529413,
+     "maxErr": 6.0
+    },
+    "v20nogo": {
+     "tau": 0.49073727534742323,
+     "maePlaces": 3.1176470588235294,
+     "maeNorm": 0.1948529411764706,
+     "within1": 0.23529411764705882,
+     "maxErr": 6.0
+    },
+    "pastEWM": {
+     "tau": 0.4303388414585096,
+     "maePlaces": 3.235294117647059,
+     "maeNorm": 0.20220588235294118,
+     "within1": 0.23529411764705882,
+     "maxErr": 9.0
+    }
+   },
+   "3": {
+    "v19pub": {
+     "tau": 0.52093649229188,
+     "maePlaces": 3.235294117647059,
+     "maeNorm": 0.20220588235294118,
+     "within1": 0.17647058823529413,
+     "maxErr": 7.0
+    },
+    "v20retro": {
+     "tau": 0.52093649229188,
+     "maePlaces": 3.235294117647059,
+     "maeNorm": 0.20220588235294118,
+     "within1": 0.11764705882352941,
+     "maxErr": 7.0
+    },
+    "v19spec": {
+     "tau": 0.52093649229188,
+     "maePlaces": 3.1176470588235294,
+     "maeNorm": 0.1948529411764706,
+     "within1": 0.17647058823529413,
+     "maxErr": 7.0
+    },
+    "v20pub": {
+     "tau": 0.5360361007641085,
+     "maePlaces": 3.0,
+     "maeNorm": 0.1875,
+     "within1": 0.23529411764705882,
+     "maxErr": 7.0
+    },
+    "v20nogo": {
+     "tau": 0.52093649229188,
+     "maePlaces": 3.235294117647059,
+     "maeNorm": 0.20220588235294118,
+     "within1": 0.11764705882352941,
+     "maxErr": 7.0
+    },
+    "pastEWM": {
+     "tau": 0.5511357092363368,
+     "maePlaces": 3.0,
+     "maeNorm": 0.1875,
+     "within1": 0.23529411764705882,
+     "maxErr": 6.0
+    }
+   },
+   "4": {
+    "v19pub": {
+     "tau": 0.5760221094612907,
+     "maePlaces": 2.9411764705882355,
+     "maeNorm": 0.18382352941176472,
+     "within1": 0.17647058823529413,
+     "maxErr": 6.0
+    },
+    "v20retro": {
+     "tau": 0.5760221094612907,
+     "maePlaces": 2.823529411764706,
+     "maeNorm": 0.17647058823529413,
+     "within1": 0.23529411764705882,
+     "maxErr": 7.0
+    },
+    "v19spec": {
+     "tau": 0.56086363289652,
+     "maePlaces": 2.9411764705882355,
+     "maeNorm": 0.18382352941176472,
+     "within1": 0.23529411764705882,
+     "maxErr": 7.0
+    },
+    "v20pub": {
+     "tau": 0.56086363289652,
+     "maePlaces": 2.823529411764706,
+     "maeNorm": 0.17647058823529413,
+     "within1": 0.29411764705882354,
+     "maxErr": 8.0
+    },
+    "v20nogo": {
+     "tau": 0.5760221094612907,
+     "maePlaces": 2.823529411764706,
+     "maeNorm": 0.17647058823529413,
+     "within1": 0.23529411764705882,
+     "maxErr": 7.0
+    },
+    "pastEWM": {
+     "tau": 0.5153882032022075,
+     "maePlaces": 3.0588235294117645,
+     "maeNorm": 0.19117647058823528,
+     "within1": 0.29411764705882354,
+     "maxErr": 6.0
+    }
+   }
+  },
+  "lead": {
+   "firstCorner": {
+    "corner": 2,
+    "actualTop5": [
+     "4",
+     "13",
+     "9",
+     "12",
+     "16"
+    ],
+    "v19pub": {
+     "predLeader": "9 ホウオウビスケッツ",
+     "predLeaderActualPlace": 3,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": true,
+     "predLeaderTopQuarter": true,
+     "actualLeader": "4 レディネス",
+     "actualLeaderPredPlace": 7,
+     "top3Overlap": 2,
+     "top5Overlap": 2,
+     "quarter": 4,
+     "predTop5": [
+      "9",
+      "13",
+      "15",
+      "6",
+      "1"
+     ]
+    },
+    "v20retro": {
+     "predLeader": "9 ホウオウビスケッツ",
+     "predLeaderActualPlace": 3,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": true,
+     "predLeaderTopQuarter": true,
+     "actualLeader": "4 レディネス",
+     "actualLeaderPredPlace": 7,
+     "top3Overlap": 2,
+     "top5Overlap": 2,
+     "quarter": 4,
+     "predTop5": [
+      "9",
+      "13",
+      "15",
+      "6",
+      "1"
+     ]
+    },
+    "v19spec": {
+     "predLeader": "9 ホウオウビスケッツ",
+     "predLeaderActualPlace": 3,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": true,
+     "predLeaderTopQuarter": true,
+     "actualLeader": "4 レディネス",
+     "actualLeaderPredPlace": 7,
+     "top3Overlap": 2,
+     "top5Overlap": 2,
+     "quarter": 4,
+     "predTop5": [
+      "9",
+      "13",
+      "15",
+      "6",
+      "1"
+     ]
+    },
+    "v20pub": {
+     "predLeader": "9 ホウオウビスケッツ",
+     "predLeaderActualPlace": 3,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": true,
+     "predLeaderTopQuarter": true,
+     "actualLeader": "4 レディネス",
+     "actualLeaderPredPlace": 7,
+     "top3Overlap": 2,
+     "top5Overlap": 2,
+     "quarter": 4,
+     "predTop5": [
+      "9",
+      "13",
+      "15",
+      "6",
+      "1"
+     ]
+    },
+    "v20nogo": {
+     "predLeader": "9 ホウオウビスケッツ",
+     "predLeaderActualPlace": 3,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": true,
+     "predLeaderTopQuarter": true,
+     "actualLeader": "4 レディネス",
+     "actualLeaderPredPlace": 7,
+     "top3Overlap": 2,
+     "top5Overlap": 2,
+     "quarter": 4,
+     "predTop5": [
+      "9",
+      "13",
+      "15",
+      "6",
+      "1"
+     ]
+    }
+   },
+   "lastCorner": {
+    "corner": 4,
+    "actualTop5": [
+     "4",
+     "13",
+     "9",
+     "16",
+     "12"
+    ],
+    "v19pub": {
+     "predLeader": "9 ホウオウビスケッツ",
+     "predLeaderActualPlace": 3,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": true,
+     "predLeaderTopQuarter": true,
+     "actualLeader": "4 レディネス",
+     "actualLeaderPredPlace": 6,
+     "top3Overlap": 2,
+     "top5Overlap": 2,
+     "quarter": 4,
+     "predTop5": [
+      "9",
+      "15",
+      "13",
+      "1",
+      "6"
+     ]
+    },
+    "v20retro": {
+     "predLeader": "9 ホウオウビスケッツ",
+     "predLeaderActualPlace": 3,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": true,
+     "predLeaderTopQuarter": true,
+     "actualLeader": "4 レディネス",
+     "actualLeaderPredPlace": 6,
+     "top3Overlap": 2,
+     "top5Overlap": 2,
+     "quarter": 4,
+     "predTop5": [
+      "9",
+      "13",
+      "15",
+      "1",
+      "6"
+     ]
+    },
+    "v19spec": {
+     "predLeader": "9 ホウオウビスケッツ",
+     "predLeaderActualPlace": 3,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": true,
+     "predLeaderTopQuarter": true,
+     "actualLeader": "4 レディネス",
+     "actualLeaderPredPlace": 6,
+     "top3Overlap": 2,
+     "top5Overlap": 2,
+     "quarter": 4,
+     "predTop5": [
+      "9",
+      "15",
+      "13",
+      "1",
+      "6"
+     ]
+    },
+    "v20pub": {
+     "predLeader": "9 ホウオウビスケッツ",
+     "predLeaderActualPlace": 3,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": true,
+     "predLeaderTopQuarter": true,
+     "actualLeader": "4 レディネス",
+     "actualLeaderPredPlace": 7,
+     "top3Overlap": 2,
+     "top5Overlap": 2,
+     "quarter": 4,
+     "predTop5": [
+      "9",
+      "13",
+      "15",
+      "6",
+      "1"
+     ]
+    },
+    "v20nogo": {
+     "predLeader": "9 ホウオウビスケッツ",
+     "predLeaderActualPlace": 3,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": true,
+     "predLeaderTopQuarter": true,
+     "actualLeader": "4 レディネス",
+     "actualLeaderPredPlace": 6,
+     "top3Overlap": 2,
+     "top5Overlap": 2,
+     "quarter": 4,
+     "predTop5": [
+      "9",
+      "13",
+      "15",
+      "1",
+      "6"
+     ]
+    }
+   }
+  },
+  "gaps": {
+   "2": {
+    "v19pub": {
+     "mae": 1.8800000000000001,
+     "bias": 1.1258823529411766,
+     "predSpread80": 7.088000000000001,
+     "actualSpread80": 6.48,
+     "predMax": 10.19,
+     "actualMax": 7.199999999999999
+    },
+    "v20retro": {
+     "mae": 2.091176470588235,
+     "bias": 1.7111764705882355,
+     "predSpread80": 7.994000000000001,
+     "actualSpread80": 6.48,
+     "predMax": 10.87,
+     "actualMax": 7.199999999999999
+    },
+    "v19spec": {
+     "mae": 2.1588235294117646,
+     "bias": 1.778823529411765,
+     "predSpread80": 7.994000000000001,
+     "actualSpread80": 6.48,
+     "predMax": 10.87,
+     "actualMax": 7.199999999999999
+    },
+    "v20pub": {
+     "mae": 2.1300000000000003,
+     "bias": 1.7194117647058829,
+     "predSpread80": 8.21,
+     "actualSpread80": 6.48,
+     "predMax": 11.39,
+     "actualMax": 7.199999999999999
+    },
+    "v20nogo": {
+     "mae": 2.091176470588235,
+     "bias": 1.7111764705882355,
+     "predSpread80": 7.994000000000001,
+     "actualSpread80": 6.48,
+     "predMax": 10.87,
+     "actualMax": 7.199999999999999
+    }
+   },
+   "3": {
+    "v19pub": {
+     "mae": 1.3288235294117647,
+     "bias": 0.901764705882353,
+     "predSpread80": 5.452,
+     "actualSpread80": 4.080000000000001,
+     "predMax": 6.09,
+     "actualMax": 6.3
+    },
+    "v20retro": {
+     "mae": 1.8294117647058825,
+     "bias": 1.6376470588235297,
+     "predSpread80": 6.496,
+     "actualSpread80": 4.080000000000001,
+     "predMax": 6.61,
+     "actualMax": 6.3
+    },
+    "v19spec": {
+     "mae": 1.9594117647058824,
+     "bias": 1.778235294117647,
+     "predSpread80": 6.456,
+     "actualSpread80": 4.080000000000001,
+     "predMax": 8.07,
+     "actualMax": 6.3
+    },
+    "v20pub": {
+     "mae": 1.7329411764705878,
+     "bias": 1.5305882352941174,
+     "predSpread80": 6.634,
+     "actualSpread80": 4.080000000000001,
+     "predMax": 6.85,
+     "actualMax": 6.3
+    },
+    "v20nogo": {
+     "mae": 1.8294117647058825,
+     "bias": 1.6376470588235297,
+     "predSpread80": 6.496,
+     "actualSpread80": 4.080000000000001,
+     "predMax": 6.61,
+     "actualMax": 6.3
+    }
+   },
+   "4": {
+    "v19pub": {
+     "mae": 1.5835294117647059,
+     "bias": 1.095294117647059,
+     "predSpread80": 5.2540000000000004,
+     "actualSpread80": 3.4800000000000004,
+     "predMax": 5.95,
+     "actualMax": 7.7
+    },
+    "v20retro": {
+     "mae": 1.9158823529411766,
+     "bias": 1.7464705882352944,
+     "predSpread80": 6.170000000000001,
+     "actualSpread80": 3.4800000000000004,
+     "predMax": 7.38,
+     "actualMax": 7.7
+    },
+    "v19spec": {
+     "mae": 1.9123529411764704,
+     "bias": 1.5264705882352942,
+     "predSpread80": 6.172000000000001,
+     "actualSpread80": 3.4800000000000004,
+     "predMax": 6.82,
+     "actualMax": 7.7
+    },
+    "v20pub": {
+     "mae": 1.6817647058823528,
+     "bias": 1.441764705882353,
+     "predSpread80": 6.07,
+     "actualSpread80": 3.4800000000000004,
+     "predMax": 6.88,
+     "actualMax": 7.7
+    },
+    "v20nogo": {
+     "mae": 1.9158823529411766,
+     "bias": 1.7464705882352944,
+     "predSpread80": 6.170000000000001,
+     "actualSpread80": 3.4800000000000004,
+     "predMax": 7.38,
+     "actualMax": 7.7
+    }
+   }
+  },
+  "pace": {
+   "actualSeconds": -1.5999999999999943,
+   "actualEarly3": 34.7,
+   "zenhan3f": "347",
+   "v19pub": {
+    "predSeconds": -0.91,
+    "label": "H",
+    "bands": [
+     -0.64,
+     -0.4
+    ],
+    "error": 0.6899999999999943,
+    "actualLabelOnSameBands": "H"
+   },
+   "v20retro": {
+    "predSeconds": -0.91,
+    "label": "H",
+    "bands": [
+     -0.6756309523511445,
+     -0.45947778299384573
+    ],
+    "error": 0.6899999999999943,
+    "actualLabelOnSameBands": "H"
+   },
+   "v19spec": {
+    "predSeconds": -0.91,
+    "label": "H",
+    "bands": [
+     -0.6756309523511445,
+     -0.45947778299384573
+    ],
+    "error": 0.6899999999999943,
+    "actualLabelOnSameBands": "H"
+   },
+   "v20pub": {
+    "predSeconds": -0.95,
+    "label": "H",
+    "bands": [
+     -0.65,
+     -0.42
+    ],
+    "error": 0.6499999999999944,
+    "actualLabelOnSameBands": "H"
+   },
+   "v20nogo": {
+    "predSeconds": -0.91,
+    "label": "H",
+    "bands": [
+     -0.6756309523511445,
+     -0.45947778299384573
+    ],
+    "error": 0.6899999999999943,
+    "actualLabelOnSameBands": "H"
+   },
+   "actualLabelFixedBands": "H"
+  },
+  "last3": {
+   "v19pub": {
+    "mae": 0.8764705882352953,
+    "bias": -0.12352941176470555,
+    "corr": 0.3823718101221784,
+    "tau": 0.3538880365655816,
+    "predBest": 33.9,
+    "actualBest": 32.9,
+    "predMean": 34.58235294117647,
+    "actualMean": 34.705882352941174,
+    "predFastest": 7,
+    "actualFastest": 17
+   },
+   "v20retro": {
+    "mae": 0.7647058823529416,
+    "bias": -0.40000000000000024,
+    "corr": 0.5592646883360678,
+    "tau": 0.503831473655779,
+    "predBest": 33.7,
+    "actualBest": 32.9,
+    "predMean": 34.30588235294118,
+    "actualMean": 34.705882352941174,
+    "predFastest": 3,
+    "actualFastest": 17
+   },
+   "v19spec": {
+    "mae": 0.8705882352941191,
+    "bias": -0.11764705882352941,
+    "corr": 0.3985282247387168,
+    "tau": 0.34090909090909094,
+    "predBest": 33.9,
+    "actualBest": 32.9,
+    "predMean": 34.588235294117645,
+    "actualMean": 34.705882352941174,
+    "predFastest": 7,
+    "actualFastest": 17
+   },
+   "v20pub": {
+    "mae": 0.7647058823529411,
+    "bias": -0.3294117647058837,
+    "corr": 0.5240523951604398,
+    "tau": 0.5077524002897476,
+    "predBest": 33.8,
+    "actualBest": 32.9,
+    "predMean": 34.37647058823529,
+    "actualMean": 34.705882352941174,
+    "predFastest": 3,
+    "actualFastest": 17
+   },
+   "v20nogo": {
+    "mae": 0.7647058823529416,
+    "bias": -0.40000000000000024,
+    "corr": 0.5592646883360678,
+    "tau": 0.503831473655779,
+    "predBest": 33.7,
+    "actualBest": 32.9,
+    "predMean": 34.30588235294118,
+    "actualMean": 34.705882352941174,
+    "predFastest": 3,
+    "actualFastest": 17
+   }
+  },
+  "finish": {
+   "actualTop3": [
+    "17",
+    "10",
+    "3"
+   ],
+   "actualPlaces": {
+    "1": 5,
+    "2": 16,
+    "3": 3,
+    "4": 17,
+    "5": 13,
+    "6": 10,
+    "7": 11,
+    "8": 7,
+    "9": 14,
+    "10": 2,
+    "11": 6,
+    "12": 9,
+    "13": 15,
+    "14": 4,
+    "15": 8,
+    "16": 12,
+    "17": 1
+   },
+   "v19pub": {
+    "tau": -0.044117647058823525,
+    "top3": [
+     "7",
+     "13",
+     "10"
+    ],
+    "top3Overlap": 1
+   },
+   "v20retro": {
+    "tau": 0.1176470588235294,
+    "top3": [
+     "13",
+     "7",
+     "10"
+    ],
+    "top3Overlap": 1
+   },
+   "v19spec": {
+    "tau": -0.16176470588235295,
+    "top3": [
+     "7",
+     "13",
+     "10"
+    ],
+    "top3Overlap": 1
+   },
+   "v20pub": {
+    "tau": 0.2794117647058823,
+    "top3": [
+     "7",
+     "10",
+     "13"
+    ],
+    "top3Overlap": 1
+   },
+   "v20nogo": {
+    "tau": 0.1176470588235294,
+    "top3": [
+     "13",
+     "7",
+     "10"
+    ],
+    "top3Overlap": 1
+   }
+  },
+  "frontRunners": {
+   "v19pub": [
+    13,
+    9,
+    6,
+    15,
+    12
+   ],
+   "v20retro": [
+    13,
+    9,
+    6,
+    15,
+    12
+   ],
+   "v19spec": [
+    13,
+    9,
+    6,
+    15,
+    12
+   ],
+   "v20pub": [
+    13,
+    9,
+    6,
+    15,
+    12
+   ],
+   "v20nogo": [
+    13,
+    9,
+    6,
+    15,
+    12
+   ]
+  }
+ },
+ "queen": {
+  "race": "エリザベス女王杯",
+  "raceId": "2026111508050411",
+  "date": "20261115",
+  "field": 18,
+  "corners": [
+   1,
+   2,
+   3,
+   4
+  ],
+  "ranks": {
+   "1": {
+    "v19pub": {
+     "tau": 0.6512414247295317,
+     "maePlaces": 2.4444444444444446,
+     "maeNorm": 0.14379084967320263,
+     "within1": 0.5,
+     "maxErr": 10.0
+    },
+    "v20retro": {
+     "tau": 0.6243861082458397,
+     "maePlaces": 2.4444444444444446,
+     "maeNorm": 0.14379084967320263,
+     "within1": 0.5,
+     "maxErr": 10.0
+    },
+    "v19spec": {
+     "tau": 0.6243861082458397,
+     "maePlaces": 2.4444444444444446,
+     "maeNorm": 0.14379084967320263,
+     "within1": 0.4444444444444444,
+     "maxErr": 10.0
+    },
+    "v20pub": {
+     "tau": 0.6243861082458397,
+     "maePlaces": 2.4444444444444446,
+     "maeNorm": 0.14379084967320263,
+     "within1": 0.4444444444444444,
+     "maxErr": 10.0
+    },
+    "v20nogo": {
+     "tau": 0.6243861082458397,
+     "maePlaces": 2.4444444444444446,
+     "maeNorm": 0.14379084967320263,
+     "within1": 0.5,
+     "maxErr": 10.0
+    },
+    "pastEWM": {
+     "tau": 0.6378137664876856,
+     "maePlaces": 2.7777777777777777,
+     "maeNorm": 0.16339869281045752,
+     "within1": 0.2777777777777778,
+     "maxErr": 9.0
+    }
+   },
+   "2": {
+    "v19pub": {
+     "tau": 0.6690797049197502,
+     "maePlaces": 2.2777777777777777,
+     "maeNorm": 0.13398692810457516,
+     "within1": 0.4444444444444444,
+     "maxErr": 8.0
+    },
+    "v20retro": {
+     "tau": 0.6556981108213552,
+     "maePlaces": 2.2777777777777777,
+     "maeNorm": 0.13398692810457516,
+     "within1": 0.5555555555555556,
+     "maxErr": 8.0
+    },
+    "v19spec": {
+     "tau": 0.6556981108213552,
+     "maePlaces": 2.2777777777777777,
+     "maeNorm": 0.13398692810457516,
+     "within1": 0.5,
+     "maxErr": 8.0
+    },
+    "v20pub": {
+     "tau": 0.6423165167229603,
+     "maePlaces": 2.388888888888889,
+     "maeNorm": 0.14052287581699346,
+     "within1": 0.5,
+     "maxErr": 8.0
+    },
+    "v20nogo": {
+     "tau": 0.6556981108213552,
+     "maePlaces": 2.2777777777777777,
+     "maeNorm": 0.13398692810457516,
+     "within1": 0.5555555555555556,
+     "maxErr": 8.0
+    },
+    "pastEWM": {
+     "tau": 0.7226060813133303,
+     "maePlaces": 2.0555555555555554,
+     "maeNorm": 0.12091503267973855,
+     "within1": 0.6111111111111112,
+     "maxErr": 7.0
+    }
+   },
+   "3": {
+    "v19pub": {
+     "tau": 0.5715074263607117,
+     "maePlaces": 2.7222222222222223,
+     "maeNorm": 0.16013071895424838,
+     "within1": 0.4444444444444444,
+     "maxErr": 12.0
+    },
+    "v20retro": {
+     "tau": 0.55821655598023,
+     "maePlaces": 2.8333333333333335,
+     "maeNorm": 0.16666666666666669,
+     "within1": 0.4444444444444444,
+     "maxErr": 12.0
+    },
+    "v19spec": {
+     "tau": 0.5715074263607117,
+     "maePlaces": 2.7222222222222223,
+     "maeNorm": 0.16013071895424838,
+     "within1": 0.5,
+     "maxErr": 12.0
+    },
+    "v20pub": {
+     "tau": 0.55821655598023,
+     "maePlaces": 2.7222222222222223,
+     "maeNorm": 0.16013071895424838,
+     "within1": 0.5555555555555556,
+     "maxErr": 12.0
+    },
+    "v20nogo": {
+     "tau": 0.55821655598023,
+     "maePlaces": 2.8333333333333335,
+     "maeNorm": 0.16666666666666669,
+     "within1": 0.4444444444444444,
+     "maxErr": 12.0
+    },
+    "pastEWM": {
+     "tau": 0.55821655598023,
+     "maePlaces": 2.9444444444444446,
+     "maeNorm": 0.173202614379085,
+     "within1": 0.3888888888888889,
+     "maxErr": 11.0
+    }
+   },
+   "4": {
+    "v19pub": {
+     "tau": 0.5706754752784556,
+     "maePlaces": 2.888888888888889,
+     "maeNorm": 0.16993464052287582,
+     "within1": 0.3333333333333333,
+     "maxErr": 9.0
+    },
+    "v20retro": {
+     "tau": 0.5572478170366096,
+     "maePlaces": 2.7777777777777777,
+     "maeNorm": 0.16339869281045752,
+     "within1": 0.3888888888888889,
+     "maxErr": 9.0
+    },
+    "v19spec": {
+     "tau": 0.6109584500039936,
+     "maePlaces": 2.6666666666666665,
+     "maeNorm": 0.1568627450980392,
+     "within1": 0.4444444444444444,
+     "maxErr": 9.0
+    },
+    "v20pub": {
+     "tau": 0.5841031335203016,
+     "maePlaces": 2.5555555555555554,
+     "maeNorm": 0.1503267973856209,
+     "within1": 0.5,
+     "maxErr": 9.0
+    },
+    "v20nogo": {
+     "tau": 0.5572478170366096,
+     "maePlaces": 2.7777777777777777,
+     "maeNorm": 0.16339869281045752,
+     "within1": 0.3888888888888889,
+     "maxErr": 9.0
+    },
+    "pastEWM": {
+     "tau": 0.6378137664876856,
+     "maePlaces": 2.7777777777777777,
+     "maeNorm": 0.16339869281045752,
+     "within1": 0.3888888888888889,
+     "maxErr": 8.0
+    }
+   }
+  },
+  "lead": {
+   "firstCorner": {
+    "corner": 1,
+    "actualTop5": [
+     "6",
+     "1",
+     "10",
+     "7",
+     "16"
+    ],
+    "v19pub": {
+     "predLeader": "8 レーゼドラマ",
+     "predLeaderActualPlace": 11,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": false,
+     "predLeaderTopQuarter": false,
+     "actualLeader": "6 ヴーレヴー",
+     "actualLeaderPredPlace": 2,
+     "top3Overlap": 2,
+     "top5Overlap": 3,
+     "quarter": 4,
+     "predTop5": [
+      "8",
+      "6",
+      "10",
+      "1",
+      "5"
+     ]
+    },
+    "v20retro": {
+     "predLeader": "8 レーゼドラマ",
+     "predLeaderActualPlace": 11,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": false,
+     "predLeaderTopQuarter": false,
+     "actualLeader": "6 ヴーレヴー",
+     "actualLeaderPredPlace": 3,
+     "top3Overlap": 2,
+     "top5Overlap": 3,
+     "quarter": 4,
+     "predTop5": [
+      "8",
+      "10",
+      "6",
+      "1",
+      "5"
+     ]
+    },
+    "v19spec": {
+     "predLeader": "8 レーゼドラマ",
+     "predLeaderActualPlace": 11,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": false,
+     "predLeaderTopQuarter": false,
+     "actualLeader": "6 ヴーレヴー",
+     "actualLeaderPredPlace": 3,
+     "top3Overlap": 2,
+     "top5Overlap": 3,
+     "quarter": 4,
+     "predTop5": [
+      "8",
+      "10",
+      "6",
+      "1",
+      "5"
+     ]
+    },
+    "v20pub": {
+     "predLeader": "8 レーゼドラマ",
+     "predLeaderActualPlace": 11,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": false,
+     "predLeaderTopQuarter": false,
+     "actualLeader": "6 ヴーレヴー",
+     "actualLeaderPredPlace": 3,
+     "top3Overlap": 2,
+     "top5Overlap": 3,
+     "quarter": 4,
+     "predTop5": [
+      "8",
+      "10",
+      "6",
+      "1",
+      "5"
+     ]
+    },
+    "v20nogo": {
+     "predLeader": "8 レーゼドラマ",
+     "predLeaderActualPlace": 11,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": false,
+     "predLeaderTopQuarter": false,
+     "actualLeader": "6 ヴーレヴー",
+     "actualLeaderPredPlace": 3,
+     "top3Overlap": 2,
+     "top5Overlap": 3,
+     "quarter": 4,
+     "predTop5": [
+      "8",
+      "10",
+      "6",
+      "1",
+      "5"
+     ]
+    }
+   },
+   "lastCorner": {
+    "corner": 4,
+    "actualTop5": [
+     "10",
+     "7",
+     "16",
+     "6",
+     "9"
+    ],
+    "v19pub": {
+     "predLeader": "8 レーゼドラマ",
+     "predLeaderActualPlace": 10,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": false,
+     "predLeaderTopQuarter": false,
+     "actualLeader": "10 セキトバイースト",
+     "actualLeaderPredPlace": 3,
+     "top3Overlap": 2,
+     "top5Overlap": 3,
+     "quarter": 4,
+     "predTop5": [
+      "8",
+      "16",
+      "10",
+      "6",
+      "1"
+     ]
+    },
+    "v20retro": {
+     "predLeader": "8 レーゼドラマ",
+     "predLeaderActualPlace": 10,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": false,
+     "predLeaderTopQuarter": false,
+     "actualLeader": "10 セキトバイースト",
+     "actualLeaderPredPlace": 2,
+     "top3Overlap": 2,
+     "top5Overlap": 3,
+     "quarter": 4,
+     "predTop5": [
+      "8",
+      "10",
+      "16",
+      "1",
+      "6"
+     ]
+    },
+    "v19spec": {
+     "predLeader": "8 レーゼドラマ",
+     "predLeaderActualPlace": 10,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": false,
+     "predLeaderTopQuarter": false,
+     "actualLeader": "10 セキトバイースト",
+     "actualLeaderPredPlace": 2,
+     "top3Overlap": 2,
+     "top5Overlap": 3,
+     "quarter": 4,
+     "predTop5": [
+      "8",
+      "10",
+      "16",
+      "6",
+      "1"
+     ]
+    },
+    "v20pub": {
+     "predLeader": "8 レーゼドラマ",
+     "predLeaderActualPlace": 10,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": false,
+     "predLeaderTopQuarter": false,
+     "actualLeader": "10 セキトバイースト",
+     "actualLeaderPredPlace": 2,
+     "top3Overlap": 1,
+     "top5Overlap": 3,
+     "quarter": 4,
+     "predTop5": [
+      "8",
+      "10",
+      "6",
+      "16",
+      "1"
+     ]
+    },
+    "v20nogo": {
+     "predLeader": "8 レーゼドラマ",
+     "predLeaderActualPlace": 10,
+     "predLeaderIsLeader": false,
+     "predLeaderTop3": false,
+     "predLeaderTopQuarter": false,
+     "actualLeader": "10 セキトバイースト",
+     "actualLeaderPredPlace": 2,
+     "top3Overlap": 2,
+     "top5Overlap": 3,
+     "quarter": 4,
+     "predTop5": [
+      "8",
+      "10",
+      "16",
+      "1",
+      "6"
+     ]
+    }
+   }
+  },
+  "gaps": {
+   "1": {
+    "v19pub": {
+     "mae": 2.1994444444444445,
+     "bias": 1.537222222222222,
+     "predSpread80": 9.26,
+     "actualSpread80": 5.699999999999999,
+     "predMax": 11.51,
+     "actualMax": 9.8
+    },
+    "v20retro": {
+     "mae": 2.2683333333333335,
+     "bias": 1.453888888888889,
+     "predSpread80": 8.97,
+     "actualSpread80": 5.699999999999999,
+     "predMax": 12.12,
+     "actualMax": 9.8
+    },
+    "v19spec": {
+     "mae": 2.1822222222222223,
+     "bias": 1.3677777777777778,
+     "predSpread80": 8.97,
+     "actualSpread80": 5.699999999999999,
+     "predMax": 12.12,
+     "actualMax": 9.8
+    },
+    "v20pub": {
+     "mae": 2.182222222222222,
+     "bias": 1.407777777777778,
+     "predSpread80": 9.24,
+     "actualSpread80": 5.699999999999999,
+     "predMax": 12.68,
+     "actualMax": 9.8
+    },
+    "v20nogo": {
+     "mae": 2.4872222222222224,
+     "bias": 1.7405555555555554,
+     "predSpread80": 9.4,
+     "actualSpread80": 5.699999999999999,
+     "predMax": 12.71,
+     "actualMax": 9.8
+    }
+   },
+   "2": {
+    "v19pub": {
+     "mae": 3.790555555555555,
+     "bias": 3.4572222222222226,
+     "predSpread80": 9.958000000000002,
+     "actualSpread80": 4.5600000000000005,
+     "predMax": 12.57,
+     "actualMax": 6.9
+    },
+    "v20retro": {
+     "mae": 4.1561111111111115,
+     "bias": 3.822777777777778,
+     "predSpread80": 10.31,
+     "actualSpread80": 4.5600000000000005,
+     "predMax": 12.07,
+     "actualMax": 6.9
+    },
+    "v19spec": {
+     "mae": 4.491666666666666,
+     "bias": 4.158333333333333,
+     "predSpread80": 10.31,
+     "actualSpread80": 4.5600000000000005,
+     "predMax": 12.79,
+     "actualMax": 6.9
+    },
+    "v20pub": {
+     "mae": 4.980555555555556,
+     "bias": 4.647222222222222,
+     "predSpread80": 11.24,
+     "actualSpread80": 4.5600000000000005,
+     "predMax": 13.79,
+     "actualMax": 6.9
+    },
+    "v20nogo": {
+     "mae": 4.354444444444445,
+     "bias": 4.021111111111112,
+     "predSpread80": 10.59,
+     "actualSpread80": 4.5600000000000005,
+     "predMax": 12.42,
+     "actualMax": 6.9
+    }
+   },
+   "3": {
+    "v19pub": {
+     "mae": 1.3344444444444443,
+     "bias": -0.6533333333333332,
+     "predSpread80": 4.610000000000001,
+     "actualSpread80": 5.160000000000001,
+     "predMax": 5.38,
+     "actualMax": 9.9
+    },
+    "v20retro": {
+     "mae": 1.3766666666666667,
+     "bias": -0.05999999999999993,
+     "predSpread80": 5.548000000000001,
+     "actualSpread80": 5.160000000000001,
+     "predMax": 6.82,
+     "actualMax": 9.9
+    },
+    "v19spec": {
+     "mae": 1.4627777777777775,
+     "bias": 0.029444444444444533,
+     "predSpread80": 5.548000000000001,
+     "actualSpread80": 5.160000000000001,
+     "predMax": 6.82,
+     "actualMax": 9.9
+    },
+    "v20pub": {
+     "mae": 1.358888888888889,
+     "bias": -0.3399999999999999,
+     "predSpread80": 5.204000000000001,
+     "actualSpread80": 5.160000000000001,
+     "predMax": 6.5,
+     "actualMax": 9.9
+    },
+    "v20nogo": {
+     "mae": 1.3688888888888888,
+     "bias": -0.17222222222222222,
+     "predSpread80": 5.392,
+     "actualSpread80": 5.160000000000001,
+     "predMax": 6.64,
+     "actualMax": 9.9
+    }
+   },
+   "4": {
+    "v19pub": {
+     "mae": 3.766111111111109,
+     "bias": -3.6627777777777757,
+     "predSpread80": 4.164000000000001,
+     "actualSpread80": 7.699999999999997,
+     "predMax": 5.02,
+     "actualMax": 14.699999999999998
+    },
+    "v20retro": {
+     "mae": 3.6049999999999986,
+     "bias": -3.6049999999999986,
+     "predSpread80": 4.44,
+     "actualSpread80": 7.699999999999997,
+     "predMax": 5.15,
+     "actualMax": 14.699999999999998
+    },
+    "v19spec": {
+     "mae": 3.718888888888888,
+     "bias": -3.718888888888888,
+     "predSpread80": 4.436000000000001,
+     "actualSpread80": 7.699999999999997,
+     "predMax": 4.64,
+     "actualMax": 14.699999999999998
+    },
+    "v20pub": {
+     "mae": 3.933333333333332,
+     "bias": -3.933333333333332,
+     "predSpread80": 4.228000000000001,
+     "actualSpread80": 7.699999999999997,
+     "predMax": 4.9,
+     "actualMax": 14.699999999999998
+    },
+    "v20nogo": {
+     "mae": 3.259444444444443,
+     "bias": -3.2572222222222207,
+     "predSpread80": 4.914000000000001,
+     "actualSpread80": 7.699999999999997,
+     "predMax": 5.66,
+     "actualMax": 14.699999999999998
+    }
+   }
+  },
+  "pace": {
+   "actualSeconds": 0.3000000000000042,
+   "actualEarly3": 36.7,
+   "zenhan3f": "367",
+   "v19pub": {
+    "predSeconds": -0.61,
+    "label": "M",
+    "bands": [
+     -0.64,
+     -0.4
+    ],
+    "error": -0.9100000000000041,
+    "actualLabelOnSameBands": "S"
+   },
+   "v20retro": {
+    "predSeconds": -0.58,
+    "label": "M",
+    "bands": [
+     -0.6680497773907846,
+     -0.43908205523526883
+    ],
+    "error": -0.8800000000000041,
+    "actualLabelOnSameBands": "S"
+   },
+   "v19spec": {
+    "predSeconds": -0.58,
+    "label": "M",
+    "bands": [
+     -0.6680497773907846,
+     -0.43908205523526883
+    ],
+    "error": -0.8800000000000041,
+    "actualLabelOnSameBands": "S"
+   },
+   "v20pub": {
+    "predSeconds": -0.69,
+    "label": "H",
+    "bands": [
+     -0.65,
+     -0.42
+    ],
+    "error": -0.9900000000000042,
+    "actualLabelOnSameBands": "S"
+   },
+   "v20nogo": {
+    "predSeconds": -0.89,
+    "label": "H",
+    "bands": [
+     -0.6680497773907846,
+     -0.43908205523526883
+    ],
+    "error": -1.1900000000000042,
+    "actualLabelOnSameBands": "S"
+   },
+   "actualLabelFixedBands": "S"
+  },
+  "last3": {
+   "v19pub": {
+    "mae": 1.3000000000000007,
+    "bias": 1.3000000000000007,
+    "corr": 0.512843602812574,
+    "tau": 0.49719878242360743,
+    "predBest": 35.2,
+    "actualBest": 33.3,
+    "predMean": 35.75000000000001,
+    "actualMean": 34.449999999999996,
+    "predFastest": 4,
+    "actualFastest": 15
+   },
+   "v20retro": {
+    "mae": 1.4222222222222227,
+    "bias": 1.4222222222222227,
+    "corr": 0.49472036301261246,
+    "tau": 0.4475962265261953,
+    "predBest": 35.4,
+    "actualBest": 33.3,
+    "predMean": 35.87222222222223,
+    "actualMean": 34.449999999999996,
+    "predFastest": 4,
+    "actualFastest": 15
+   },
+   "v19spec": {
+    "mae": 1.6722222222222223,
+    "bias": 1.6722222222222223,
+    "corr": 0.5498363017221515,
+    "tau": 0.5172413793103449,
+    "predBest": 35.2,
+    "actualBest": 33.3,
+    "predMean": 36.12222222222222,
+    "actualMean": 34.449999999999996,
+    "predFastest": 4,
+    "actualFastest": 15
+   },
+   "v20pub": {
+    "mae": 1.4500000000000002,
+    "bias": 1.4500000000000002,
+    "corr": 0.4745616194587137,
+    "tau": 0.3662789346938971,
+    "predBest": 35.4,
+    "actualBest": 33.3,
+    "predMean": 35.9,
+    "actualMean": 34.449999999999996,
+    "predFastest": 4,
+    "actualFastest": 15
+   },
+   "v20nogo": {
+    "mae": 0.4722222222222218,
+    "bias": 0.35000000000000026,
+    "corr": 0.5178471928303169,
+    "tau": 0.44290922588661313,
+    "predBest": 34.2,
+    "actualBest": 33.3,
+    "predMean": 34.800000000000004,
+    "actualMean": 34.449999999999996,
+    "predFastest": 4,
+    "actualFastest": 15
+   }
+  },
+  "finish": {
+   "actualTop3": [
+    "15",
+    "7",
+    "16"
+   ],
+   "actualPlaces": {
+    "1": 12,
+    "2": 4,
+    "3": 17,
+    "4": 16,
+    "5": 18,
+    "6": 6,
+    "7": 2,
+    "8": 15,
+    "9": 8,
+    "10": 5,
+    "11": 11,
+    "12": 9,
+    "13": 7,
+    "14": 14,
+    "15": 1,
+    "16": 3,
+    "17": 10,
+    "18": 13
+   },
+   "v19pub": {
+    "tau": 0.281045751633987,
+    "top3": [
+     "7",
+     "13",
+     "9"
+    ],
+    "top3Overlap": 1
+   },
+   "v20retro": {
+    "tau": 0.11111111111111112,
+    "top3": [
+     "1",
+     "16",
+     "7"
+    ],
+    "top3Overlap": 2
+   },
+   "v19spec": {
+    "tau": 0.12418300653594773,
+    "top3": [
+     "4",
+     "15",
+     "7"
+    ],
+    "top3Overlap": 2
+   },
+   "v20pub": {
+    "tau": 0.09803921568627452,
+    "top3": [
+     "1",
+     "7",
+     "9"
+    ],
+    "top3Overlap": 1
+   },
+   "v20nogo": {
+    "tau": 0.17647058823529413,
+    "top3": [
+     "1",
+     "16",
+     "13"
+    ],
+    "top3Overlap": 1
+   }
+  },
+  "frontRunners": {
+   "v19pub": [
+    1,
+    8,
+    6,
+    10,
+    5
+   ],
+   "v20retro": [
+    1,
+    8,
+    6,
+    10,
+    5
+   ],
+   "v19spec": [
+    1,
+    8,
+    6,
+    10,
+    5
+   ],
+   "v20pub": [
+    1,
+    8,
+    6,
+    10,
+    5
+   ],
+   "v20nogo": [
+    1,
+    8,
+    6,
+    10,
+    5
+   ]
+  }
+ }
+}
