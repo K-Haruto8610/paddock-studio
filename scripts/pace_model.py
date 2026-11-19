@@ -21,12 +21,14 @@ from lightgbm import LGBMRegressor
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_forecasts import settings, number, clean, load_upcoming_entries  # noqa: E402
+import rating_index as ri  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = 'paddock.pace-forecast/v1'
 # Revision of the v1 format (README): 1.1 adds the optional rankRange / last3Range fields; v1 readers ignore them.
 SCHEMA_REVISION = '1.1'
-VERSION = '1.9'  # 1.9: past_<target> = EWM of all earlier runs (alpha 0.2), RANK_BLEND 0.75, E0 validation procedure (E1)
+VERSION = '2.0'  # 2.0: rating_pre (opponent-adjusted rating, scripts/rating_index.py) in the rank, closing and move models; gap and lane models unchanged (追加指示11, G1)
+# 1.9: past_<target> = EWM of all earlier runs (alpha 0.2), RANK_BLEND 0.75, E0 validation procedure (E1)
 # 1.8: no code change; refitted and re-tuned after 2022 was imported (追加指示8; 1.7: 2023+, 追加指示5)
 # 1.6: forecast ranges (rankRange / last3Range); same point model, refitted and re-tuned on the current DB# Representative lengths for each JRA separator (midpoints of the published bands).
 GAP_LENGTHS = {'': 0.6, ',': 1.5, '-': 3.5, '=': 6.5}
@@ -338,7 +340,16 @@ def add_labels(d):
 BASE = ['distance', 'surface', 'venue', 'track', 'gate', 'weight', 'age', 'field', 'blinker']
 PAST = ['past_' + t for t in TARGETS]
 RACE_REL = ['early_rel', 'late_rel', 'front_pressure', 'outer_pressure']
-FEATURES = BASE + PAST + ['starts'] + RACE_REL
+# v2.0 (G1, scripts/experiment_g1_rating.py): rating_pre = the horse's rating before the race, the opponent-adjusted exponentially weighted results of all its
+# earlier JRA flat races (scripts/rating_index.py). It goes into the rank, closing, move and quantile models; the gap and lane models (and the per-horse closing
+# model `last3`, a FEATURES-only reference) keep the v1.9 columns (target_features).
+RATING_FEATURES = ['rating_pre']
+FEATURES = BASE + PAST + ['starts'] + RACE_REL + RATING_FEATURES
+
+
+def target_features(t):
+    """Columns of the per-horse model of target t: the v1.9 columns for the gap (g), lane (l) and per-horse closing (last3) targets, all of FEATURES for the ranks."""
+    return [f for f in FEATURES if f not in RATING_FEATURES] if t[0] in 'gl' else FEATURES
 # Move models (道中の位置変化): the horse's past moves, the field's movers, the course's corner count.
 MOVE_FEATURES = FEATURES + ['past_m2', 'past_m3', 'past_m4', 'past_mall', 'past_up', 'past_down', 'past_mall_rel',
                             'field_movers', 'n_corners', 'early_wish']
@@ -540,6 +551,8 @@ KNOWN_ISSUES = [
     '（6〜8月で選定、scripts/experiment_ewm_history.py）。検証は E0 の手順（コースの角の組、前方のみのペース交差予測）。'
     '同じ273レース・再チューニングありで、公開隊列の τ は1〜4角 +0.015/+0.018/+0.023/+0.011（シード7 +0.010/+0.006/+0.011/+0.006）、'
     '整数順位MAE −0.007/−0.007/−0.007/−0.003、上がり −0.009秒、馬身差・内外は許容内。',
+    'v2.0（2026-11-19、追加指示11・G1）：相手補正レーティング rating_pre を順位・上がり・道中移動のモデルに追加（馬身差・内外は v1.9 のまま）。報告期間（9〜12月273レース、再チューニングあり、シード42/7）で4角の τ +0.019/+0.015（区間は0を含まない）、整数MAE −0.0070/−0.0065、上がり −0.024秒、1・2角はシード7でほぼ0。馬身差・内外のガードは許容すれすれ（馬身差2角 +0.033まで、内外2角 +0.0100まで。暴走した1レースを除く）。'
+    'pace_model.reconstruct は馬別の馬身差予想がほぼ平らだと極小の anchor で割って馬身差が暴走することがある（v1.9 でも同じ窓で起きる。公開中の17レースの最大馬身差は14.3馬身で影響なし）。',
     'E0 の Codex レビュー後（2026-11-19）に検証手順を直した：ペースの前方交差予測を開催日単位にし、コースの基準・ペースの正解・過去のペースも'
     '各ブロックより前のレースだけで作り直す。直線コース（新潟芝1000m）は隊列を作らず検証から外す。対比較は同じ馬どうし。'
     'この手順で E1 をやり直しても選ばれる設定と順位の結果は同じで、v1.9 の採用は変わらない（馬身差の検証値は 0.01〜0.04 馬身動く）。',
@@ -573,7 +586,7 @@ def fit_models(d, end):
     for t in TARGETS:
         rows = fit & d[t].notna()
         # Gap shape: median (L1) resists tailed-off horses. Lanes, ranks, closing: mean.
-        models[t] = lgbm('l1' if t[0] == 'g' else 'l2').fit(d.loc[rows, FEATURES], d.loc[rows, t])
+        models[t] = lgbm('l1' if t[0] == 'g' else 'l2').fit(d.loc[rows, target_features(t)], d.loc[rows, t])
     rows = fit & d.last3.notna()
     # Traffic and spent energy can only slow a horse down: monotone (+).
     closing_model = lgbm('l2').set_params(monotone_constraints=[0] * len(CLOSING_BASE) + [1] * (len(TRAFFIC) + len(ENERGY)))
@@ -812,7 +825,7 @@ def blend_ranks(pred, x):
 
 def prepare_race(models, x, key, corners):
     numbers = [int(v) for v in x.UMABAN]
-    pred = blend_ranks({t: models[t].predict(x[FEATURES]) for t in TARGETS}, x)
+    pred = blend_ranks({t: models[t].predict(x[target_features(t)]) for t in TARGETS}, x)
     xm = x.assign(n_corners=len(corners))  # the course's corner count, as in the training label
     for c in MOVE_CORNERS:
         if f'move{c}' in models:
@@ -1351,7 +1364,7 @@ def race_output(models, x, key, corners, P, gi_bands=PACE_BANDS, shown=(), margi
 GOING = {'良': 1, '稍重': 2, '重': 3, '不良': 4}  # JV-Data 馬場状態コード
 
 
-def upcoming_rows(snap, d):
+def upcoming_rows(snap, d, rating_state=None):
     race = snap['race']
     active = [h for h in snap['horses'] if h['status'] != 'scratched']
     hist = d[d.KETTO_TOROKU_BANGO.isin([h['horseId'] for h in active]) & (d.date < race['date'])]
@@ -1367,6 +1380,7 @@ def upcoming_rows(snap, d):
             row['past_' + t] = runs_summary(runs, t)  # same summary as training (HISTORY_ALPHA)
         for t in MOVE_LABELS:
             row['past_' + t] = float(past[t].mean()) if past[t].notna().any() else np.nan
+        row['rating_pre'] = ri.rating_of(rating_state, h['horseId']) if rating_state else np.nan  # the same state as training: results before the race day only
         row['going'] = GOING.get((snap.get('conditions') or {}).get('going'), np.nan)  # absent on fetched cards
         for t in ('pace', 'led'):
             row['past_' + t] = float(past[t].mean()) if past[t].notna().any() else np.nan
@@ -1389,12 +1403,16 @@ def main():
     today_s = (args.today or date.today().isoformat()).replace('-', '')
     if args.frame:
         d = pd.read_pickle(args.frame)
-        d = d[[k for k in d if not (k.startswith('past') or k == 'starts')]]
+        d = d[[k for k in d if not (k.startswith('past') or k in ('starts', 'rating_pre'))]]
         raw = args.raw_rows if args.raw_rows is not None else len(d)
         d = add_traffic(add_history_features(d))
     else:
         d, raw = load_frame(today_s)
         d = add_traffic(add_history_features(add_labels(d)))
+    # Opponent-adjusted rating from ALL JRA flat races before today (named or not), on results of earlier days only (rating_index.py)
+    rating_table, rating_state = ri.ratings(ri.load_runs(today_s), return_state=True)
+    d = ri.attach(d, rating_table)
+    print(f"rating_pre: {d.rating_pre.notna().mean():.4f} of {len(d)} frame rows rated", flush=True)
     print(d[TARGETS].notna().sum().to_string(), flush=True)
     contention, tuning = tune_contention(d)
     params = tune_moves(d, contention)
@@ -1418,7 +1436,7 @@ def main():
         if race.get('historical') is False:
             if race['id'] not in upcoming:
                 continue
-            x = upcoming_rows(upcoming[race['id']], d)
+            x = upcoming_rows(upcoming[race['id']], d, rating_state)
         else:
             x = d[d.RACE_CODE == race['id']]
         if x.empty:
@@ -1439,7 +1457,7 @@ def main():
     for t, m in models.items():
         m.booster_.save_model(str(ROOT / 'models' / 'pace' / f'{t}.txt'))
     model = {'name': 'Paddock展開予想モデル', 'version': VERSION, 'trainingEnd': '2025-12-31', 'validation': '2025-09〜12',
-             'rows': int(d.complete.sum()), 'historyRows': int(len(d)), 'excludedRows': int(raw - len(d)), 'features': FEATURES, 'closingFeatures': LAST3_FEATURES,
+             'rows': int(d.complete.sum()), 'historyRows': int(len(d)), 'excludedRows': int(raw - len(d)), 'features': FEATURES, 'gapLaneFeatures': target_features('g1'), 'closingFeatures': LAST3_FEATURES,
              'moveFeatures': MOVE_FEATURES, 'contention': params, 'contentionTuning': tuning, 'knownIssues': KNOWN_ISSUES,
              'summary': metrics.pop('_summary'), 'standard': metrics.pop('_standard'),
              'moves': metrics.pop('_moves'), 'pace': {**metrics.pop('_pace'), 'giPace': gi_pace, 'giBands': list(gi_bands)}, 'paceFeatures': PACE_FEATURES,
@@ -1457,6 +1475,7 @@ def main():
                        'ゴールは最終角の馬身差に上がり3Fの差（1秒=5馬身）を加えた推定。着順モデルではない。',
                        '予想レンジ：各角の番手と上がり3Fに、分位点回帰（LightGBM quantile, α=0.25/0.75）による50%区間を付ける。幅は2025年6〜8月で表示上の被覆率が50%になるよう補正し、9〜12月の被覆率が40〜60%の項目だけ出す。',
                        '過去走は対象日より前だけ。各角の順位・馬身差・内外と上がりは全過去走の指数加重平均（α=0.2、新しい走ほど重い）、道中の移動・ペース・逃げ率は直近5走の平均。',
+                       '相手補正レーティング（v2.0）：全JRA平地レースの着順を、そのレースの相手の平均レーティングで補正して指数加重（α=0.2）した馬ごとの強さ。対象日より前の結果だけで更新し、順位・上がり・道中移動のモデルに入れる（馬身差・内外のモデルには入れない）。',
                        'オッズ・人気・払戻・対象レースの結果は使わない。']}
     out = {'schema': SCHEMA, 'revision': SCHEMA_REVISION, 'generatedAt': datetime.now().isoformat(timespec='seconds'), 'model': model,
            'units': {'gap': '馬身（先頭から）', 'lane': '内側からの進路スロット（0=内側、列ごとのリセットなし）', 'last3': '秒'}, 'races': out_races}

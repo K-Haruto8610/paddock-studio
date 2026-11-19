@@ -35,7 +35,7 @@ import pace_model as pm  # noqa: E402
 
 sys.stdout.reconfigure(encoding='utf-8')
 ROOT = pm.ROOT
-BASE_FEATURES = list(pm.FEATURES)
+BASE_FEATURES = [f for f in pm.FEATURES if f not in pm.RATING_FEATURES]  # the v1.9 columns: the experiments of 追加指示10/11 compare against v1.9
 MOVE_EXTRA = pm.MOVE_FEATURES[len(pm.FEATURES):]
 SEL, REP = e1.SEL, e1.REP
 TOL = e1.TOL
