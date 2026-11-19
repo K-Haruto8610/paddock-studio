@@ -155,9 +155,20 @@ def cmd_report(args, variants):
     diffs['last3'] = tab.diff('last3', 'candidate', 'baseline')
     res['diffs'] = diffs
     e1.OUT.mkdir(parents=True, exist_ok=True)
-    name = f'report_seed{args.seed}{"_retune" if args.retune else ""}.json'
+    name = f'report_{slug(cand)}_seed{args.seed}{"_retune" if args.retune else ""}.json'
     (e1.OUT / name).write_text(json.dumps(res, indent=1, default=float), encoding='utf-8')
     print(name, json.dumps({k: v for k, v in res['candidate']['summary'].items() if k in ('mean', 'last3')}, default=float), flush=True)
+
+
+def bh(pvals, q=0.10):
+    """Benjamini-Hochberg: boolean mask of the discoveries at false discovery rate q."""
+    p = np.asarray(pvals, float)
+    order = np.argsort(p)
+    ok = np.zeros(len(p), bool)
+    k = np.nonzero(p[order] <= q * (np.arange(len(p)) + 1) / len(p))[0]
+    if len(k):
+        ok[order[:k.max() + 1]] = True
+    return ok
 
 
 def corner_mean(s, key, corners):
@@ -192,9 +203,13 @@ def decide(variants, focus, last3_focus=False, exclude=(), choose_by='tau'):
     return best, rows, ok1
 
 
+def slug(name):
+    return ''.join(ch if ch.isalnum() else '-' for ch in name).strip('-')
+
+
 def decide_report(best, focus, retune=True, last3_focus=False):
     suffix = '_retune' if retune else ''
-    reps = [json.loads((e1.OUT / f'report_seed{s}{suffix}.json').read_text(encoding='utf-8')) for s in (42, 7)]
+    reps = [json.loads((e1.OUT / f'report_{slug(best)}_seed{s}{suffix}.json').read_text(encoding='utf-8')) for s in (42, 7)]
     out = {'candidate': best, 'seeds': {}}
     ok2, ok3 = True, True
     for s, r in zip((42, 7), reps):
