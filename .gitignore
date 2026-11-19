@@ -48,3 +48,6 @@ yarn-error.log*
 # Claude Code local state
 /.claude/
 __pycache__/
+
+# Blender backup files
+*.blend1
