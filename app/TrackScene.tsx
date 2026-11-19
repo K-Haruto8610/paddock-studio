@@ -34,7 +34,7 @@ import {
 } from './sceneBuilders';
 import {addDistantGrass, addRaceGrass} from './raceGrass';
 import {addDirtTrail} from './dirtTrail';
-import {raceSunOffset} from './raceLighting';
+import {DEFAULT_POST_TIME, raceSunOffset} from './raceLighting';
 import {dayOfYear} from './raceSeason';
 import {addPrecipitation, GOING_LABEL, WEATHER_LABEL, WEATHER_LOOKS, wetSurfaces, type Weather} from './raceWeather';
 import {turfWearAmount} from './turfWear';
@@ -147,6 +147,7 @@ export default function TrackScene({
   weather = 'clear',
   going = null,
   courseDay = null,
+  postTime = DEFAULT_POST_TIME,
 }: {
   race: Race;
   plan: PlaybackPlan;
@@ -173,6 +174,8 @@ export default function TrackScene({
   going?: number | null;
   /** Turf race days on the present rail position: the inside wears as a meeting goes on (app/turfWear.ts). */
   courseDay?: number | null;
+  /** Post time (JST, HH:MM): the sun stands as high as the real one at the venue then (app/raceLighting.ts). */
+  postTime?: string;
 }) {
   const host = useRef<HTMLDivElement>(null);
   // The animation loop lives outside React's render cycle: it reads the latest props from refs.
@@ -210,7 +213,7 @@ export default function TrackScene({
     controls.minDistance = 12;
     controls.maxDistance = 900;
     controls.maxPolarAngle = Math.PI * 0.48;
-    const sunOffset = raceSunOffset(race.date);
+    const sunOffset = raceSunOffset(race.date, race.venueCode, postTime);
     const look = WEATHER_LOOKS[weather];
     const sun = addLights(scene, sunOffset, look);
     sun.shadow.mapSize.setScalar(quality.shadowSize);
@@ -645,7 +648,7 @@ export default function TrackScene({
       renderer.domElement.remove();
     };
     // The plan is read live from state, so a hand edit does not rebuild the scene or move the camera.
-  }, [race, webgl, quality, verification, elevationScale, weather, going, courseDay]);
+  }, [race, webgl, quality, verification, elevationScale, weather, going, courseDay, postTime]);
 
   return (
     <div

@@ -309,8 +309,11 @@ export function buildCourseSet(
 export function addLights(scene: T.Scene, sunOffset: T.Vector3, weather: {sunLight: number; skyLight: number; shadow: number} =
   {sunLight: 1, skyLight: 1, shadow: 1}) {
   const overcast = 1 - weather.sunLight;
+  // A low afternoon sun comes through more air: warmer and a little weaker (below about 25 degrees).
+  const low = 1 - T.MathUtils.smoothstep(sunOffset.clone().normalize().y, Math.sin(T.MathUtils.degToRad(6)), Math.sin(T.MathUtils.degToRad(25)));
   scene.add(new T.HemisphereLight(new T.Color('#b9d3ed').lerp(new T.Color('#c9cfd3'), overcast), '#758565', 1.05 * weather.skyLight));
-  const sun = new T.DirectionalLight(new T.Color('#fff0d8').lerp(new T.Color('#f2f4f6'), overcast), 2.45 * weather.sunLight);
+  const sunColour = new T.Color('#fff0d8').lerp(new T.Color('#ffd9a8'), 0.7 * low).lerp(new T.Color('#f2f4f6'), overcast);
+  const sun = new T.DirectionalLight(sunColour, 2.45 * weather.sunLight * (1 - 0.25 * low));
   sun.shadow.intensity = weather.shadow;
   sun.position.copy(sunOffset);
   sun.castShadow = true;

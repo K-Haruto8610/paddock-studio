@@ -127,6 +127,7 @@ export default function Home() {
   // The rail position's days hold whatever weather is picked: the meeting has worn the inside either way.
   const meeting = recorded?.meeting;
   const courseDay = meeting?.courseDay ?? null;
+  const postTime = recorded?.postTime;
   const distance = race?.distance ?? 0;
   const horse = race?.horses.find((h) => h.number === selected),
     course = race ? courseFor(race) : null,
@@ -546,7 +547,7 @@ export default function Home() {
                 <div className="export-renderer" aria-hidden="true">
                   <TrackScene race={race} plan={plan} progress={0} selected={selected} followKey={0}
                     onSelect={() => {}} quality={EXPORT_QUALITY} verification={exportFrame} weather={weather} going={going}
-                    courseDay={courseDay} />
+                    courseDay={courseDay} postTime={postTime} />
                 </div>
               )}
               <div className="stage">
@@ -568,6 +569,7 @@ export default function Home() {
                   weather={weather}
                   going={going}
                   courseDay={courseDay}
+                  postTime={postTime}
                 /> : <div className="scene" />}
                 <div className="scene-top">
                   <span

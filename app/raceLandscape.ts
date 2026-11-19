@@ -14,7 +14,8 @@ const FAIR = WEATHER_LOOKS.clear;
  * haze turns to the weather's grey.
  */
 function skyColours(sunOffset: T.Vector3, look: WeatherLook = FAIR) {
-  const summer = T.MathUtils.smoothstep(sunOffset.clone().normalize().y, 0.3, 1);
+  // The sun at post time stands about 8 degrees up in late December and 41 in June (sin 0.14 ... 0.66).
+  const summer = T.MathUtils.smoothstep(sunOffset.clone().normalize().y, 0.18, 0.62);
   return {
     horizon: new T.Color('#e1e5d5').lerp(new T.Color('#e1edf3'), summer).lerp(new T.Color(look.murkColour), look.murk),
     zenith: new T.Color('#709bb9').lerp(new T.Color('#4999cf'), summer),

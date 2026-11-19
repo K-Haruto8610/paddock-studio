@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-11-20T00:14:33",
+ "generatedAt": "2026-11-20T00:22:15",
  "source": "race_shosai TENKO_CODE, SHIBA/DIRT_BABAJOTAI_CODE, KAISAI_KAI, KAISAI_NICHIME, COURSE_KUBUN (JV-Data)",
  "races": {
   "2026022205010811": {
@@ -10,7 +10,8 @@
     "day": 8,
     "course": "D",
     "courseDay": 9
-   }
+   },
+   "postTime": "15:40"
   },
   "2026032907010611": {
    "weather": 1,
@@ -20,7 +21,8 @@
     "day": 6,
     "course": "B",
     "courseDay": 2
-   }
+   },
+   "postTime": "15:40"
   },
   "2026040509020411": {
    "weather": 1,
@@ -30,7 +32,8 @@
     "day": 4,
     "course": "A",
     "courseDay": 14
-   }
+   },
+   "postTime": "15:40"
   },
   "2026041209020611": {
    "weather": 1,
@@ -40,7 +43,8 @@
     "day": 6,
     "course": "B",
     "courseDay": 2
-   }
+   },
+   "postTime": "15:40"
   },
   "2026041906030811": {
    "weather": 1,
@@ -50,7 +54,8 @@
     "day": 8,
     "course": "C",
     "courseDay": 2
-   }
+   },
+   "postTime": "15:40"
   },
   "2026050308030411": {
    "weather": 4,
@@ -60,7 +65,8 @@
     "day": 4,
     "course": "C",
     "courseDay": 4
-   }
+   },
+   "postTime": "15:40"
   },
   "2026051005020611": {
    "weather": 1,
@@ -70,7 +76,8 @@
     "day": 6,
     "course": "A",
     "courseDay": 6
-   }
+   },
+   "postTime": "15:40"
   },
   "2026051705020811": {
    "weather": 1,
@@ -80,7 +87,8 @@
     "day": 8,
     "course": "B",
     "courseDay": 2
-   }
+   },
+   "postTime": "15:40"
   },
   "2026052405021011": {
    "weather": 2,
@@ -90,7 +98,8 @@
     "day": 10,
     "course": "B",
     "courseDay": 4
-   }
+   },
+   "postTime": "15:40"
   },
   "2026053105021211": {
    "weather": 1,
@@ -100,7 +109,8 @@
     "day": 12,
     "course": "C",
     "courseDay": 2
-   }
+   },
+   "postTime": "15:40"
   },
   "2026060705030211": {
    "weather": 2,
@@ -110,7 +120,8 @@
     "day": 2,
     "course": "C",
     "courseDay": 4
-   }
+   },
+   "postTime": "15:40"
   },
   "2026061409030411": {
    "weather": 3,
@@ -120,7 +131,8 @@
     "day": 4,
     "course": "B",
     "courseDay": 8
-   }
+   },
+   "postTime": "15:40"
   },
   "2026092706040911": {
    "weather": 2,
@@ -130,7 +142,8 @@
     "day": 9,
     "course": "C",
     "courseDay": 6
-   }
+   },
+   "postTime": "15:40"
   },
   "2026101808040711": {
    "weather": 1,
@@ -140,7 +153,8 @@
     "day": 7,
     "course": "A",
     "courseDay": 7
-   }
+   },
+   "postTime": "15:40"
   },
   "2026102508040911": {
    "weather": 2,
@@ -150,7 +164,8 @@
     "day": 9,
     "course": "A",
     "courseDay": 9
-   }
+   },
+   "postTime": "15:40"
   },
   "2026110105041111": {
    "weather": 1,
@@ -160,7 +175,8 @@
     "day": 11,
     "course": "B",
     "courseDay": 2
-   }
+   },
+   "postTime": "15:40"
   },
   "2026111508050411": {
    "weather": 4,
@@ -170,7 +186,8 @@
     "day": 4,
     "course": "B",
     "courseDay": 6
-   }
+   },
+   "postTime": "15:40"
   }
  }
 }

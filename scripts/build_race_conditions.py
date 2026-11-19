@@ -4,6 +4,8 @@ infield board) and how long the turf has been raced on since the rail was last m
 Reads race_shosai for every race id in public/data/forecasts.json, docs/visual-baseline/forecasts.json and the entry
 cards in data/entries, and writes public/data/race_conditions.json. Read-only on the DB; no model input.
 
+Post time (`postTime`, JST): HASSO_JIKOKU, for the sun's height (app/raceLighting.ts); 15:40 (estimated) without one.
+
 JV-Data codes: weather 1 晴, 2 曇, 3 雨, 4 小雨, 5 雪, 6 小雪; going 1 良, 2 稍重, 3 重, 4 不良.
 
 Meeting (`meeting`): KAISAI_KAI / KAISAI_NICHIME (the race id carries both), the rail position COURSE_KUBUN (A-D) and
@@ -28,6 +30,7 @@ SOURCES = [ROOT / 'public' / 'data' / 'forecasts.json', ROOT / 'docs' / 'visual-
 ENTRIES = ROOT / 'data' / 'entries'
 OUT = ROOT / 'public' / 'data' / 'race_conditions.json'
 BREAK_DAYS = 60
+DEFAULT_POST = '15:40'
 
 
 def race_ids():
@@ -60,7 +63,7 @@ def main():
     with c.cursor() as q:
         q.execute(
             'SELECT RACE_CODE,TRACK_CODE,TENKO_CODE,SHIBA_BABAJOTAI_CODE,DIRT_BABAJOTAI_CODE,KAISAI_KAI,KAISAI_NICHIME,'
-            'COURSE_KUBUN FROM race_shosai WHERE RACE_CODE IN (' + ','.join(['%s'] * len(ids)) + ')', ids)
+            'COURSE_KUBUN,HASSO_JIKOKU FROM race_shosai WHERE RACE_CODE IN (' + ','.join(['%s'] * len(ids)) + ')', ids)
         rows = {r['RACE_CODE']: r for r in q.fetchall()}
         # Every turf race day at these venues, with the rail positions used that day.
         q.execute(
@@ -102,6 +105,13 @@ def main():
                 if not same_day:
                     meeting['estimated'] = True
         out['meeting'] = meeting
+        # Post time (JST) for the sun's height; an entry card without one takes the usual GI time.
+        post = (row['HASSO_JIKOKU'] or '').strip() if row else ''
+        if len(post) == 4 and post.isdigit():
+            out['postTime'] = f'{post[:2]}:{post[2:]}'
+        else:
+            out['postTime'] = DEFAULT_POST
+            out['postTimeEstimated'] = True
         races[rid] = out
     result = {
         'generatedAt': datetime.now().isoformat(timespec='seconds'),
@@ -112,7 +122,7 @@ def main():
     print(f'{len(races)} races -> {OUT.relative_to(ROOT)}')
     for rid, r in races.items():
         m = r['meeting']
-        print(rid, r.get('weather'), r.get('going'), f"{m['kai']}回{m['day']}日目", m.get('course'), m.get('courseDay'),
+        print(rid, r['postTime'], r.get('weather'), r.get('going'), f"{m['kai']}回{m['day']}日目", m.get('course'), m.get('courseDay'),
               'est' if m.get('estimated') else '')
 
 

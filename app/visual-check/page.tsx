@@ -27,6 +27,8 @@ type VerifyRequest = Parameters<VerifyFrame>[0] & {
   going?: number;
   /** Turf race days on the present rail (wear along the inside); default none. */
   courseDay?: number;
+  /** Post time (JST, HH:MM) for the sun's height; default 15:40. */
+  postTime?: string;
 };
 
 type SceneInput = {
@@ -37,6 +39,7 @@ type SceneInput = {
   weather: Weather;
   going: number | null;
   courseDay: number | null;
+  postTime?: string;
   resolve: () => void;
 };
 
@@ -47,7 +50,7 @@ export default function VisualCheck() {
   const [input, setInput] = useState<SceneInput>();
   const verification = useRef<VerifyFrame | null>(null);
   const loaded = useRef<{raceId: string; mode: PlaybackMode; forecast: unknown; edits: string | undefined;
-    quality: string; elevationScale?: number; weather: string; going?: number; courseDay?: number} | null>(null);
+    quality: string; elevationScale?: number; weather: string; going?: number; courseDay?: number; postTime?: string} | null>(null);
 
   useEffect(() => {
     input?.resolve();
@@ -86,13 +89,13 @@ export default function VisualCheck() {
         if (!prior || prior.raceId !== race.id || prior.mode !== mode ||
           prior.forecast !== request.forecast || prior.edits !== edits || prior.quality !== quality ||
           prior.elevationScale !== request.elevationScale || prior.weather !== (request.weather ?? 'clear') ||
-          prior.going !== request.going || prior.courseDay !== request.courseDay) {
+          prior.going !== request.going || prior.courseDay !== request.courseDay || prior.postTime !== request.postTime) {
           const {elevationScale} = request;
           const weather = request.weather ?? 'clear';
           await new Promise<void>(resolve => setInput({race, plan, quality, elevationScale, weather,
-            going: request.going ?? null, courseDay: request.courseDay ?? null, resolve}));
+            going: request.going ?? null, courseDay: request.courseDay ?? null, postTime: request.postTime, resolve}));
           loaded.current = {raceId: race.id, mode, forecast: request.forecast, edits, quality, elevationScale, weather,
-            going: request.going, courseDay: request.courseDay};
+            going: request.going, courseDay: request.courseDay, postTime: request.postTime};
         }
         if (!verification.current) throw Error('WebGL renderer is unavailable');
         const overlay = raceOverlay(race, plan, request.progress, !!request.edits, pace?.model);
@@ -161,7 +164,7 @@ export default function VisualCheck() {
       {input && <TrackScene race={input.race} plan={input.plan} progress={0} selected={null}
         followKey={0} onSelect={() => {}} quality={input.quality === 'export' ? EXPORT_QUALITY : PREVIEW_QUALITY}
         verification={verification} elevationScale={input.elevationScale} weather={input.weather} going={input.going}
-        courseDay={input.courseDay} />}
+        courseDay={input.courseDay} postTime={input.postTime} />}
     </main>
   );
 }

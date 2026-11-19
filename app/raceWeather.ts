@@ -12,7 +12,9 @@ export const GOING_LABEL: Record<number, string> = {1: '良', 2: '稍重', 3: '�
 /** Rail position and how many turf race days it has carried (scripts/build_race_conditions.py). */
 export type RaceMeeting = {kai: number; day: number; course?: string; courseDay?: number; estimated?: boolean};
 /** public/data/race_conditions.json (scripts/build_race_conditions.py). */
-export type RaceConditionsFile = {races: Record<string, {weather?: number; going?: number; meeting?: RaceMeeting}>};
+export type RaceConditionsFile = {races: Record<string, {
+  weather?: number; going?: number; meeting?: RaceMeeting; postTime?: string; postTimeEstimated?: boolean;
+}>};
 
 const BY_CODE: Record<number, Weather> = {1: 'clear', 2: 'cloudy', 3: 'rain', 4: 'drizzle', 5: 'snow', 6: 'lightsnow'};
 export function weatherFromCode(code: number | undefined): Weather | null {
