@@ -55,6 +55,9 @@ export type VerifyFrame = (input: {
   history?: number[];
   outputTime?: number;
   sequential?: boolean;
+  /** Device pixels per unit of width/height (default 1). Labels keep their size in width/height units,
+   * as on a high-density screen; the returned canvas is width × pixelRatio by height × pixelRatio. */
+  pixelRatio?: number;
 }) => Promise<HTMLCanvasElement>;
 type VerificationRef = {current: VerifyFrame | null};
 
@@ -372,11 +375,11 @@ export default function TrackScene({
     let sizeKey = '';
     let outputWidth = 1;
     let outputHeight = 1;
-    const resize = (size?: {width: number; height: number}) => {
+    const resize = (size?: {width: number; height: number}, ratio = 1) => {
       const capture = size ?? captureSize.current;
       const width = capture?.width ?? Math.max(1, el.clientWidth);
       const height = capture?.height ?? Math.max(1, el.clientHeight);
-      const pixelRatio = capture ? 1 : Math.min(devicePixelRatio, quality.maxPixelRatio);
+      const pixelRatio = capture ? ratio : Math.min(devicePixelRatio, quality.maxPixelRatio);
       const key = `${width}:${height}:${pixelRatio}:${el.clientWidth}:${el.clientHeight}`;
       if (key === sizeKey) return;
       sizeKey = key;
@@ -583,8 +586,11 @@ export default function TrackScene({
     const copy = verification ? document.createElement('canvas') : null;
     let pixels: Uint8Array<ArrayBuffer>;
     let outputPixels: ImageData;
-    if (verification) verification.current = async ({progress, cameraMode, selected, speed, width, height, reduced, fixed, history, outputTime, sequential}) => {
-      resize({width, height});
+    if (verification) verification.current = async ({progress, cameraMode, selected, speed, width, height, reduced, fixed, history, outputTime, sequential, pixelRatio = 1}) => {
+      resize({width, height}, pixelRatio);
+      // From here on, sizes are the canvas's pixels.
+      width = Math.round(width * pixelRatio);
+      height = Math.round(height * pixelRatio);
       verificationMotion = reduced;
       try {
         if (!sequential || firstCapture) timeline.reset();

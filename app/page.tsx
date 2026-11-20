@@ -1,5 +1,5 @@
 'use client';
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import Link from 'next/link';
 import TrackScene, {type VerifyFrame} from './TrackScene';
 import {useHorseModelReady} from './blenderHorse';
@@ -30,11 +30,30 @@ import {completeTick, outputSeconds, progressAtTime, RACE_FPS} from './raceClock
 import {EXPORT_QUALITY} from './sceneQuality';
 import {raceOverlay} from './raceOverlay';
 import {WEATHERS, WEATHER_LABEL, weatherFromCode, type RaceConditionsFile, type Weather} from './raceWeather';
+import {
+  aspectBucket,
+  clearPrerenders,
+  formatBytes,
+  loadPrerender,
+  prerenderKey,
+  prerenderSize,
+  prerenderStore,
+  prerenderUsage,
+} from './prerender';
 
 async function readJson<T>(url: string): Promise<T> {
   const r = await fetch(url);
   if (!r.ok) throw Error('データの読み込みに失敗しました');
   return r.json() as Promise<T>;
+}
+
+/** The export banner: what is being made, frames done and, once under way, the time left. */
+function exportLabel({kind, done, count, started}: {kind: 'download' | 'prerender'; done: number; count: number; started: number}) {
+  const what = kind === 'prerender' ? '滑らか再生の動画を生成中' : 'MP4書き出し中';
+  if (!count) return kind === 'prerender' ? '滑らか再生の動画を準備中' : 'MP4書き出しを準備中';
+  const left = done >= 30 ? ((performance.now() - started) / done) * (count - done) / 1000 : null;
+  const eta = left === null ? '' : left >= 90 ? `　残り約${Math.round(left / 60)}分` : `　残り約${Math.max(1, Math.round(left))}秒`;
+  return `${what}　${done.toLocaleString()} / ${count.toLocaleString()} コマ${eta}`;
 }
 
 export default function Home() {
@@ -71,7 +90,41 @@ export default function Home() {
     [recording, setRecording] = useState(false),
     [recordMessage, setRecordMessage] = useState(''),
     [recordSupport, setRecordSupport] = useState<'checking' | 'export' | 'simple' | 'unavailable'>('checking'),
-    [exportStatus, setExportStatus] = useState<{done: number; count: number} | null>(null);
+    [exportStatus, setExportStatus] = useState<{
+      kind: 'download' | 'prerender'; done: number; count: number; started: number;
+    } | null>(null),
+    // Smooth playback: the race view rendered offline into a video kept in this browser, played instead of live 3D.
+    [smooth, setSmooth] = useState(true),
+    [stageAspect, setStageAspect] = useState(0),
+    [currentKey, setCurrentKey] = useState<string | null>(null),
+    [prerendered, setPrerendered] = useState<{key: string; url: string} | null>(null),
+    // Touching the video hands the view to the live 3D scene (rotate, select, zoom) until play is pressed.
+    [liveView, setLiveView] = useState(false),
+    [usage, setUsage] = useState<{count: number; bytes: number} | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const observeStage = useCallback((el: HTMLDivElement | null) => {
+    stageRef.current = el;
+    if (!el) return;
+    const measure = () => {
+      if (el.clientHeight > 0) setStageAspect(aspectBucket(el.clientWidth / el.clientHeight));
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    measure();
+    return () => observer.disconnect();
+  }, []);
+  const refreshUsage = () => void prerenderUsage().then(setUsage);
+  const shownVideo = useRef<{key: string; url: string} | null>(null);
+  /** Show this kept video (or none), releasing the previous one's object URL. */
+  const showVideo = (next: {key: string; file: Blob} | null) => {
+    if (shownVideo.current) URL.revokeObjectURL(shownVideo.current.url);
+    shownVideo.current = next && {key: next.key, url: URL.createObjectURL(next.file)};
+    setPrerendered(shownVideo.current);
+  };
+  useEffect(() => () => {
+    if (shownVideo.current) URL.revokeObjectURL(shownVideo.current.url);
+  }, []);
   const recorder = useRef<RaceRecorder | null>(null);
   const exportFrame = useRef<VerifyFrame | null>(null);
   const exportAbort = useRef<AbortController | null>(null);
@@ -83,6 +136,7 @@ export default function Home() {
       codec.current = config;
       setRecordSupport(config ? 'export' : mp4MimeType() ? 'simple' : 'unavailable');
     });
+    prerenderUsage().then((u) => mounted && setUsage(u));
     return () => {
       mounted = false;
       exportAbort.current?.abort();
@@ -151,8 +205,68 @@ export default function Home() {
     () => (race && plan ? playbackEndProgress(race, plan) : 1),
     [race, plan],
   );
+  const frame = useMemo(
+    () => (race && plan ? playbackFrame(race, plan, progress) : null),
+    [race, plan, progress],
+  );
+  // The edit point the race is paused on, if any: horses can be dragged only there.
+  const editPoint = editing && !playing ? frame?.exact?.edit : undefined;
+  const videoUrl = prerendered?.url;
+  const videoReady = !!prerendered && prerendered.key === currentKey;
+  const videoActive = videoReady && smooth && !liveView && !editPoint && !exportStatus;
+  // The kept video for what is on screen now, if any.
   useEffect(() => {
-    if (!playing || distance <= 0) return;
+    if (!race || !plan || !stageAspect) return;
+    let live = true;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    prerenderKey({race, plan, cameraMode, speed, weather, going, courseDay, postTime, reduced, aspect: stageAspect})
+      .then(async (key) => {
+        const file = await loadPrerender(key);
+        if (!live) return;
+        setCurrentKey(key);
+        if (shownVideo.current?.key !== key) showVideo(file && {key, file});
+      });
+    return () => {
+      live = false;
+    };
+  }, [race, plan, cameraMode, speed, weather, going, courseDay, postTime, stageAspect]);
+  // Video frame k shows the race at output time k / fps; aim between frames so the right one is shown.
+  const videoTime = (p: number) => (Math.round(outputSeconds(p * distance, speed) * RACE_FPS) + 0.5) / RACE_FPS;
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoActive || !playing) return;
+    const start = videoTime(progressRef.current);
+    if (Math.abs(video.currentTime - start) > 0.75 / RACE_FPS) video.currentTime = start;
+    let id = 0;
+    const onFrame: VideoFrameRequestCallback = (_, meta) => {
+      updateProgress(Math.min(endProgress, progressAtTime(meta.mediaTime, distance, speed)));
+      id = video.requestVideoFrameCallback(onFrame);
+    };
+    id = video.requestVideoFrameCallback(onFrame);
+    const ended = () => {
+      updateProgress(endProgress);
+      setPlaying(false);
+    };
+    video.addEventListener('ended', ended);
+    video.play().catch(() => setPlaying(false));
+    return () => {
+      video.cancelVideoFrameCallback(id);
+      video.removeEventListener('ended', ended);
+      video.pause();
+    };
+    // videoTime reads distance and speed, both listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoActive, playing, distance, speed, endProgress, videoUrl]);
+  // Paused or seeking: show the frame for the current position.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoActive || playing) return;
+    const at = videoTime(Math.min(progress, endProgress));
+    if (Math.abs(video.currentTime - at) > 0.75 / RACE_FPS) video.currentTime = at;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoActive, playing, progress, distance, speed, endProgress, videoUrl]);
+  useEffect(() => {
+    if (!playing || distance <= 0 || videoActive) return;
     const started = performance.now();
     const from = outputSeconds(progressRef.current * distance, speed);
     const endTime = outputSeconds(endProgress * distance, speed);
@@ -174,7 +288,7 @@ export default function Home() {
     };
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
-  }, [playing, speed, distance, endProgress]);
+  }, [playing, speed, distance, endProgress, videoActive]);
   const updateEdits = (change: (e: RaceEdits) => RaceEdits) =>
     setAllEdits((all) => {
       const next = {...all, [raceId]: change(all[raceId] ?? {})};
@@ -234,10 +348,6 @@ export default function Home() {
       setPaceMessage(`${file.name} はJSONとして読めません（${String(e)}）`);
     }
   };
-  const frame = useMemo(
-    () => (race && plan ? playbackFrame(race, plan, progress) : null),
-    [race, plan, progress],
-  );
   // Seek-bar background: JRA's official section graph, one lap per tile, travel left->right
   // with the winning post on the right edge. Longer races repeat the lap leftwards.
   // The bar runs the way the field passes the stands: left to right on a left-handed course,
@@ -255,8 +365,6 @@ export default function Home() {
       setPlaying(false);
       updateProgress(p);
     };
-  // The edit point the race is paused on, if any: horses can be dragged only there.
-  const editPoint = editing && !playing ? frame?.exact?.edit : undefined;
   const editKnot = editPoint ? plan!.knots.indexOf(frame!.exact!.distance) : -1;
   const moveHorse = (index: number, placement: Placement) => {
     if (!race || !editPoint) return;
@@ -272,53 +380,99 @@ export default function Home() {
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
-  const startExport = async (config: VideoEncoderConfig) => {
+  /** 'download': the MP4 with the lower panels, saved as a file. 'prerender': the 3D view alone, kept for smooth playback. */
+  const startExport = async (kind: 'download' | 'prerender') => {
     if (!race || !plan || !course || exportAbort.current) return;
+    const key = currentKey;
+    const stage = stageRef.current;
+    if (kind === 'prerender' && (!key || !stage)) return;
     const abort = new AbortController();
     exportAbort.current = abort;
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const wasPlaying = playing;
+    let playAfter = wasPlaying;
     setPlaying(false);
-    setExportStatus({done: 0, count: 0});
+    setExportStatus({kind, done: 0, count: 0, started: performance.now()});
     setRecordMessage('');
     try {
-      const {encodeRaceVideo, videoTimeline} = await import('./videoExport');
+      const {encodeRaceVideo, videoTimeline, h264Config} = await import('./videoExport');
       const timeline = videoTimeline(race.distance, speed, endProgress);
-      setExportStatus({done: 0, count: timeline.count});
-      await prepareRecordingOverlay(course.profileImage);
+      setExportStatus({kind, done: 0, count: timeline.count, started: performance.now()});
+      // The prerendered video fills the stage at the screen's sharpness; the download keeps its fixed layout.
+      const size = kind === 'prerender' ? prerenderSize(stage!.clientWidth, stage!.clientHeight, devicePixelRatio) : null;
+      const config = size
+        ? await h264Config(size.pixelWidth, size.pixelHeight, {
+            bitrate: Math.max(24_000_000, Math.round(size.pixelWidth * size.pixelHeight * RACE_FPS * 0.15)),
+            latencyMode: 'quality',
+          })
+        : codec.current;
+      if (!config) throw Error(`${size?.pixelWidth}×${size?.pixelHeight}のH.264動画をこのブラウザーで作れません`);
+      if (!size) await prepareRecordingOverlay(course.profileImage);
+      // The offscreen renderer mounts with the status above; wait for it.
+      for (let i = 0; !exportFrame.current && i < 200 && !abort.signal.aborted; i++)
+        await new Promise((resolve) => setTimeout(resolve, 50));
       abort.signal.throwIfAborted();
       if (!exportFrame.current) throw Error('3D書き出しを開始できません');
       const debug = process.env.NODE_ENV === 'development'
         ? window as Window & {paddockExportHashes?: string[]; paddockFailAt?: number}
         : null;
       if (debug?.paddockExportHashes) debug.paddockExportHashes.length = 0;
+      const store = size ? await prerenderStore(key!) : null;
       const blob = await encodeRaceVideo({
         config, timeline, signal: abort.signal,
         draw: frame => exportFrame.current!({
-          ...RECORDING_SCENE_SIZE, progress: frame.progress, cameraMode, speed, selected, reduced,
+          ...(size ? {width: size.width, height: size.height, pixelRatio: size.pixelRatio} : RECORDING_SCENE_SIZE),
+          // The kept video serves every selection, so it names no horse.
+          progress: frame.progress, cameraMode, speed, selected: size ? null : selected, reduced,
           outputTime: frame.seconds, sequential: true,
         }),
-        overlay: position => raceOverlay(race, plan, position, editing, pace?.model),
-        progress: (done, count) => setExportStatus({done, count}),
+        overlay: size ? undefined : position => raceOverlay(race, plan, position, editing, pace?.model),
+        progress: (done, count) => setExportStatus((s) => s && {...s, done, count}),
         hash: debug?.paddockExportHashes ? hash => debug.paddockExportHashes!.push(hash) : undefined,
         failAt: debug?.paddockFailAt,
+        store: store ?? undefined,
       });
-      const name = `${editing ? '手動エディット' : 'モデル予想'}_${race.date}_${race.name}.mp4`;
-      saveVideo(blob, name);
-      setRecordMessage(`${name} を保存しました`);
+      if (size) {
+        showVideo({key: key!, file: blob});
+        setSmooth(true);
+        setLiveView(false);
+        refreshUsage();
+        setRecordMessage(store
+          ? '滑らか再生用の動画を作り、このブラウザーに保存しました。同じ条件なら次からすぐ再生できます。'
+          : '滑らか再生用の動画を作りました（このブラウザーでは保存できないため、ページを閉じると消えます）。');
+        updateProgress(0);
+        playAfter = true;
+      } else {
+        const name = `${editing ? '手動エディット' : 'モデル予想'}_${race.date}_${race.name}.mp4`;
+        saveVideo(blob, name);
+        setRecordMessage(`${name} を保存しました`);
+      }
     } catch (error) {
-      setRecordMessage(abort.signal.aborted ? '書き出しを中止しました。' : `MP4を書き出せませんでした（${String(error)}）`);
+      const what = kind === 'prerender' ? '滑らか再生の動画' : 'MP4';
+      setRecordMessage(abort.signal.aborted
+        ? `${what}の書き出しを中止しました。`
+        : `${what}を書き出せませんでした（${String(error)}）`);
+      if (kind === 'prerender') refreshUsage();
     } finally {
       exportAbort.current = null;
       setExportStatus(null);
-      setPlaying(wasPlaying);
+      setPlaying(playAfter);
     }
+  };
+  const clearVideos = async () => {
+    if (!usage?.count) return;
+    if (!confirm(`このブラウザーに保存した滑らか再生の動画${usage.count}本（${formatBytes(usage.bytes)}）を削除しますか？`)) return;
+    setPlaying(false);
+    await clearPrerenders();
+    showVideo(null);
+    refreshUsage();
+    setRecordMessage('保存した滑らか再生の動画を削除しました。');
   };
   const overlay = useRef<() => ReturnType<typeof raceOverlay>>(() => { throw Error('No race'); });
   if (race && plan) overlay.current = () => raceOverlay(race, plan, progressRef.current, editing, pace?.model);
   const startRecording = () => {
     if (!race || recording || exportStatus || exportAbort.current) return;
-    if (codec.current) return void startExport(codec.current);
+    if (codec.current) return void startExport('download');
     const type = mp4MimeType();
     if (!type)
       return setRecordMessage(
@@ -367,7 +521,7 @@ export default function Home() {
     <main>
       {exportStatus && (
         <div className="export-status" role="status">
-          <span>{exportStatus.count ? `MP4書き出し中　${exportStatus.done.toLocaleString()} / ${exportStatus.count.toLocaleString()} コマ` : 'MP4書き出しを準備中'}</span>
+          <span>{exportLabel(exportStatus)}</span>
           <button onClick={() => exportAbort.current?.abort()}>中止</button>
         </div>
       )}
@@ -550,7 +704,7 @@ export default function Home() {
                     courseDay={courseDay} postTime={postTime} />
                 </div>
               )}
-              <div className="stage">
+              <div className="stage" ref={observeStage}>
                 {horseReady ? <TrackScene
                   race={race}
                   plan={plan}
@@ -565,12 +719,28 @@ export default function Home() {
                   onEdit={moveHorse}
                   onRendered={recording ? (c) => recorder.current?.drawFrame(c) : undefined}
                   recordingSize={recording ? RECORDING_SCENE_SIZE : undefined}
-                  suspended={!!exportStatus}
+                  suspended={!!exportStatus || videoActive}
                   weather={weather}
                   going={going}
                   courseDay={courseDay}
                   postTime={postTime}
                 /> : <div className="scene" />}
+                {videoReady && smooth && videoUrl && (
+                  <video
+                    ref={videoRef}
+                    className="prerender-video"
+                    hidden={!videoActive}
+                    src={videoUrl}
+                    muted
+                    playsInline
+                    preload="auto"
+                    aria-label="事前生成したレース映像。クリックで3D表示に切り替え"
+                    onPointerDown={() => {
+                      setPlaying(false);
+                      setLiveView(true);
+                    }}
+                  />
+                )}
                 <div className="scene-top">
                   <span
                     className={`scene-status ${actual ? 'recorded-status' : ''}`}
@@ -613,7 +783,9 @@ export default function Home() {
                   <span>
                     {editPoint
                       ? '馬をドラッグ：前後＝進行方向 · 左右＝内外 · 背景ドラッグで回転'
-                      : 'ドラッグで回転 · スクロールで拡大 · 馬を選択'}
+                      : videoActive
+                        ? '滑らか再生（保存した動画）· クリックで3D操作に切り替え'
+                        : 'ドラッグで回転 · スクロールで拡大 · 馬を選択'}
                   </span>
                   <span>
                     JRA公式図面ベース · 馬は約1.1倍 · 高低差は{raceElevationScale(race.venueCode)}倍で表示
@@ -630,6 +802,7 @@ export default function Home() {
                   aria-label={playing ? '一時停止' : '展開を再生'}
                   onClick={() => {
                     if (progress >= endProgress) updateProgress(0);
+                    if (!playing) setLiveView(false);
                     setPlaying(!playing);
                   }}
                 >
@@ -689,6 +862,29 @@ export default function Home() {
                   <option value="2">2×</option>
                   <option value="3">3×</option>
                 </select>
+                {videoReady ? (
+                  <button
+                    className="smooth-toggle"
+                    aria-pressed={smooth}
+                    title="保存した動画で再生する（オフにすると3Dをその場で描きます）"
+                    onClick={() => {
+                      setPlaying(false);
+                      setSmooth(!smooth);
+                      setLiveView(false);
+                    }}
+                  >
+                    滑らか再生
+                  </button>
+                ) : (
+                  <button
+                    className="smooth-toggle"
+                    disabled={!plan.available || recordSupport !== 'export' || !currentKey}
+                    title="このレース・カメラ・再生速度・天候の映像を1コマずつ書き出し、このブラウザーに保存して滑らかに再生します（書き出しには数分かかります）"
+                    onClick={() => startExport('prerender')}
+                  >
+                    滑らか再生を生成
+                  </button>
+                )}
                 {!actual && (
                   <button
                     className={`record ${recording ? 'recording' : ''}`}
@@ -705,7 +901,19 @@ export default function Home() {
               {!actual && recordSupport === 'unavailable' && (
                 <p className="notice record-message">このブラウザーはMP4の録画に対応していません。Chrome・Edge（最新版）またはSafariでお試しください。</p>
               )}
-              {!actual && recordMessage && (
+              {(videoReady || !!usage?.count) && (
+                <p className="notice record-message prerender-store">
+                  {videoReady ? 'この条件の動画は保存済みです。' : 'この条件の動画はまだありません（カメラ・再生速度・天候・編集を変えると別の動画になります）。'}
+                  {usage?.count ? `保存した動画：${usage.count}本・${formatBytes(usage.bytes)}` : ''}
+                  {videoReady && (
+                    <button className="text-button" onClick={() => startExport('prerender')}>作り直す</button>
+                  )}
+                  {!!usage?.count && (
+                    <button className="text-button" onClick={clearVideos}>すべて削除</button>
+                  )}
+                </p>
+              )}
+              {recordMessage && (
                 <p className="notice record-message" role="status">
                   {recordMessage}
                 </p>
