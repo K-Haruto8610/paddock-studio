@@ -80,19 +80,91 @@ export function thatchNormalMap(repeatX: number, repeatY: number) {
   return tex;
 }
 
+/** Adds `change` to a material's own shader changes (onBeforeCompile), with `key` added to its program cache key. */
+export function chainShader<M extends T.Material>(material: M, key: string, change: (shader: T.WebGLProgramParametersWithUniforms) => void) {
+  const previous = material.onBeforeCompile.bind(material);
+  const previousKey = material.customProgramCacheKey.bind(material);
+  material.onBeforeCompile = (shader, renderer) => {
+    previous(shader, renderer);
+    change(shader);
+  };
+  material.customProgramCacheKey = () => `${previousKey()}|${key}`;
+  return material;
+}
+
 /**
- * The material of the turf ground under and beyond the standing blades: real grass seen from a distance — dense green with
- * the thatch as a normal map, the colour and mowing stripes carried by `map`, and the faint waxy sheen of living leaves
- * (roughness a little under 1), which rain turns to a wet gloss (app/raceWeather.ts).
+ * Copies of a scan's maps repeating once per `set.size` metres on a surface whose uv 0..1 spans `spanX` x `spanY` metres
+ * (the images are shared, only the repeat differs).
  */
-export function turfMaterial(map: T.Texture | null, repeatX: number, repeatY: number, lift = 0, color = '#ffffff') {
+function scanMaps(set: PhotoSet, spanX: number, spanY: number) {
+  const copy = (texture: T.Texture) => {
+    const c = texture.clone();
+    c.repeat.set(spanX / set.size, spanY / set.size);
+    return c;
+  };
+  return {map: copy(set.map), roughnessMap: copy(set.roughnessMap), normalMap: copy(set.normalMap)};
+}
+
+/**
+ * Lays a scan's colour over a material as detail: the material's own map keeps the colour over metres (mowing stripes,
+ * damp patches), the scan adds what a photograph shows within a metre (blades and soil, grains and straw), divided by
+ * its own mean so the colour stays the same on average and fades to it in the distance (mipmaps). `saturation` keeps
+ * that much of the scan's own hue; `strength` 1 is the scan's full contrast. Read with the normal map's uv (same repeat).
+ */
+function scanDetail<M extends T.MeshStandardMaterial>(material: M, set: PhotoSet, detail: T.Texture, strength: number, saturation: number) {
+  return chainShader(material, `scan-detail-${strength}-${saturation}`, shader => {
+    Object.assign(shader.uniforms, {uDetail: {value: detail}, uDetailMean: {value: set.average}});
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D uDetail;\nuniform vec3 uDetailMean;')
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        {
+          vec3 detail = texture2D(uDetail, vNormalMapUv).rgb / max(uDetailMean, vec3(1e-3));
+          detail = mix(vec3(dot(detail, uDetailMean) / dot(uDetailMean, vec3(1.0))), detail, ${saturation.toFixed(2)});
+          diffuseColor.rgb *= mix(vec3(1.0), detail, ${strength.toFixed(2)});
+        }`);
+  });
+}
+
+/**
+ * The material of the turf ground under and beyond the standing blades: real grass seen from a few metres — dense green,
+ * the colour and mowing stripes carried by `map` (uv 0..1 spans `spanX` x `spanY` metres), and the faint waxy sheen of
+ * living leaves (roughness a little under 1), which rain turns to a wet gloss (app/raceWeather.ts). With the scanned
+ * grass loaded, its blades and soil are the detail, normals and roughness; otherwise the procedural thatch.
+ */
+export function turfMaterial(map: T.Texture | null, spanX: number, spanY: number, lift = 0, color = '#ffffff') {
+  const grass = photoTextures()?.grass;
+  const scan = grass && scanMaps(grass, spanX, spanY);
   const material = new T.MeshStandardMaterial({
-    color, map, roughness: 0.86, metalness: 0,
-    normalMap: thatchNormalMap(repeatX, repeatY), normalScale: new T.Vector2(0.7, 0.7),
+    color, map, metalness: 0,
+    ...(scan
+      ? {roughness: 0.95, roughnessMap: scan.roughnessMap, normalMap: scan.normalMap, normalScale: new T.Vector2(0.9, 0.9)}
+      : {roughness: 0.86, normalMap: thatchNormalMap(spanX / TURF_TILE, spanY / TURF_TILE), normalScale: new T.Vector2(0.7, 0.7)}),
     side: T.DoubleSide,
     polygonOffset: lift !== 0, polygonOffsetFactor: -lift, polygonOffsetUnits: -lift,
   });
   material.userData.turf = true;
+  return grass && scan ? scanDetail(material, grass, scan.map, 0.6, 0.3) : material;
+}
+
+/**
+ * Finishes a dirt course's material (uv 0..1 spans `spanX` x `spanY` metres; its map carries the colour, damp patches
+ * and harrow lines): the scanned raked dirt as detail, normals and roughness, or, without it, the procedural `relief`
+ * normal map (at `reliefScale`) and patchy roughness.
+ */
+export function sandFinish(material: T.MeshStandardMaterial, spanX: number, spanY: number, relief: T.Texture, reliefScale: number) {
+  const dirt = photoTextures()?.dirt;
+  if (dirt) {
+    const scan = scanMaps(dirt, spanX, spanY);
+    material.normalMap = scan.normalMap;
+    material.normalScale.setScalar(1.1);
+    material.roughnessMap = scan.roughnessMap;
+    material.roughness = 1;
+    return scanDetail(material, dirt, scan.map, 0.75, 0.35);
+  }
+  material.normalMap = relief;
+  material.normalScale.setScalar(reliefScale);
+  material.roughnessMap = sandRoughnessMap();
+  material.roughnessMap.repeat.set(spanX / 8, spanY / 8);
   return material;
 }
 

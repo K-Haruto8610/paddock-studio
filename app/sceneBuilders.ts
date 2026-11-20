@@ -20,7 +20,7 @@ import {
   worldVariation,
 } from './scenery';
 import {dirtReliefMap, RELIEF_TILE} from './surfaceDetail';
-import {TURF_TILE, turfMaterial, paintedMetal, postGeometry, railPaintMap, sandRoughnessMap} from './surfaceFinish';
+import {paintedMetal, postGeometry, railPaintMap, sandFinish, turfMaterial} from './surfaceFinish';
 import {groundOf, type GroundSurface} from './courseGround';
 
 // The plush model is 4 units long: scale 1.0 draws a ~4m horse (≈1.7x life size)
@@ -106,19 +106,12 @@ function ribbon(
     p.y += 0.02;
     return {p, uv: [d / SURFACE_TILE, lane / SURFACE_TILE]};
   }, covered && ((a, b) => [...a, ...b].every(covered)));
-  // Turf is grass (thatch under the blades); dirt is sand (relief, and roughness that varies from patch to patch).
-  const thatch = SURFACE_TILE / TURF_TILE;
-  const surface = worldVariation(dirtTone ? material('#ffffff', lift, map) : turfMaterial(map, thatch, thatch, lift), dirtTone ? 0.07 : 0.12);
+  // Turf is grass (scanned blades and soil under the standing ones); dirt is sand (scanned grain and roughness).
+  const surface = worldVariation(dirtTone && relief
+    ? sandFinish(material('#ffffff', lift, map), SURFACE_TILE, SURFACE_TILE, relief, DIRT_RELIEF)
+    : turfMaterial(map, SURFACE_TILE, SURFACE_TILE, lift), dirtTone ? 0.07 : 0.12);
   // Turf cut up along the inside rail on soft ground (app/turfWear.ts).
   if (!dirtTone) wearTurf(surface, wear);
-  if (relief) {
-    surface.normalMap = relief;
-    surface.normalScale.setScalar(DIRT_RELIEF);
-  }
-  if (dirtTone) {
-    surface.roughnessMap = sandRoughnessMap();
-    surface.roughnessMap.repeat.setScalar(SURFACE_TILE / 8);
-  }
   const m = new T.Mesh(geo, surface);
   m.receiveShadow = true;
   return m;
@@ -414,7 +407,7 @@ export function addGround(scene: T.Scene, tracks: TrackModel[], route?: RaceRout
   ground.computeVertexNormals();
   const map = groundTexture();
   map.repeat.set(size.x / GROUND_TILE, size.z / GROUND_TILE);
-  const groundMesh = new T.Mesh(ground, worldVariation(turfMaterial(map, size.x / TURF_TILE, size.z / TURF_TILE), 0.16));
+  const groundMesh = new T.Mesh(ground, worldVariation(turfMaterial(map, size.x, size.z), 0.16));
   groundMesh.receiveShadow = true;
   scene.add(groundMesh);
   return terrain;
@@ -493,8 +486,7 @@ function chuteRibbon(
     p.y += 0.02;
     return {p, uv: [((i / N) * surface.length) / SURFACE_TILE, (edge * width) / SURFACE_TILE]};
   }, covered);
-  const thatch = SURFACE_TILE / TURF_TILE;
-  const m = new T.Mesh(geo, worldVariation(turfMaterial(map, thatch, thatch, lift), 0.12));
+  const m = new T.Mesh(geo, worldVariation(turfMaterial(map, SURFACE_TILE, SURFACE_TILE, lift), 0.12));
   m.receiveShadow = true;
   return m;
 }

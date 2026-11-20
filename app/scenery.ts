@@ -142,7 +142,11 @@ export function apronTexture() {
  * repeat. The periods (about 240, 95 and 40m) are all longer than the 24m and 48m tiles.
  */
 export function worldVariation<M extends T.Material>(material: M, strength = 0.1): M {
-  material.onBeforeCompile = (shader) => {
+  // Kept after any shader changes the material already has (a scan's detail on the turf and dirt).
+  const previous = material.onBeforeCompile.bind(material);
+  const previousKey = material.customProgramCacheKey.bind(material);
+  material.onBeforeCompile = (shader, renderer) => {
+    previous(shader, renderer);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vVaryXZ;')
       .replace('#include <project_vertex>',
@@ -163,7 +167,7 @@ export function worldVariation<M extends T.Material>(material: M, strength = 0.1
           diffuseColor.rgb *= vec3(1.0 + ${strength.toFixed(3)} * tone * 1.2, 1.0 + ${strength.toFixed(3)} * tone, 1.0 + ${strength.toFixed(3)} * tone * 0.7);
         }`);
   };
-  material.customProgramCacheKey = () => `world-variation-${strength}`;
+  material.customProgramCacheKey = () => `${previousKey()}|world-variation-${strength}`;
   return material;
 }
 

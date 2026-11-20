@@ -1,6 +1,7 @@
 import * as T from 'three';
 import type {TrackModel} from './trackGeometry';
 import {seeded} from './scenery';
+import {photoTextures} from './photoTextures';
 import {foliage, type Foliage, type Species} from './raceSeason';
 import {barkTextures, foliageMaterial, leafAtlas, SHAPES, treeModel, type LeafKind, type TreeShape} from './treeModels';
 
@@ -12,9 +13,18 @@ const VARIANTS = 3;
 
 const WOOD_MIX: [Species, number][] = [['evergreen', 0.45], ['zelkova', 0.22], ['maple', 0.12], ['cherry', 0.13], ['ginkgo', 0.08]];
 
-/** Bark colour of each shape (multiplies the bark texture): grey zelkova, dark cherry, red-brown pine. */
+/** Bark colour of each shape (multiplies the procedural bark texture): grey zelkova, dark cherry, red-brown pine. */
 const BARK: Record<TreeShape, string> = {
   zelkova: '#9a8f80', ginkgo: '#7d7264', cherry: '#5a4639', maple: '#8a8272', camphor: '#6e6253', pine: '#8c6650',
+};
+/**
+ * Linear tints of the scanned barks: the scans were shot in their own light, most of them pale; these bring each one's
+ * mean to the bark of the living tree (grey zelkova, dark red-brown cherry, grey-brown camphor and ginkgo, red-brown pine),
+ * shifting the hue only halfway so the photograph's own colour survives. The ginkgo shares the camphor scan.
+ */
+const PHOTO_BARK: Record<TreeShape, [number, number, number]> = {
+  zelkova: [0.55, 0.6, 0.66], cherry: [0.42, 0.37, 0.39], camphor: [0.38, 0.4, 0.42], ginkgo: [0.36, 0.4, 0.44],
+  pine: [1, 0.92, 0.94], maple: [1.4, 1.5, 1.6],
 };
 
 function pick(r: number): Species {
@@ -112,8 +122,21 @@ export function leafInstances(cards: T.BufferGeometry, kind: LeafKind, snow: num
   return mesh;
 }
 
-/** The bark material, tinted per instance. */
-export function barkMaterial() {
+/**
+ * The bark material of a shape, tinted per instance: the species' scanned bark (Poly Haven; colour, roughness, relief) at
+ * its true size on the tubes' uv (0.6 m round, 1.2 m up per repeat), or the procedural bark when the scans are not loaded.
+ */
+export function barkMaterial(shape: TreeShape) {
+  const scan = photoTextures()?.bark[shape];
+  if (scan) {
+    const copy = (texture: T.Texture) => {
+      const c = texture.clone();
+      c.repeat.set(0.6 / scan.size, 1.2 / scan.size);
+      return c;
+    };
+    return new T.MeshStandardMaterial({color: '#fff', map: copy(scan.map), normalMap: copy(scan.normalMap),
+      roughnessMap: copy(scan.roughnessMap), roughness: 1, normalScale: new T.Vector2(1.3, 1.3)});
+  }
   const {map, normalMap} = barkTextures();
   return new T.MeshStandardMaterial({color: '#fff', map, normalMap, normalScale: new T.Vector2(1.2, 1.2), roughness: 0.95});
 }
@@ -144,15 +167,18 @@ export function addTrees(scene: T.Scene, track: TrackModel, ground: (distance: n
     instance.updateMatrix();
     return instance.matrix.clone();
   });
-  const wood = barkMaterial();
+  const woods = new Map<TreeShape, T.MeshStandardMaterial>();
+  const photo = !!photoTextures();
   for (const [key, members] of groups) {
     const [shape, variant] = key.split(':') as [TreeShape, string];
     const model = treeModel(shape, Number(variant));
-    const bark = new T.InstancedMesh(model.wood, wood, members.length);
+    if (!woods.has(shape)) woods.set(shape, barkMaterial(shape));
+    const bark = new T.InstancedMesh(model.wood, woods.get(shape)!, members.length);
     const tint = new T.Color();
     members.forEach((tree, k) => {
       bark.setMatrixAt(k, matrices[tree]);
-      bark.setColorAt(k, tint.set(BARK[shape]).multiplyScalar(0.88 + 0.24 * random()));
+      (photo ? tint.setRGB(...PHOTO_BARK[shape]) : tint.set(BARK[shape])).multiplyScalar(0.88 + 0.24 * random());
+      bark.setColorAt(k, tint);
     });
     bark.computeBoundingSphere();
     bark.name = `tree-bark-${key}`;
