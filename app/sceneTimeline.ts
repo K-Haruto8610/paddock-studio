@@ -24,6 +24,7 @@ export function cameraFrame(route: RaceRoute, distance: number, straight: number
     horses: order.map((i) => points[i]),
     leader: route.sample(leaderAt, first.lane),
     spread: rearGap - first.gap,
+    toFinish: distance - leaderAt,
     behindLeader: (metres: number) => route.sample(Math.max(0, leaderAt - metres), meanLane),
   };
 }

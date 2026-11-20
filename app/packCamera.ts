@@ -2,7 +2,7 @@ import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import type {TrackPoint} from './trackGeometry';
 import {createShotTransition, fitRaceShot, type CameraMode, type RaceShot} from './raceCamera';
-import {HORSE_SCALE} from './raceLayout';
+import {HORSE_LENGTH, HORSE_SCALE} from './raceLayout';
 
 /** Where the leading horse sits by default: this fraction of the way from the screen centre to the edge. */
 const LEADER_AT_EDGE = 0.52;
@@ -10,6 +10,36 @@ const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 3;
 /** Camera distances are in horse sizes: smaller horses are followed from closer. */
 const K = HORSE_SCALE;
+/** The drawn horse's nose, metres ahead of its position (the galloping model reaches 2.3–2.4 units). */
+const LEADER_NOSE = 2.4 * HORSE_SCALE;
+/** Seconds over which the final straight's leader pin eases in. */
+const PIN_BLEND = 1.5;
+
+/**
+ * Metres to move the camera (and its target) along `tangent` so that the horse furthest towards the
+ * edge of the screen the field is running to has one horse length clear in front of its nose before
+ * that edge. Seen at an angle, a horse level with the leader but nearer the camera can be that horse.
+ * Null when the camera looks too nearly along the course for the field to run across the screen.
+ */
+function leaderPinShift(camera: T.PerspectiveCamera, position: T.Vector3, target: T.Vector3,
+  tangent: T.Vector3, horses: T.Vector3[]) {
+  const forward = target.clone().sub(position).normalize();
+  const right = forward.clone().cross(new T.Vector3(0, 1, 0)).normalize();
+  const across = tangent.dot(right);
+  if (Math.abs(across) < 0.3) return null;
+  const edge = Math.sign(across) * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
+  let shift = -Infinity;
+  for (const horse of horses) {
+    const rel = horse.clone().addScaledVector(tangent, LEADER_NOSE + HORSE_LENGTH).sub(position),
+      x = rel.dot(right),
+      z = rel.dot(forward);
+    if (z <= 0) continue;
+    // Moving the camera by t·tangent moves the point by -t·tangent in view: solve (x - t·a) / (z - t·b) = edge.
+    // The horse needing the camera furthest along is the one furthest towards that edge.
+    shift = Math.max(shift, (edge * z - x) / (edge * tangent.dot(forward) - across));
+  }
+  return Number.isFinite(shift) ? shift : null;
+}
 
 /**
  * The camera follows the race so the leader is always on screen: a compact field is centred,
@@ -30,6 +60,8 @@ export function createPackCamera(
   let dragging = false;
   let lastProgress = Number.NaN;
   let lastMode: CameraMode = 'pack';
+  // Seconds the final straight's leader pin has been on (eases it in).
+  let pinTime = 0;
   // Cursor-zoom offset of the target from the automatic frame, along the course (tangent, outward).
   const offset = new T.Vector2();
   // Last automatic frame and target, used to turn a wheel step into an offset.
@@ -94,10 +126,12 @@ export function createPackCamera(
       leader: TrackPoint;
       /** Length of the field from leader to last horse, in metres. */
       spread: number;
+      /** Metres from the leader to the finish line (negative once it is past). */
+      toFinish: number;
       /** A course point this many metres behind the leader, on the field's mean lane. */
       behindLeader: (metres: number) => TrackPoint;
     }) {
-      const {dt, progress, followKey, spread, behindLeader, mode, shot, horses, leader} = opts;
+      const {dt, progress, followKey, spread, behindLeader, mode, shot, horses, leader, toFinish} = opts;
       if (followKey !== lastFollowKey || mode !== lastMode) {
         following = true;
         lastMode = mode;
@@ -167,6 +201,18 @@ export function createPackCamera(
         first = false;
         controls.target.lerp(blended.target, alpha);
         camera.position.lerp(blended.position, alpha);
+        // Up the final straight the camera keeps up with the leader instead of trailing it: the leader
+        // stays one horse length in from the edge it runs towards, until its nose is past the post.
+        const pinned = !adjusted && shot === 'finish' && toFinish > LEADER_NOSE;
+        pinTime = !pinned ? 0 : snap ? PIN_BLEND : Math.min(PIN_BLEND, pinTime + dt);
+        const tangent = leader.tangent.clone().setY(0).normalize();
+        const shift = pinned ? leaderPinShift(camera, camera.position, controls.target, tangent, horses) : null;
+        if (shift !== null) {
+          const t = pinTime / PIN_BLEND,
+            along = tangent.multiplyScalar(shift * t * t * (3 - 2 * t));
+          controls.target.add(along);
+          camera.position.add(along);
+        }
       }
       lastProgress = progress;
     },
