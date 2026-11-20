@@ -5,7 +5,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import type {Race} from './types';
 import {makeTrack, availableKinds} from './trackGeometry';
 import {makeRoute, type RaceRoute} from './raceRoutes';
-import {interpolateLayouts, sampleLayouts, separateLayouts, type Placement} from './raceLayout';
+import {HORSE_SCALE, interpolateLayouts, sampleLayouts, separateLayouts, type Placement} from './raceLayout';
 import {clampPlacement} from './manualEdit';
 import type {PlaybackPlan} from './playback';
 import {createPackCamera} from './packCamera';
@@ -218,7 +218,7 @@ export default function TrackScene({
     scene.fog = new T.Fog(quality.clearColor, 500, 1600);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.minDistance = 12;
+    controls.minDistance = 12 * HORSE_SCALE;
     controls.maxDistance = 900;
     controls.maxPolarAngle = Math.PI * 0.48;
     const sunOffset = raceSunOffset(race.date, race.venueCode, postTime);

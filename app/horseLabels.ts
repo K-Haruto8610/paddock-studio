@@ -1,6 +1,7 @@
 import * as T from 'three';
 import type {Race} from './types';
 import {framePalette} from './frameColors';
+import {HORSE_SCALE} from './raceLayout';
 
 const HEIGHT = 256;
 const NUMBER_SIZE = 256;
@@ -70,7 +71,7 @@ export function addHorseLabels(scene: T.Scene, race: Race, horses: T.Group[]) {
         const onScreen = screen(back);
         const distance = -world.copy(back).applyMatrix4(camera.matrixWorldInverse).z;
         return {label, i, back, onScreen, distance, head: {...screen(head),
-          w: Math.min(80, 1.7 * focal / distance), h: Math.min(90, 1.9 * focal / distance)}};
+          w: Math.min(80, 1.7 * HORSE_SCALE * focal / distance), h: Math.min(90, 1.9 * HORSE_SCALE * focal / distance)}};
       }).filter(({onScreen, distance}) => distance > 0 && onScreen.z < 1 &&
         onScreen.x >= 0 && onScreen.x <= width && onScreen.y >= 0 && onScreen.y <= height);
       const leader = gaps.indexOf(Math.min(...gaps));
@@ -81,11 +82,13 @@ export function addHorseLabels(scene: T.Scene, race: Race, horses: T.Group[]) {
         const {label, onScreen, distance, back} = item;
         const named = label.horse.number === selected;
         const sprite = named ? label.name : label.number;
-        const h = named ? 24 : Math.round(T.MathUtils.clamp(28 - 120 / distance, 18, 26));
+        // Measured in horse sizes, so the labels sit the same on a camera closer to smaller horses.
+        const away = distance / HORSE_SCALE;
+        const h = named ? 24 : Math.round(T.MathUtils.clamp(28 - 120 / away, 18, 26));
         const w = named ? h * NAME_WIDTH / HEIGHT : h;
         if (w + 8 > width || h + 8 > height) continue;
         const x = T.MathUtils.clamp(onScreen.x, w / 2 + 4, width - w / 2 - 4);
-        const originalY = onScreen.y - h / 2 - Math.max(8, Math.min(34, focal / distance));
+        const originalY = onScreen.y - h / 2 - Math.max(8, Math.min(34, focal / away));
         for (let shift = 0; shift <= 4; shift++) {
           const y = originalY - shift * (h + 4);
           if (y < h / 2 + 4 || y > height - h / 2 - 4) continue;

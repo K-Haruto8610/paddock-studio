@@ -30,7 +30,8 @@ type TurfLook = keyof typeof turfLooks;
 type DirtLook = keyof typeof dirtLooks;
 
 const views: Record<string, {position: [number, number, number]; target: [number, number, number]}> = {
-  '中継カメラ': {position: [9, 3.4, 13], target: [0, 1.5, 0]},
+  // Framed on the horse, so it comes closer with the horse's drawn size; the ground views stay put.
+  '中継カメラ': {position: [9 * HORSE_SCALE, 3.4 * HORSE_SCALE, 13 * HORSE_SCALE], target: [0, 1.5 * HORSE_SCALE, 0]},
   '俯瞰': {position: [0, 30, 26], target: [0, 0, 0]},
   '地面すれすれ': {position: [4.2, 0.45, 5.2], target: [0, 0.9, 0]},
   '足もと': {position: [1.6, 0.9, 2.6], target: [0, 0.25, 0]},

@@ -3,7 +3,7 @@ import {NO_WEAR, wearTurf, type TurfWear} from './turfWear';
 import type {Race} from './types';
 import {makeTrack, makeTerrain, type TrackModel} from './trackGeometry';
 import {makeRoute, type RaceRoute} from './raceRoutes';
-import {startLanes} from './raceLayout';
+import {GATE_EDGE, HORSE_SCALE, startLanes} from './raceLayout';
 import {plush} from './plushHorse';
 import {addGoalBoard} from './goalBoard';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
@@ -23,9 +23,8 @@ import {dirtReliefMap, RELIEF_TILE} from './surfaceDetail';
 import {paintedMetal, postGeometry, railPaintMap, sandFinish, turfMaterial} from './surfaceFinish';
 import {groundOf, type GroundSurface} from './courseGround';
 
-// The plush model is 4 units long: scale 1.0 draws a ~4m horse (≈1.7x life size)
-// so the field stays legible against the true-scale course. Never enlarged on selection.
-export const HORSE_SCALE = 1.0;
+// The plush model's size on the true-scale course (raceLayout.ts). Never enlarged on selection.
+export {HORSE_SCALE};
 
 /** Strength of the dirt's relief (1 = the furrows as modelled). */
 const DIRT_RELIEF = 1.0;
@@ -633,9 +632,9 @@ function addStartSign(scene: T.Scene, route: RaceRoute, distance: number, width:
 /** 発馬機: padded stall partitions between the starting lanes under a frame on wheels. */
 function addGates(scene: T.Scene, race: Race, route: RaceRoute) {
   const lanes = startLanes(race);
-  const edges = [lanes[0] - 0.8];
+  const edges = [lanes[0] - GATE_EDGE];
   for (let i = 1; i < lanes.length; i++) edges.push((lanes[i - 1] + lanes[i]) / 2);
-  edges.push(lanes.at(-1)! + 0.8);
+  edges.push(lanes.at(-1)! + GATE_EDGE);
   const middle = (edges[0] + edges.at(-1)!) / 2;
   const span = edges.at(-1)! - edges[0];
   const at = route.sample(0, middle);
@@ -648,8 +647,11 @@ function addGates(scene: T.Scene, race: Race, route: RaceRoute) {
     pad = material('#ece9d6'),
     frame = new T.MeshStandardMaterial({color: '#dfe3da', roughness: 0.5}),
     tyre = material('#3a3f3c');
-  const LENGTH = 3.4,
-    TOP = 3.5;
+  // The gate is built for the drawn horse: sizes are given for the model at scale 1, and `k`
+  // keeps the stalls fitting the horses standing in them.
+  const k = HORSE_SCALE,
+    LENGTH = 3.4 * k,
+    TOP = 3.5 * k;
   const add = (geo: T.BufferGeometry, mat: T.Material, x: number, y: number, z: number) => {
     const m = new T.Mesh(geo, mat);
     m.position.set(x, y, z);
@@ -657,14 +659,14 @@ function addGates(scene: T.Scene, race: Race, route: RaceRoute) {
     gateGroup.add(m);
     return m;
   };
-  const panel = new RoundedBoxGeometry(LENGTH, 1.7, 0.16, 3, 0.06),
-    cushion = new RoundedBoxGeometry(LENGTH, 0.5, 0.26, 3, 0.1),
-    post = new T.CylinderGeometry(0.07, 0.07, TOP, 8),
-    tie = new T.BoxGeometry(LENGTH, 0.12, 0.12);
+  const panel = new RoundedBoxGeometry(LENGTH, 1.7 * k, 0.16 * k, 3, 0.06 * k),
+    cushion = new RoundedBoxGeometry(LENGTH, 0.5 * k, 0.26 * k, 3, 0.1 * k),
+    post = new T.CylinderGeometry(0.07 * k, 0.07 * k, TOP, 8),
+    tie = new T.BoxGeometry(LENGTH, 0.12 * k, 0.12 * k);
   for (const lane of edges) {
     const z = (lane - middle) * side;
-    add(panel, body, 0, 1.05, z);
-    add(cushion, pad, 0, 2.1, z);
+    add(panel, body, 0, 1.05 * k, z);
+    add(cushion, pad, 0, 2.1 * k, z);
     for (const x of [-LENGTH / 2, LENGTH / 2]) add(post, frame, x, TOP / 2, z);
     add(tie, frame, 0, TOP, z);
   }
@@ -691,20 +693,20 @@ function addGates(scene: T.Scene, race: Race, route: RaceRoute) {
     map.colorSpace = T.SRGBColorSpace;
     const plate = new T.MeshBasicMaterial({map, toneMapped: false, side: T.DoubleSide});
     const z = ((edges[i] + edges[i + 1]) / 2 - middle) * side;
-    for (const x of [-LENGTH / 2 - 0.12, LENGTH / 2 + 0.12]) {
+    for (const x of [-LENGTH / 2 - 0.12 * k, LENGTH / 2 + 0.12 * k]) {
       const m = new T.Mesh(plateGeometry, plate);
       m.rotation.y = Math.PI / 2;
-      m.scale.setScalar(0.95);
-      m.position.set(x, TOP - 0.62, z);
+      m.scale.setScalar(Math.min(0.95 * k, (edges[i + 1] - edges[i]) * 0.9));
+      m.position.set(x, TOP - 0.62 * k, z);
       gateGroup.add(m);
     }
   });
-  const beam = new T.BoxGeometry(0.2, 0.28, span + 0.5);
+  const beam = new T.BoxGeometry(0.2 * k, 0.28 * k, span + 0.5 * k);
   for (const x of [-LENGTH / 2, LENGTH / 2]) add(beam, frame, x, TOP, 0);
-  const wheel = new T.CylinderGeometry(0.55, 0.55, 0.3, 16);
-  for (const x of [-1.1, 1.1])
-    for (const z of [-span / 2 - 0.4, span / 2 + 0.4])
-      add(wheel, tyre, x, 0.55, z).rotation.x = Math.PI / 2;
+  const wheel = new T.CylinderGeometry(0.55 * k, 0.55 * k, 0.3 * k, 16);
+  for (const x of [-1.1 * k, 1.1 * k])
+    for (const z of [-span / 2 - 0.4 * k, span / 2 + 0.4 * k])
+      add(wheel, tyre, x, 0.55 * k, z).rotation.x = Math.PI / 2;
   gateGroup.name = 'starting-gate';
   scene.add(gateGroup);
   return gateGroup;
@@ -762,7 +764,7 @@ export function addContactShadows(scene: T.Scene, horses: T.Group[]) {
 
 /** Ring drawn under the selected horse. */
 export function addSelectionRing(scene: T.Scene) {
-  const ring = mesh(new T.RingGeometry(2.4, 2.75, 40), '#f4cf65', 5);
+  const ring = mesh(new T.RingGeometry(2.4 * HORSE_SCALE, 2.75 * HORSE_SCALE, 40), '#f4cf65', 5);
   ring.rotation.x = -Math.PI / 2;
   scene.add(ring);
   ring.visible = false;

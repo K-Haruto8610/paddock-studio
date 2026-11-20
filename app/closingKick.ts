@@ -1,8 +1,13 @@
 // Closing-kick (上がり) running form, as pure functions of a horse's own travelled distance.
 // Nothing here carries state, so pausing, seeking and MP4 recording always reproduce the same pose.
 
-/** Distance per base stride in race metres, independent of race length and playback rate. */
-export const STRIDE_LENGTH = 16;
+import {HORSE_SCALE} from './raceLayout';
+
+/**
+ * Distance per base stride in race metres, independent of race length and playback rate. It is in
+ * proportion to the drawn horse, so the hooves keep pace with the ground.
+ */
+export const STRIDE_LENGTH = 16 * HORSE_SCALE;
 /** The kick starts this far from the finish and ramps from 0 to full over KICK_RAMP metres. */
 export const KICK_WINDOW = 600;
 export const KICK_RAMP = 100;

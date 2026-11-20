@@ -1,25 +1,39 @@
 import type {Race} from './types';
 export type Placement = {gap: number; lane: number};
-// Horses are drawn ~1.7x life size (≈4m long, ≈1.5m wide) so they stay legible
-// against a true-scale course. All spacing below is in metres for that size.
-export const HORSE_LENGTH = 4.0;
-export const HORSE_WIDTH = 1.5;
-export const LANE_PITCH = 2.0;
+/**
+ * Size the horses are drawn at: the plush model is 4 units long, so this draws a ~2.7m horse
+ * (≈1.1x life size). It is small enough for a full field of 18 to stand in the gate inside the
+ * 25m dirt course. Every horse-sized distance below (spacing, gate, stride, camera) follows it.
+ */
+export const HORSE_SCALE = 0.68;
+// All spacing below is in metres for horses of that size.
+export const HORSE_LENGTH = 4.0 * HORSE_SCALE;
+export const HORSE_WIDTH = 1.5 * HORSE_SCALE;
+export const LANE_PITCH = 2.0 * HORSE_SCALE;
 /** Closest a horse's centre gets to the inside rail (metres). */
-export const MIN_LANE = 0.9;
+export const MIN_LANE = 0.9 * HORSE_SCALE;
+/** Centre of the innermost running lane (metres from the inside rail). */
+export const FIRST_LANE = 1.8 * HORSE_SCALE;
 export const laneSlots = (count: number) =>
-  Array.from({length: count}, (_, j) => 1.8 + j * LANE_PITCH);
+  Array.from({length: count}, (_, j) => FIRST_LANE + j * LANE_PITCH);
 /**
  * Gate stall pitch. A drawn horse is wider than its footprint (shoulders, head, ears), so a stall
- * narrower than this has the horse pushed into its partitions. A full field is wider than the
- * course here and the gate overhangs the outer rail; the field closes up within the first strides.
+ * narrower than this has the horse pushed into its partitions.
  */
-export const START_PITCH = 2.0;
+export const START_PITCH = 2.0 * HORSE_SCALE;
+/** Centre of stall 1, and how far the gate's outer partition stands beyond the last stall's centre. */
+export const START_INSIDE = 1.1 * HORSE_SCALE;
+export const GATE_EDGE = 0.8 * HORSE_SCALE;
+/** Room left between the gate and the outer rail. */
+const START_CLEARANCE = 0.4;
+/** Course width in metres (as trackGeometry draws it). */
+export const courseWidth = (race: Pick<Race, 'venueCode' | 'surface'>) =>
+  race.surface === 'ダート' ? 25 : race.venueCode === '05' ? 36 : 30;
+/** Stall centres, metres from the inside rail. The whole gate stays inside the course. */
 export function startLanes(race: Race) {
-  // The gate overhangs the outer rail by 3m at most.
-  const width = race.surface === 'ダート' ? 25 : 30,
-    pitch = Math.min(START_PITCH, (width + 2 - 1.1) / Math.max(1, race.horses.length - 1));
-  return race.horses.map((_, i) => 1.1 + i * pitch);
+  const room = courseWidth(race) - START_CLEARANCE - GATE_EDGE - START_INSIDE,
+    pitch = Math.min(START_PITCH, room / Math.max(1, race.horses.length - 1));
+  return race.horses.map((_, i) => START_INSIDE + i * pitch);
 }
 export function buildLayouts(race: Race): Placement[][] {
   const starts = startLanes(race).map((lane) => ({gap: 0, lane}));
@@ -33,9 +47,9 @@ export function buildLayouts(race: Race): Placement[][] {
       placed: Placement[] = [];
     for (const [rank, {h, i, score}] of order.entries()) {
       // Distances are visualization assumptions: neither time gaps nor lateral lanes are observed in JV-Data.
-      const gap = (score - min) * 110 + rank * 1.8;
+      const gap = ((score - min) * 110 + rank * 1.8) * HORSE_SCALE;
       const preferred =
-        1.8 +
+        FIRST_LANE +
         Math.min(5, h.gate - 1) * LANE_PITCH * 0.8 +
         (phase >= 2 && h.positions[phase] < h.positions[0] ? LANE_PITCH : 0);
       const candidates = laneSlots(9).sort(

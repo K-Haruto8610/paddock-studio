@@ -3,6 +3,7 @@ import type {Ground, GroundHit} from './courseGround';
 import {HOOF_COUNT, gallopAmount, hoofCount, hoofSpot, isHindHoof, stridePhase} from './plushHorse';
 import type {Kick} from './closingKick';
 import {seeded} from './scenery';
+import {HORSE_SCALE} from './raceLayout';
 import {raceSeconds} from './raceClock';
 
 // What the horses leave on a dirt course: hoofprints that stay behind the field, and sand thrown
@@ -31,9 +32,11 @@ const BACK_OK = 1.5;
 const JUMP = 45;
 /** Footfalls handled per leg and frame; a long jump skips the rest. */
 const MAX_STEPS = 4;
-/** Hoofprint size in metres (the horse is 1.7x life size). */
-const PRINT_WIDTH = 0.42;
-const PRINT_LENGTH = 0.5;
+/** Hoofprint size in metres, in proportion to the drawn horse. */
+const PRINT_WIDTH = 0.42 * HORSE_SCALE;
+const PRINT_LENGTH = 0.5 * HORSE_SCALE;
+/** Sand flies as high and as far as the drawn horse's size: speeds go with its square root. */
+const THROW = Math.sqrt(HORSE_SCALE);
 /** Grains thrown by a push-off. */
 const GRAINS_HIND = 28;
 const GRAINS_FORE = 12;
@@ -285,16 +288,16 @@ function makeSand(scene: T.Scene) {
       for (let k = 0; k < count; k++) {
         const i = thrown++ % GRAINS;
         // Metres per second relative to the ground: the hind hooves push the hardest.
-        const away = (hind ? 2 + 3.5 * rand() : 1.2 + 2.3 * rand()) * (0.6 + 0.4 * rand()),
-          lift = (hind ? 2.2 + 3 * rand() : 1.6 + 1.8 * rand()) * (0.6 + 0.4 * rand()),
-          spread = (rand() - 0.5) * (hind ? 2.4 : 1.6);
+        const away = (hind ? 2 + 3.5 * rand() : 1.2 + 2.3 * rand()) * (0.6 + 0.4 * rand()) * THROW,
+          lift = (hind ? 2.2 + 3 * rand() : 1.6 + 1.8 * rand()) * (0.6 + 0.4 * rand()) * THROW,
+          spread = (rand() - 0.5) * (hind ? 2.4 : 1.6) * THROW;
         v.copy(back).multiplyScalar(away).addScaledVector(normal, lift).addScaledVector(side, spread);
         // Start somewhere in the hoof's reach, a hand above the ground.
-        const dx = (rand() - 0.5) * 0.3,
-          dz = (rand() - 0.5) * 0.3;
-        from.setXYZ(i, p.x + dx, p.y + 0.05 + 0.1 * rand(), p.z + dz);
+        const dx = (rand() - 0.5) * 0.3 * HORSE_SCALE,
+          dz = (rand() - 0.5) * 0.3 * HORSE_SCALE;
+        from.setXYZ(i, p.x + dx, p.y + (0.05 + 0.1 * rand()) * HORSE_SCALE, p.z + dz);
         vel.setXYZ(i, v.x, v.y, v.z);
-        grain.setXYZ(i, now, 0.09 + 0.13 * rand(), rand());
+        grain.setXYZ(i, now, (0.09 + 0.13 * rand()) * HORSE_SCALE, rand());
         up.setXY(i, normal.x, normal.z);
       }
       from.needsUpdate = vel.needsUpdate = grain.needsUpdate = up.needsUpdate = true;
@@ -426,6 +429,9 @@ export function addDirtTrail(scene: T.Scene, ground: Ground, reducedMotion: () =
               for (let c = Math.floor(before) + 1, steps = 0; c <= after && steps < MAX_STEPS; c++, steps++) {
                 const f = (c - before) / (after - before);
                 hoofSpot(n, lastPhase[i] + (phase - lastPhase[i]) * f, kick[i].level, spot);
+                // The hoof's spot is in the model's own units.
+                spot.x *= HORSE_SCALE;
+                spot.z *= HORSE_SCALE;
                 const cos = Math.cos(g.rotation.y),
                   sin = Math.sin(g.rotation.y);
                 where.set(

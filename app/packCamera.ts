@@ -2,11 +2,14 @@ import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import type {TrackPoint} from './trackGeometry';
 import {createShotTransition, fitRaceShot, type CameraMode, type RaceShot} from './raceCamera';
+import {HORSE_SCALE} from './raceLayout';
 
 /** Where the leading horse sits by default: this fraction of the way from the screen centre to the edge. */
 const LEADER_AT_EDGE = 0.52;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 3;
+/** Camera distances are in horse sizes: smaller horses are followed from closer. */
+const K = HORSE_SCALE;
 
 /**
  * The camera follows the race so the leader is always on screen: a compact field is centred,
@@ -120,8 +123,8 @@ export function createPackCamera(
         }
         across = high - low;
       }
-      const behind = T.MathUtils.smoothstep(across - spread, 2, 14);
-      const fitted = T.MathUtils.clamp((Math.max(spread, behind * across) + 12) / (aspect * 0.8), 30, 76);
+      const behind = T.MathUtils.smoothstep(across - spread, 2 * K, 14 * K);
+      const fitted = T.MathUtils.clamp((Math.max(spread, behind * across) + 12 * K) / (aspect * 0.8), 30 * K, 76 * K);
       const distance = fitted * zoom * (1 - 0.25 * behind);
       // The frame is measured unzoomed, so zooming only scales the view about the cursor.
       const halfWidth = fitted * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * aspect;
@@ -143,9 +146,9 @@ export function createPackCamera(
       if (mode === 'broadcast' && horses.length) {
         frame = leader;
         if (shot === 'corner') {
-          desired.copy(horses[0]).add(new T.Vector3(0, 3.2, 0));
-          packOffset = leader.outward.clone().multiplyScalar(18)
-            .addScaledVector(leader.tangent, 9).setY(-1.8);
+          desired.copy(horses[0]).add(new T.Vector3(0, 3.2 * K, 0));
+          packOffset = leader.outward.clone().multiplyScalar(18 * K)
+            .addScaledVector(leader.tangent, 9 * K).setY(-1.8 * K);
         } else {
           const fittedShot = fitRaceShot(shot === 'finish' ? horses.slice(0, 6) : horses,
             leader.outward, shot, camera.fov, camera.aspect);

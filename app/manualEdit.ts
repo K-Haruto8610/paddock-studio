@@ -1,7 +1,7 @@
 import type {Race} from './types';
 import type {Checkpoint, PlaybackPlan} from './playback';
 import {checkpointDistances} from './courses';
-import {interpolateLayouts, HORSE_LENGTH, MIN_LANE, type Placement} from './raceLayout';
+import {interpolateLayouts, HORSE_LENGTH, HORSE_SCALE, MIN_LANE, type Placement} from './raceLayout';
 
 /** The four moments of the race the user can rearrange by hand. */
 export type EditKey = 'early' | 'middle' | 'corner4' | 'stretch';
@@ -96,12 +96,36 @@ export function applyEdits(race: Race, base: PlaybackPlan, edits: RaceEdits): Pl
   };
 }
 
-/** File format for moving edits between browsers: edits of one or more races keyed by race id. */
+/**
+ * Placements are metres for horses of the size they were placed at. Edits made at another horse size
+ * are scaled by `factor` (new size / old size), so every horse keeps its place in the field.
+ */
+function rescaleEdits(races: Record<string, RaceEdits>, factor: number): Record<string, RaceEdits> {
+  if (Math.abs(factor - 1) < 1e-9) return races;
+  const out: Record<string, RaceEdits> = {};
+  for (const [id, edits] of Object.entries(races)) {
+    const race: RaceEdits = {};
+    for (const [key, horses] of Object.entries(edits ?? {}) as [EditKey, Record<string, Placement>][]) {
+      race[key] = {};
+      for (const [number, p] of Object.entries(horses ?? {}))
+        race[key]![number] = {gap: p.gap * factor, lane: p.lane * factor};
+    }
+    out[id] = race;
+  }
+  return out;
+}
+
+/**
+ * File format for moving edits between browsers: edits of one or more races keyed by race id.
+ * Version 2 records the horse size (`scale`) the placements were made at; version 1 files were all
+ * made at scale 1.
+ */
 const FILE_FORMAT = 'paddock-studio-manual-edits';
-export type EditsFile = {format: typeof FILE_FORMAT; version: 1; races: Record<string, RaceEdits>};
+export type EditsFile = {format: typeof FILE_FORMAT; version: 2; scale: number; races: Record<string, RaceEdits>};
 export const editsFile = (races: Record<string, RaceEdits>): EditsFile => ({
   format: FILE_FORMAT,
-  version: 1,
+  version: 2,
+  scale: HORSE_SCALE,
   races,
 });
 
@@ -110,13 +134,15 @@ const EDIT_KEYS: EditKey[] = ['early', 'middle', 'corner4', 'stretch'];
 export function parseEditsFile(
   value: unknown,
 ): {ok: true; races: Record<string, RaceEdits>} | {ok: false; error: string} {
-  const v = value as Partial<EditsFile> | null;
+  const v = value as {format?: unknown; version?: unknown; scale?: unknown; races?: unknown} | null;
   if (!v || typeof v !== 'object' || v.format !== FILE_FORMAT)
     return {ok: false, error: '手動エディットのファイルではありません'};
-  if (v.version !== 1) return {ok: false, error: `未対応のバージョンです（${String(v.version)}）`};
+  if (v.version !== 1 && v.version !== 2) return {ok: false, error: `未対応のバージョンです（${String(v.version)}）`};
+  const scale = v.version === 1 ? 1 : v.scale;
+  if (typeof scale !== 'number' || !(scale > 0)) return {ok: false, error: 'scale がありません'};
   if (!v.races || typeof v.races !== 'object') return {ok: false, error: 'races がありません'};
   const races: Record<string, RaceEdits> = {};
-  for (const [id, edits] of Object.entries(v.races)) {
+  for (const [id, edits] of Object.entries(rescaleEdits(v.races as Record<string, RaceEdits>, HORSE_SCALE / scale))) {
     if (!edits || typeof edits !== 'object') continue;
     const out: RaceEdits = {};
     for (const key of EDIT_KEYS) {
@@ -136,18 +162,26 @@ export function parseEditsFile(
   return {ok: true, races};
 }
 
-const STORAGE_KEY = 'paddock-studio:manual-edits';
+/** Edits made before horse sizes were recorded: placements for horses of scale 1. */
+const LEGACY_STORAGE_KEY = 'paddock-studio:manual-edits';
+/** `{scale, races}`: the horse size the placements were made at, and the edits by race id. */
+const STORAGE_KEY = 'paddock-studio:manual-edits:v2';
 export function loadEdits(): Record<string, RaceEdits> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Record<string, RaceEdits>) : {};
+    if (raw) {
+      const {scale, races} = JSON.parse(raw) as {scale: number; races: Record<string, RaceEdits>};
+      return scale > 0 && races ? rescaleEdits(races, HORSE_SCALE / scale) : {};
+    }
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    return legacy ? rescaleEdits(JSON.parse(legacy) as Record<string, RaceEdits>, HORSE_SCALE) : {};
   } catch {
     return {};
   }
 }
 export function saveEdits(all: Record<string, RaceEdits>) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({scale: HORSE_SCALE, races: all}));
   } catch {
     // Storage blocked: edits still work for this visit.
   }

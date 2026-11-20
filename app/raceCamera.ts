@@ -1,6 +1,7 @@
 import * as T from 'three';
 import type {RaceRoute} from './raceRoutes';
 import type {TrackPoint} from './trackGeometry';
+import {HORSE_SCALE} from './raceLayout';
 
 export type CameraMode = 'pack' | 'broadcast';
 export type RaceShot = 'start' | 'corner' | 'wide' | 'finish';
@@ -53,18 +54,22 @@ export function raceShot(route: RaceRoute, travel: number, distance: number, str
   return Math.abs(heading.dot(home)) < 0.88 || finalBendAhead ? 'corner' : 'wide';
 }
 
-/** Fit horse-sized bounds in camera space, including lane width and exaggerated terrain heights. */
+/**
+ * Fit horse-sized bounds in camera space, including lane width and exaggerated terrain heights.
+ * Every distance here is in horse sizes (`k` metres), so smaller horses are seen from closer.
+ */
 export function fitRaceShot(points: T.Vector3[], outward: T.Vector3, shot: RaceShot, fov: number, aspect: number) {
+  const k = HORSE_SCALE;
   const bounds = new T.Box3().setFromPoints(points);
-  const target = bounds.getCenter(new T.Vector3()).add(new T.Vector3(0, 2.5, 0));
+  const target = bounds.getCenter(new T.Vector3()).add(new T.Vector3(0, 2.5 * k, 0));
   const direction = outward.clone().setY(shot === 'start' ? 1.8 : shot === 'finish' ? 0.22 : 0.48).normalize();
   const right = new T.Vector3(0, 1, 0).cross(direction).normalize();
   const up = direction.clone().cross(right).normalize();
   const tanY = Math.tan(T.MathUtils.degToRad(fov / 2)) * (shot === 'finish' ? 0.92 : 0.82);
   const tanX = tanY * Math.max(0.1, aspect);
-  let distance = shot === 'start' ? 45 : shot === 'finish' ? 16 : 22;
+  let distance = (shot === 'start' ? 45 : shot === 'finish' ? 16 : 22) * k;
   for (const point of points) {
-    for (const x of [-4, 4]) for (const y of [0, 6]) for (const z of [-4, 4]) {
+    for (const x of [-4 * k, 4 * k]) for (const y of [0, 6 * k]) for (const z of [-4 * k, 4 * k]) {
       const p = point.clone().add(new T.Vector3(x, y, z)).sub(target);
       distance = Math.max(distance, p.dot(direction) + Math.max(Math.abs(p.dot(right)) / tanX, Math.abs(p.dot(up)) / tanY));
     }

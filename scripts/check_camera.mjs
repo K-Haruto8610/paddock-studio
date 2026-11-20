@@ -8,7 +8,7 @@ import {G1_RACES} from './g1_races.mjs';
 
 const out = path.resolve('outputs/camera-check');
 await fs.mkdir(out, {recursive: true});
-for (const name of ['courseData', 'alignmentData', 'alignment', 'courses', 'trackGeometry', 'raceRoutes', 'raceCamera']) {
+for (const name of ['courseData', 'alignmentData', 'alignment', 'courses', 'trackGeometry', 'raceRoutes', 'raceLayout', 'raceCamera']) {
   const source = await fs.readFile(`app/${name}.ts`, 'utf8');
   const js = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022}})
     .outputText.replace(/from '(\.\/[^']+)'/g, "from '$1.js'");
@@ -19,6 +19,7 @@ const {raceShot, fitRaceShot, createShotTransition} = await load('raceCamera');
 const {makeTrack} = await load('trackGeometry');
 const {makeRoute} = await load('raceRoutes');
 const {courseFor} = await load('courses');
+const {HORSE_SCALE: k} = await load('raceLayout');
 const {races} = JSON.parse(await fs.readFile('public/data/forecasts.json', 'utf8'));
 for (const [venueCode, surface, trackCode, distance] of G1_RACES) {
   const race = {...races.find((r) => r.venueCode === venueCode), venueCode, surface, trackCode, distance};
@@ -33,7 +34,7 @@ for (const [venueCode, surface, trackCode, distance] of G1_RACES) {
   assert.ok(shots.has('corner'), `${venueCode}/${distance}: corner shot`);
   assert.ok(shots.has('wide'), `${venueCode}/${distance}: wide shot`);
 }
-// Project every horse's padded bounds: all must fit even with a long field, hills and a portrait viewport.
+// Project every horse's padded bounds (in horse sizes): all must fit even with a long field, hills and a portrait viewport.
 for (const aspect of [0.4, 1, 16 / 9, 3]) for (const shot of ['start', 'wide', 'finish']) {
   const points = Array.from({length: shot === 'finish' ? 6 : 18}, (_, i) => new T.Vector3(-i * 17, Math.sin(i) * 20, (i % 4) * 4));
   const {target, offset} = fitRaceShot(points, new T.Vector3(0, 0, 1), shot, 40, aspect);
@@ -41,7 +42,7 @@ for (const aspect of [0.4, 1, 16 / 9, 3]) for (const shot of ['start', 'wide', '
   camera.position.copy(target).add(offset);
   camera.lookAt(target);
   camera.updateMatrixWorld();
-  for (const point of points) for (const x of [-4, 4]) for (const y of [0, 6]) for (const z of [-4, 4]) {
+  for (const point of points) for (const x of [-4 * k, 4 * k]) for (const y of [0, 6 * k]) for (const z of [-4 * k, 4 * k]) {
     const projected = point.clone().add(new T.Vector3(x, y, z)).project(camera);
     const limit = shot === 'finish' ? 0.921 : 0.821;
     assert.ok(Math.abs(projected.x) <= limit && Math.abs(projected.y) <= limit && Math.abs(projected.z) < 1, `${shot}/${aspect}: horse is in frame`);

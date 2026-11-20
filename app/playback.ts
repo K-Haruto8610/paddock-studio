@@ -7,7 +7,9 @@ import {
   buildLayouts,
   sampleLayouts,
   laneSlots,
+  FIRST_LANE,
   HORSE_LENGTH,
+  HORSE_SCALE,
   LANE_PITCH,
   type Placement,
 } from './raceLayout';
@@ -49,7 +51,7 @@ function paceLayout(spots: PaceSpot[]): Placement[] {
     .sort((a, b) => a.v.rank - b.v.rank || a.v.gap - b.v.gap || a.i - b.i);
   let last = 0;
   for (const {i, v} of order) {
-    const lane = 1.8 + v.lane * LANE_PITCH;
+    const lane = FIRST_LANE + v.lane * LANE_PITCH;
     let gap = Math.max(v.gap * HORSE_LENGTH * 1.3, last);
     for (const p of placed)
       if (Math.abs(p.lane - lane) < LANE_PITCH * 0.9 && gap - p.gap < HORSE_LENGTH * 1.05)
@@ -171,7 +173,7 @@ function observedLayout(race: Race, ranks: number[], previous?: Placement[]): Pl
     // Lanes/gaps are illustrative; only ranks come from the recorded results.
     const advancing = previous && gap < previous[i].gap;
     const preferred =
-      1.8 +
+      FIRST_LANE +
       Math.min(4, race.horses[i].gate - 1) * LANE_PITCH * 0.8 +
       (advancing ? LANE_PITCH * 1.5 : 0);
     const lanes = laneSlots(10).sort((a, b) => Math.abs(a - preferred) - Math.abs(b - preferred));
@@ -273,7 +275,7 @@ export function buildPlayback(
   // This is a relative-motion estimate, not an observed or separately trained finishing rank.
   const ratio = Math.min(1, courseFor(race).straight / 600),
     best = Math.min(...race.horses.map((h) => h.last3));
-  const finalGaps = forecast[4].map((p, i) => p.gap + (race.horses[i].last3 - best) * 16 * ratio);
+  const finalGaps = forecast[4].map((p, i) => p.gap + (race.horses[i].last3 - best) * 16 * HORSE_SCALE * ratio);
   const first = Math.min(...finalGaps),
     finish = forecast[4].map((p, i) => ({gap: finalGaps[i] - first, lane: p.lane}));
   const order = finish.map((v, i) => ({gap: v.gap, i})).sort((a, b) => a.gap - b.gap),

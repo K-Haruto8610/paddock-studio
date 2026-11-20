@@ -616,7 +616,7 @@ export default function Home() {
                       : 'ドラッグで回転 · スクロールで拡大 · 馬を選択'}
                   </span>
                   <span>
-                    JRA公式図面ベース · 馬は約1.7倍 · 高低差は{raceElevationScale(race.venueCode)}倍で表示
+                    JRA公式図面ベース · 馬は約1.1倍 · 高低差は{raceElevationScale(race.venueCode)}倍で表示
                     {meeting?.course && meeting.courseDay
                       ? ` · ${meeting.kai}回${meeting.day}日目 ${meeting.course}コース${meeting.courseDay}日目${meeting.estimated ? '（見込み）' : ''}`
                       : ''}
@@ -810,7 +810,7 @@ export default function Home() {
               <p className="caption">
                 {race.venue}：JRA公式平面図・周長・高低断面図を基に立体化（{course.label}
                 ）。図面読取誤差を含みます。高低差は{raceElevationScale(race.venueCode)}
-                倍、馬は見やすさのため約1.7倍で表示しています。
+                倍、馬は見やすさのため約1.1倍で表示しています。
                 観測地点間の追い抜き位置・時刻、馬間距離と内外の進路は補間です。地点ボタンで通過順位を確認できます。
               </p>
             </section>
