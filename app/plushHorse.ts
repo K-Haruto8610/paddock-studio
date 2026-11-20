@@ -1709,6 +1709,27 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     const print = new T.Mesh(geometry, printMaterial);
     body.add(print);
   }
+  // The number is printed on the cloth's top as well, for the view from above (the sides are hidden there).
+  {
+    const top = document.createElement('canvas');
+    top.width = top.height = 128;
+    const tctx = top.getContext('2d')!;
+    tctx.fillStyle = '#fff8e9';
+    tctx.textAlign = 'center';
+    tctx.textBaseline = 'middle';
+    tctx.font = 'bold 104px sans-serif';
+    tctx.fillText(String(h.number), 64, 70, 112);
+    const topMap = new T.CanvasTexture(top);
+    topMap.colorSpace = T.SRGBColorSpace;
+    const geometry = new T.PlaneGeometry(1, 1, 8, 8);
+    const vertices = geometry.attributes.position;
+    for (let i = 0; i < vertices.count; i++)
+      vertices.setXYZ(i, ...clothPoint(-0.65 + vertices.getX(i) * 0.8, -vertices.getY(i) * 0.7, 0.03));
+    geometry.computeVertexNormals();
+    const topPrint = new T.Mesh(geometry, new T.MeshStandardMaterial({map: topMap, roughness: 1, transparent: true, depthWrite: false}));
+    topPrint.name = 'saddlecloth-top-number';
+    body.add(topPrint);
+  }
   if (options.labels !== false) {
     const plate = label(`${h.number}  ${h.name}`);
     plate.position.set(0, 8, 0);

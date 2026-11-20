@@ -9,11 +9,17 @@ export const LANE_PITCH = 2.0;
 export const MIN_LANE = 0.9;
 export const laneSlots = (count: number) =>
   Array.from({length: count}, (_, j) => 1.8 + j * LANE_PITCH);
+/**
+ * Gate stall pitch. A drawn horse is wider than its footprint (shoulders, head, ears), so a stall
+ * narrower than this has the horse pushed into its partitions. A full field is wider than the
+ * course here and the gate overhangs the outer rail; the field closes up within the first strides.
+ */
+export const START_PITCH = 2.0;
 export function startLanes(race: Race) {
+  // The gate overhangs the outer rail by 3m at most.
   const width = race.surface === 'ダート' ? 25 : 30,
-    n = race.horses.length;
-  const pitch = Math.min(1.6, (width - 4) / Math.max(1, n - 1));
-  return race.horses.map((_, i) => 1.2 + i * pitch);
+    pitch = Math.min(START_PITCH, (width + 2 - 1.1) / Math.max(1, race.horses.length - 1));
+  return race.horses.map((_, i) => 1.1 + i * pitch);
 }
 export function buildLayouts(race: Race): Placement[][] {
   const starts = startLanes(race).map((lane) => ({gap: 0, lane}));

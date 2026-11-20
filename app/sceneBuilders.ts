@@ -126,16 +126,61 @@ function ribbon(
 
 /** Whether a point lies on the strip of `track` (between its rails, plus `margin` metres each side). */
 function coveredBy(track: TrackModel, margin = 0.1) {
+  const at = locateOn(track, margin);
+  return (q: T.Vector3) => at(q) !== null;
+}
+
+/**
+ * Height of the strip of `track` under a point, and how far outside the strip the point lies (0 on it);
+ * null when it is more than `reach` metres off it.
+ */
+function stripHeight(track: TrackModel, reach = 0.1) {
+  const at = locateOn(track, reach);
+  return (q: T.Vector3) => {
+    const found = at(q);
+    return found === null ? null : {y: track.height(found.d), out: found.out};
+  };
+}
+
+/** Metres over which a pocket eases from the height of the course strip it meets to its own. */
+const EASE = 14;
+/** A strip-height lookup as a pocket's `settle`: the strip's height on it, easing out to the pocket's own beside it. */
+function easeOnto(strip: (q: T.Vector3) => {y: number; out: number} | null) {
+  return (p: T.Vector3) => {
+    const s = strip(p);
+    return s ? T.MathUtils.lerp(s.y, p.y, T.MathUtils.smoothstep(s.out, 0, EASE)) : null;
+  };
+}
+
+/** Height of the pocket `surface` under a point lying within its width (null elsewhere). */
+function pocketHeight(surface: NonNullable<RaceRoute['chuteSurface']>) {
+  const centre = Array.from({length: 241}, (_, i) => surface.sample(i / 240, surface.width / 2).point);
+  return (q: T.Vector3) => {
+    let best = Infinity,
+      y = 0;
+    for (const c of centre) {
+      const d = (c.x - q.x) ** 2 + (c.z - q.z) ** 2;
+      if (d < best) {
+        best = d;
+        y = c.y;
+      }
+    }
+    return best < (surface.width / 2) ** 2 ? y : null;
+  };
+}
+
+/** Distance along `track` of the strip point under `q` (between its rails, plus `margin` metres each side), or null. */
+function locateOn(track: TrackModel, margin: number): (q: T.Vector3) => {d: number; out: number} | null {
   const CELL = 48; // wider than half the strip plus the margin, so the nearest centre is always in reach
   const step = 1;
-  type S = {p: T.Vector3; c: T.Vector3; t: T.Vector3; o: T.Vector3};
+  type S = {p: T.Vector3; c: T.Vector3; t: T.Vector3; o: T.Vector3; d: number};
   const cells = new Map<string, S[]>();
   for (let d = 0; d < track.lap; d += step) {
     const s = track.sample(d, 0);
     const c = s.point.clone().addScaledVector(s.outward, track.width / 2);
     const k = `${Math.floor(c.x / CELL)},${Math.floor(c.z / CELL)}`;
     if (!cells.has(k)) cells.set(k, []);
-    cells.get(k)!.push({p: s.point, c, t: s.tangent, o: s.outward});
+    cells.get(k)!.push({p: s.point, c, t: s.tangent, o: s.outward, d});
   }
   return (q: T.Vector3) => {
     const cx = Math.floor(q.x / CELL), cz = Math.floor(q.z / CELL);
@@ -146,11 +191,13 @@ function coveredBy(track: TrackModel, margin = 0.1) {
           const d2 = (s.c.x - q.x) ** 2 + (s.c.z - q.z) ** 2;
           if (d2 < bd) { bd = d2; best = s; }
         }
-    if (!best) return false;
+    if (!best) return null;
     const dx = q.x - best.p.x, dz = q.z - best.p.z;
     const across = dx * best.o.x + dz * best.o.z;
     const along = (q.x - best.c.x) * best.t.x + (q.z - best.c.z) * best.t.z;
-    return Math.abs(along) < step && across > -margin && across < track.width + margin;
+    return Math.abs(along) < step && across > -margin && across < track.width + margin
+      ? {d: best.d + along, out: Math.max(0, -across, across - track.width)}
+      : null;
   };
 }
 
@@ -159,12 +206,12 @@ const VERGE_COLOR ='#a9bd8f';
  * Grass bank falling away from one edge of a course (`away`: 1 outside the outer rail,
  * -1 inside the inner rail), so the raised surface meets the ground instead of floating over it.
  */
-function verge(track: TrackModel, lane: number, away: 1 | -1) {
+function verge(track: TrackModel, lane: number, away: 1 | -1, skip?: (a: T.Vector3[], b: T.Vector3[]) => boolean) {
   const geo = strip(512, (i, edge) => {
     const p = track.sample((i / 512) * track.lap, lane + edge * away * 3.5).point;
     p.y -= edge * 1.4;
     return {p, uv: [0, 0]};
-  });
+  }, skip);
   const m = mesh(geo, VERGE_COLOR);
   m.receiveShadow = true;
   return m;
@@ -434,10 +481,13 @@ function chuteRibbon(
   /** Quads touching this other surface are left to it (turf pocket beside the dirt course). */
   covered?: (a: T.Vector3[], b: T.Vector3[]) => boolean,
   lift = 2,
+  /** Height of the course strip the pocket lies on or beside: the pocket takes it on the strip and eases to its own away from it. */
+  settle?: (p: T.Vector3) => number | null,
 ) {
-  const N = 96;
+  const N = 192;
   const geo = strip(N, (i, edge) => {
     const p = surface.sample(i / N, edge ? width : 0).point;
+    p.y = settle?.(p) ?? p.y;
     p.y += 0.02;
     return {p, uv: [((i / N) * surface.length) / SURFACE_TILE, (edge * width) / SURFACE_TILE]};
   }, covered);
@@ -478,20 +528,32 @@ export function addCourseSurfaces(
     relief.repeat.setScalar(SURFACE_TILE / RELIEF_TILE);
     lay(ribbon(dirt, 0, dirt.width, dirtTexture(), 3, relief, true), 3, true);
   }
-  for (const t of courses.tracks) scene.add(verge(t, 0, -1), verge(t, t.width, 1));
+  // A pocket runs across the main rail's skirt of verge: there the pocket's turf is the surface, not the skirt.
+  const pockets = [route?.chuteSurface, ...chutes.map((c) => c.surface)].filter((c) => !!c).map((c) => pocketHeight(c!));
+  const inPocket = (a: T.Vector3[], b: T.Vector3[]) => [...a, ...b].some((q) => pockets.some((on) => on(q) !== null));
+  for (const t of courses.tracks) scene.add(verge(t, 0, -1, inPocket), verge(t, t.width, 1, inPocket));
   // The pocket's turf follows the line the field runs, which leaves the plan's drawn pocket
   // to come onto the course smoothly.
   // Tokyo draws all three pockets from their routes, whichever race is shown.
-  if (route?.chuteSurface && !tokyo) lay(chuteRibbon(route.chuteSurface, route.chuteSurface.width, grass), 2);
+  if (route?.chuteSurface && !tokyo) lay(chuteRibbon(route.chuteSurface, route.chuteSurface.width, grass, undefined, 2, easeOnto(stripHeight(turf, EASE))), 2);
   // A pocket is one surface with the course it joins: where it lies on that course's strip it is
   // left out, and a pocket that only crosses the turf (Tokyo's dirt start) lies above it.
-  const onTurf = coveredBy(turf), onDirt = dirt ? coveredBy(dirt, 3) : undefined;
+  const onTurf = coveredBy(turf), turfFlat = stripHeight(turf, EASE), onDirt = dirt ? coveredBy(dirt, 3) : undefined;
+  // Pockets that overlap one another (Tokyo draws them all) take the race's own pocket's height where they do.
+  const own = route?.chuteSurface ? pocketHeight(route.chuteSurface) : null;
   for (const {surface: c, onDirt: crossing} of chutes) {
+    const isOwn = route?.chuteSurface && Math.abs(route.chuteSurface.length - c.length) < 1e-6;
+    const turfHeight = (p: T.Vector3) => {
+      const strip = turfFlat(p);
+      // The pocket's own height lies under the others' where they overlap; the turf's wins on the strip and fades out beside it.
+      const base = !isOwn && own ? (own(p) ?? p.y) : p.y;
+      return strip ? T.MathUtils.lerp(strip.y, base, T.MathUtils.smoothstep(strip.out, 0, EASE)) : own && !isOwn ? own(p) : null;
+    };
     if (crossing) {
       // Over the turf strip the pocket is the turf itself, so only the part beside it is laid.
-      lay(chuteRibbon(c, c.width, grass, (a, b) => [...a, ...b].every(onTurf) || (!!onDirt && [...a, ...b].some(onDirt)), 2.5), 2.5);
+      lay(chuteRibbon(c, c.width, grass, (a, b) => [...a, ...b].every(onTurf) || (!!onDirt && [...a, ...b].some(onDirt)), 2.5, turfHeight), 2.5);
     } else {
-      lay(chuteRibbon(c, c.width, grass, (a, b) => [...a, ...b].every(onTurf), 1), 1);
+      lay(chuteRibbon(c, c.width, grass, (a, b) => [...a, ...b].every(onTurf), 1, turfHeight), 1);
     }
   }
   if (tokyo && dirt) {

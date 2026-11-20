@@ -206,3 +206,96 @@ export function addRaceGrass(scene: T.Scene, route: RaceRoute, width: number, gr
     },
   };
 }
+
+/** Metres per side of one tile of verge grass. */
+const VERGE_TILE = 16;
+/** Verge blades per square metre: thinner than the course, which is looked at from close by. */
+const VERGE_DENSITY = 24;
+/** Verge grass stands this far around the camera's focus (the field). */
+const VERGE_RADIUS = 64;
+
+/**
+ * Grass on all the ground that is not a course surface: the infield, the banks and the land outside the rails.
+ * Tiles around `update`'s centre are grown (seeded by the tile, so a seek or a second recording grows the same
+ * grass) and dropped once the field has moved on. Course turf stands blades too, except the lanes of the race's own turf (`ownTurf`),
+ * which carry denser ones; dirt stays bare.
+ */
+export function addVergeGrass(scene: T.Scene, heightAt: (x: number, z: number) => number, ground: Ground, ownTurf: boolean) {
+  const uniforms = grassUniforms();
+  const material = bladeMaterial(uniforms);
+  const group = new T.Group();
+  scene.add(group);
+  const tiles = new Map<string, T.Mesh>();
+  const hit: GroundHit = {y: 0, normal: new T.Vector3(0, 1, 0), dirt: false};
+
+  const grow = (i: number, j: number) => {
+    const rand = seeded(31337 + i * 7919 + j * 104729),
+      field = emptyBladeField(Math.round(VERGE_DENSITY * VERGE_TILE * VERGE_TILE));
+    let n = 0;
+    for (let k = 0; k < field.count; k++) {
+      const x = (i + rand()) * VERGE_TILE,
+        z = (j + rand()) * VERGE_TILE;
+      scatterBlade(field, n, rand);
+      // Turf of the courses the race is not run on (every course, when it is run on dirt) is grass too.
+      const found = ground(x, z, hit);
+      if (found && (ownTurf || hit.dirt)) continue;
+      field.root[n * 3] = x;
+      field.root[n * 3 + 1] = found ? hit.y : heightAt(x, z) + 0.03;
+      field.root[n * 3 + 2] = z;
+      if (found) {
+        field.up[n * 2] = hit.normal.x;
+        field.up[n * 2 + 1] = hit.normal.z;
+      }
+      // Unmown: no lean along a course, and a slightly duller shade than the striped turf.
+      field.lay[n * 4] = 0;
+      field.lay[n * 4 + 1] = 0;
+      field.lay[n * 4 + 2] = 0;
+      field.blade[n * 4 + 3] -= 0.05;
+      n++;
+    }
+    field.count = n;
+    const mesh = bladeMesh(field, material);
+    mesh.frustumCulled = true;
+    mesh.geometry.boundingSphere = new T.Sphere(
+      new T.Vector3((i + 0.5) * VERGE_TILE, heightAt((i + 0.5) * VERGE_TILE, (j + 0.5) * VERGE_TILE), (j + 0.5) * VERGE_TILE),
+      VERGE_TILE * 0.75 + 10,
+    );
+    mesh.renderOrder = 300;
+    return mesh;
+  };
+
+  return {
+    uniforms,
+    update(centre: T.Vector3, show: boolean) {
+      group.visible = show;
+      if (!show) return;
+      const r = Math.ceil(VERGE_RADIUS / VERGE_TILE),
+        ci = Math.floor(centre.x / VERGE_TILE),
+        cj = Math.floor(centre.z / VERGE_TILE);
+      const wanted = new Set<string>();
+      for (let i = ci - r; i <= ci + r; i++)
+        for (let j = cj - r; j <= cj + r; j++) {
+          if (Math.hypot((i + 0.5) * VERGE_TILE - centre.x, (j + 0.5) * VERGE_TILE - centre.z) > VERGE_RADIUS) continue;
+          const key = `${i},${j}`;
+          wanted.add(key);
+          if (!tiles.has(key)) {
+            const mesh = grow(i, j);
+            tiles.set(key, mesh);
+            group.add(mesh);
+          }
+        }
+      for (const [key, mesh] of tiles)
+        if (!wanted.has(key)) {
+          group.remove(mesh);
+          mesh.geometry.dispose();
+          tiles.delete(key);
+        }
+    },
+    dispose() {
+      for (const mesh of tiles.values()) mesh.geometry.dispose();
+      tiles.clear();
+      group.removeFromParent();
+      material.dispose();
+    },
+  };
+}

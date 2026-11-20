@@ -18,6 +18,7 @@ import {addRaceLandscape, addRaceSky, skyEnvironment} from './raceLandscape';
 import {courseFor} from './courses';
 import {posePlush} from './plushHorse';
 import {kickAt, NO_KICK, type Kick, type KickPlan} from './closingKick';
+import type {Ground} from './courseGround';
 import {addFarGround} from './scenery';
 import {
   addCourseSurfaces,
@@ -32,7 +33,7 @@ import {
   buildCourseSet,
   disposeScene,
 } from './sceneBuilders';
-import {addDistantGrass, addRaceGrass} from './raceGrass';
+import {addDistantGrass, addRaceGrass, addVergeGrass} from './raceGrass';
 import {addDirtTrail} from './dirtTrail';
 import {DEFAULT_POST_TIME, raceSunOffset} from './raceLighting';
 import {dayOfYear} from './raceSeason';
@@ -99,6 +100,7 @@ function placeHorses(
   kicks: KickPlan[],
   /** Filled with each horse's distance along the route and closing-kick state, for what the hooves leave behind. */
   pose: {at: number[]; kick: Kick[]},
+  ground?: Ground,
 ) {
   ring.visible = selected !== null;
   horses.forEach((g, i) => {
@@ -113,6 +115,12 @@ function placeHorses(
       Math.hypot(ahead.x - behind.x, ahead.z - behind.z),
     );
     g.position.copy(here.point);
+    // Where surfaces overlap (a pocket joining the main rail) the one drawn on top may lie above the route:
+    // stand on it, never in it.
+    if (ground) {
+      const hit = {y: 0, normal: new T.Vector3(), dirt: false};
+      if (ground(here.point.x, here.point.z, hit) && hit.y > g.position.y && hit.y - g.position.y < 2) g.position.y = hit.y;
+    }
     g.rotation.set(0, -Math.atan2(here.tangent.z, here.tangent.x), pitch);
     // The closing kick depends on the horse's own distance, so seeking and recording reproduce the same form.
     const kick = reducedMotion ? NO_KICK : kickAt(at, kicks[i]);
@@ -247,6 +255,8 @@ export default function TrackScene({
     // Blades of grass stand around the field when the race is run on turf (STYLE_GUIDE: the grass is grown blade by blade).
     const grass = track.kind === 'dirt' ? null : addRaceGrass(scene, route, track.width, surface, wear);
     const disposeDistantGrass = grass && quality.extendedGrass ? addDistantGrass(scene, track, surface, grass.uniforms, wear) : null;
+    // The infield and the land around the rails are grass as well, not only the course itself.
+    const verge = addVergeGrass(scene, terrain.heightAt, surface, !!grass);
     const gateBox = new T.Box3().setFromObject(gate);
     // Everything built so far is the course and its surroundings: wet it in the rain (not the horses, added next).
     wetSurfaces(scene, look.wet);
@@ -421,7 +431,7 @@ export default function TrackScene({
         if (drag) raw[drag.index] = drag.now;
         placements = separateLayouts(raw);
       } else placements = sampleLayouts(live.layouts, travel, live.knots);
-      placeHorses(horses, race, route, ring, placements, travel, selected, reduced, live.kicks, pose);
+      placeHorses(horses, race, route, ring, placements, travel, selected, reduced, live.kicks, pose, surface);
 
       if (fixed) {
         camera.position.fromArray(fixed.position);
@@ -480,6 +490,8 @@ export default function TrackScene({
         grass.update(travel - Math.max(...gaps), travel - Math.min(...gaps),
           camera.position.distanceTo(packCenter) < GRASS_SIGHT, ticks);
       }
+      verge.uniforms.uTime.value = reduced ? 0 : outputTime ?? seconds;
+      verge.update(packCenter, camera.position.distanceTo(packCenter) < GRASS_SIGHT);
       trail?.setTime(travel, pose.at);
       falling?.update(camera, reduced ? 0 : outputTime ?? seconds, outputHeight * renderer.getPixelRatio());
       contact.place();
@@ -626,6 +638,7 @@ export default function TrackScene({
       renderer.domElement.removeEventListener('wheel', markInteraction);
       controls.dispose();
       grass?.dispose();
+      verge.dispose();
       disposeDistantGrass?.();
       falling?.dispose();
       trail?.dispose();

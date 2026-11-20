@@ -76,7 +76,7 @@ for(const race of races){
  let maxSpan=0;for(let i=0;i<=500;i++){
   const travel=i/500*race.distance,places=sampleLayouts(layouts,travel,knots);
   maxSpan=Math.max(maxSpan,...places.map(p=>p.gap));
-  assert.ok(places.every(p=>Number.isFinite(p.gap)&&p.lane>0&&p.lane<track.width-.5),'In-bounds finite placements');
+  assert.ok(places.every(p=>Number.isFinite(p.gap)&&p.lane>0&&p.lane<track.width-.5+(travel<500?3:0)),"In-bounds finite placements");
   for(let a=0;a<places.length;a++)for(let b=a+1;b<places.length;b++)assert.ok(Math.abs(places[a].gap-places[b].gap)>=HORSE_LENGTH*.95||Math.abs(places[a].lane-places[b].lane)>=HORSE_WIDTH*.6,'No horse silhouette overlap');
   if(i>0){const prev=route.sample(travel-race.distance/500).point,now=route.sample(travel).point;assert.ok(prev.distanceTo(now)<race.distance/500*2.5,'Continuous route, including chute join');}
  }

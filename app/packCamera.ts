@@ -107,8 +107,22 @@ export function createPackCamera(
       controls.enableZoom = !following;
       const aspect = Math.max(camera.aspect, 0.7);
       // Fit the field, but never pull back so far that the horses become specks.
-      const fitted = T.MathUtils.clamp((spread + 12) / (aspect * 0.8), 30, 76);
-      const distance = fitted * zoom;
+      // A field spread more across the course than along it (the start, the first bend) hides its
+      // horses behind one another when seen from the side: it is then seen from behind instead.
+      let across = 0;
+      if (horses.length) {
+        let low = Infinity,
+          high = -Infinity;
+        for (const h of horses) {
+          const y = h.dot(leader.outward);
+          low = Math.min(low, y);
+          high = Math.max(high, y);
+        }
+        across = high - low;
+      }
+      const behind = T.MathUtils.smoothstep(across - spread, 2, 14);
+      const fitted = T.MathUtils.clamp((Math.max(spread, behind * across) + 12) / (aspect * 0.8), 30, 76);
+      const distance = fitted * zoom * (1 - 0.25 * behind);
       // The frame is measured unzoomed, so zooming only scales the view about the cursor.
       const halfWidth = fitted * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * aspect;
       const back = Math.min(spread / 2, halfWidth * LEADER_AT_EDGE);
@@ -121,8 +135,9 @@ export function createPackCamera(
       let packOffset = frame.outward
         .clone()
         .multiplyScalar(distance)
-        .addScaledVector(frame.tangent, distance * 0.12);
-      packOffset.y = distance * T.MathUtils.lerp(0.19, 0.34, 1 - T.MathUtils.smoothstep(progress, 0.001, 0.08));
+        .multiplyScalar(1 - 0.85 * behind)
+        .addScaledVector(frame.tangent, distance * T.MathUtils.lerp(0.12, -1, behind));
+      packOffset.y = distance * T.MathUtils.lerp(0.19, 0.34, 1 - T.MathUtils.smoothstep(progress, 0.001, 0.08)) * (1 + 0.2 * behind);
       controls.maxPolarAngle = mode === 'broadcast' ? Math.PI * 0.55 : Math.PI * 0.49;
       controls.maxDistance = mode === 'broadcast' ? 5000 : 900;
       if (mode === 'broadcast' && horses.length) {
