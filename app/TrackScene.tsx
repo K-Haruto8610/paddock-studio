@@ -228,7 +228,7 @@ export default function TrackScene({
     addRaceSky(scene, sunOffset, look);
     const environment = skyEnvironment(renderer, sunOffset, look);
     scene.environment = environment;
-    scene.environmentIntensity = 0.32;
+    scene.environmentIntensity = 0.75;
 
     // Course geometry and everything drawn on it.
     const tokyo = race.venueCode === '05';

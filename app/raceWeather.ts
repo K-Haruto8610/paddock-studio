@@ -64,9 +64,9 @@ export const WEATHER_LOOKS: Record<Weather, WeatherLook> = {
 };
 
 /**
- * Wet surfaces: rain darkens dirt, concrete, paint and grass and takes the roughness off the hard ones. The felt turf
- * stays matte (STYLE_GUIDE: never shiny) and only darkens. Applied once to the scene's own materials, before the horses
- * are added (a plush horse in the rain stays a dry toy).
+ * Wet surfaces: rain darkens dirt, concrete, paint and grass and takes the roughness off them, so wet ground shines. Turf
+ * (`userData.turf`) darkens less and keeps more of its roughness: wet grass glistens, it does not turn to glass. Applied
+ * once to the scene's own materials, before the horses are added (a plush horse in the rain stays a dry toy).
  */
 export function wetSurfaces(scene: T.Scene, wet: number) {
   if (wet <= 0) return;
@@ -76,9 +76,9 @@ export function wetSurfaces(scene: T.Scene, wet: number) {
     for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
       if (done.has(m) || !(m instanceof T.MeshStandardMaterial) || m.emissiveMap) continue;
       done.add(m);
-      const felt = m instanceof T.MeshPhysicalMaterial && m.sheen > 0;
-      m.color.multiplyScalar(1 - (felt ? 0.14 : 0.3) * wet);
-      if (!felt) m.roughness *= 1 - 0.45 * wet;
+      const turf = !!m.userData.turf;
+      m.color.multiplyScalar(1 - (turf ? 0.18 : 0.3) * wet);
+      m.roughness *= 1 - (turf ? 0.3 : 0.45) * wet;
     }
   });
 }

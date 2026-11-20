@@ -11,14 +11,14 @@ import {WEATHER_LOOKS, type WeatherLook} from './raceWeather';
 const FAIR = WEATHER_LOOKS.clear;
 
 /**
- * Horizon and zenith colours of the day's sky: pale haze in winter, a deeper blue near the summer sun; under cloud the
- * haze turns to the weather's grey.
+ * Horizon and zenith colours of the day's sky: a pale blue-grey haze (aerial perspective: distant land fades toward it),
+ * clearer in summer; under cloud the haze turns to the weather's grey.
  */
 function skyColours(sunOffset: T.Vector3, look: WeatherLook = FAIR) {
   // The sun at post time stands about 8 degrees up in late December and 41 in June (sin 0.14 ... 0.66).
   const summer = T.MathUtils.smoothstep(sunOffset.clone().normalize().y, 0.18, 0.62);
   return {
-    horizon: new T.Color('#e1e5d5').lerp(new T.Color('#e1edf3'), summer).lerp(new T.Color(look.murkColour), look.murk),
+    horizon: new T.Color('#c9d5de').lerp(new T.Color('#c4d6e6'), summer).lerp(new T.Color(look.murkColour), look.murk),
     zenith: new T.Color('#709bb9').lerp(new T.Color('#4999cf'), summer),
     summer,
   };
@@ -114,7 +114,7 @@ function skyDome(sunOffset: T.Vector3, look: WeatherLook = FAIR) {
         vec3 bright = scattering(ray) * 0.62;
         vec3 over = max(bright - 0.7, 0.0);
         bright = min(bright, vec3(0.7)) + 0.14 * (1.0 - exp(-over / 0.14));
-        vec3 colour = mix(horizon, bright, smoothstep(0.0, 0.3, ray.y));
+        vec3 colour = mix(horizon, bright, smoothstep(0.0, 0.16, ray.y));
         float facing = max(dot(ray, sun), 0.0);
         float glow = pow(facing, 18.0);
         colour = mix(colour, vec3(1.0, 0.82, 0.55), 0.2 * glow * (0.4 + 0.6 * sunShow));

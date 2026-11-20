@@ -20,7 +20,7 @@ import {
   worldVariation,
 } from './scenery';
 import {dirtReliefMap, RELIEF_TILE} from './surfaceDetail';
-import {FELT_TILE, feltMaterial, paintedMetal, postGeometry, railPaintMap, sandRoughnessMap} from './surfaceFinish';
+import {TURF_TILE, turfMaterial, paintedMetal, postGeometry, railPaintMap, sandRoughnessMap} from './surfaceFinish';
 import {groundOf, type GroundSurface} from './courseGround';
 
 // The plush model is 4 units long: scale 1.0 draws a ~4m horse (≈1.7x life size)
@@ -28,7 +28,7 @@ import {groundOf, type GroundSurface} from './courseGround';
 export const HORSE_SCALE = 1.0;
 
 /** Strength of the dirt's relief (1 = the furrows as modelled). */
-const DIRT_RELIEF = 1.2;
+const DIRT_RELIEF = 1.0;
 
 export type Terrain = ReturnType<typeof makeTerrain>;
 
@@ -106,9 +106,9 @@ function ribbon(
     p.y += 0.02;
     return {p, uv: [d / SURFACE_TILE, lane / SURFACE_TILE]};
   }, covered && ((a, b) => [...a, ...b].every(covered)));
-  // Turf is felt (matte, a fine nap); dirt is sand (relief, and roughness that varies from patch to patch).
-  const felt = SURFACE_TILE / FELT_TILE;
-  const surface = worldVariation(dirtTone ? material('#ffffff', lift, map) : feltMaterial(map, felt, felt, lift), dirtTone ? 0.07 : 0.09);
+  // Turf is grass (thatch under the blades); dirt is sand (relief, and roughness that varies from patch to patch).
+  const thatch = SURFACE_TILE / TURF_TILE;
+  const surface = worldVariation(dirtTone ? material('#ffffff', lift, map) : turfMaterial(map, thatch, thatch, lift), dirtTone ? 0.07 : 0.12);
   // Turf cut up along the inside rail on soft ground (app/turfWear.ts).
   if (!dirtTone) wearTurf(surface, wear);
   if (relief) {
@@ -201,7 +201,7 @@ function locateOn(track: TrackModel, margin: number): (q: T.Vector3) => {d: numb
   };
 }
 
-const VERGE_COLOR ='#a9bd8f';
+const VERGE_COLOR = '#6f8f50';
 /**
  * Grass bank falling away from one edge of a course (`away`: 1 outside the outer rail,
  * -1 inside the inner rail), so the raised surface meets the ground instead of floating over it.
@@ -358,9 +358,11 @@ export function addLights(scene: T.Scene, sunOffset: T.Vector3, weather: {sunLig
   const overcast = 1 - weather.sunLight;
   // A low afternoon sun comes through more air: warmer and a little weaker (below about 25 degrees).
   const low = 1 - T.MathUtils.smoothstep(sunOffset.clone().normalize().y, Math.sin(T.MathUtils.degToRad(6)), Math.sin(T.MathUtils.degToRad(25)));
-  scene.add(new T.HemisphereLight(new T.Color('#b9d3ed').lerp(new T.Color('#c9cfd3'), overcast), '#758565', 1.05 * weather.skyLight));
+  // Most of the light from around comes from the sky itself (scene.environment, app/raceLandscape.ts skyEnvironment); this
+  // fill only adds the bounce off the grass, so shadowed sides stay darker than the sunlit ones, as in a photograph.
+  scene.add(new T.HemisphereLight(new T.Color('#b9d3ed').lerp(new T.Color('#c9cfd3'), overcast), '#5d6e48', 0.5 * weather.skyLight));
   const sunColour = new T.Color('#fff0d8').lerp(new T.Color('#ffd9a8'), 0.7 * low).lerp(new T.Color('#f2f4f6'), overcast);
-  const sun = new T.DirectionalLight(sunColour, 2.45 * weather.sunLight * (1 - 0.25 * low));
+  const sun = new T.DirectionalLight(sunColour, 3.1 * weather.sunLight * (1 - 0.25 * low));
   sun.shadow.intensity = weather.shadow;
   sun.position.copy(sunOffset);
   sun.castShadow = true;
@@ -412,7 +414,7 @@ export function addGround(scene: T.Scene, tracks: TrackModel[], route?: RaceRout
   ground.computeVertexNormals();
   const map = groundTexture();
   map.repeat.set(size.x / GROUND_TILE, size.z / GROUND_TILE);
-  const groundMesh = new T.Mesh(ground, worldVariation(feltMaterial(map, size.x / FELT_TILE, size.z / FELT_TILE), 0.12));
+  const groundMesh = new T.Mesh(ground, worldVariation(turfMaterial(map, size.x / TURF_TILE, size.z / TURF_TILE), 0.16));
   groundMesh.receiveShadow = true;
   scene.add(groundMesh);
   return terrain;
@@ -491,8 +493,8 @@ function chuteRibbon(
     p.y += 0.02;
     return {p, uv: [((i / N) * surface.length) / SURFACE_TILE, (edge * width) / SURFACE_TILE]};
   }, covered);
-  const felt = SURFACE_TILE / FELT_TILE;
-  const m = new T.Mesh(geo, worldVariation(feltMaterial(map, felt, felt, lift), 0.09));
+  const thatch = SURFACE_TILE / TURF_TILE;
+  const m = new T.Mesh(geo, worldVariation(turfMaterial(map, thatch, thatch, lift), 0.12));
   m.receiveShadow = true;
   return m;
 }

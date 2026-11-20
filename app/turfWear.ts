@@ -129,7 +129,7 @@ export function wearAt(x: number, z: number, lane: number, wear: TurfWear) {
 
 /**
  * Wears a turf ribbon's material (uv: v = lane / SURFACE_TILE). Trampled turf is flattened and yellowed; bare patches are
- * dark wet soil, smoother where wet and without the felt's sheen (it is mud, not turf). Chains the material's own
+ * dark wet soil, smoother where wet (it is mud, not turf). Chains the material's own
  * onBeforeCompile (the world colour variation).
  */
 export function wearTurf<M extends T.MeshStandardMaterial>(material: M, wear: TurfWear): M {
@@ -153,11 +153,7 @@ export function wearTurf<M extends T.MeshStandardMaterial>(material: M, wear: Tu
         diffuseColor.rgb *= mix(vec3(1.0), vec3(0.8, 0.74, 0.46), 0.85 * worn.x);
         diffuseColor.rgb = mix(diffuseColor.rgb, mix(vec3(0.2, 0.15, 0.095), vec3(0.13, 0.095, 0.06), uWearWet), worn.y);`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-        roughnessFactor = mix(roughnessFactor, 0.55, worn.y * uWearWet);`)
-      .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
-        #ifdef USE_SHEEN
-          material.sheenColor *= 1.0 - worn.y;
-        #endif`);
+        roughnessFactor = mix(roughnessFactor, 0.55, worn.y * uWearWet);`);
   };
   material.customProgramCacheKey = () => `${key()}-turf-wear`;
   return material;

@@ -7,7 +7,6 @@ import type {TrackModel} from './trackGeometry';
 export const SURFACE_TILE = 24;
 /** Metres of ground covered by one repeat of the ground texture. */
 export const GROUND_TILE = 48;
-const GROUND_COLOR = '#8c9f74';
 /** The flat land beyond the modelled ground lies this far below the lowest racing surface. */
 export const FAR_GROUND_DROP = 0.6;
 
@@ -42,17 +41,25 @@ export function tileNoise(rand: () => number, n: number) {
 
 /** Seamless tile of `base`, each pixel lightened or darkened by the fraction `tone(u, v)`. */
 function tileTexture(base: string, tone: (u: number, v: number) => number, size = 512) {
+  const hex = parseInt(base.slice(1), 16);
+  const rgb: [number, number, number] = [hex >> 16, (hex >> 8) & 255, hex & 255];
+  return colourTexture((u, v) => {
+    const k = 1 + tone(u, v);
+    return [rgb[0] * k, rgb[1] * k, rgb[2] * k];
+  }, size);
+}
+
+/** Seamless tile whose pixels are `colour(u, v)` (sRGB 0..255). */
+function colourTexture(colour: (u: number, v: number) => [number, number, number], size = 512) {
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const g = c.getContext('2d')!;
   const img = g.createImageData(size, size);
-  const hex = parseInt(base.slice(1), 16);
-  const rgb = [hex >> 16, (hex >> 8) & 255, hex & 255];
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
-      const k = 1 + tone(x / size, y / size);
+      const rgb = colour(x / size, y / size);
       const i = (y * size + x) * 4;
-      for (let ch = 0; ch < 3; ch++) img.data[i + ch] = Math.max(0, Math.min(255, rgb[ch] * k));
+      for (let ch = 0; ch < 3; ch++) img.data[i + ch] = Math.max(0, Math.min(255, rgb[ch]));
       img.data[i + 3] = 255;
     }
   g.putImageData(img, 0, 0);
@@ -63,39 +70,60 @@ function tileTexture(base: string, tone: (u: number, v: number) => number, size 
   return tex;
 }
 
-/** Turf: mottled grass; with `stripes`, mowing bands 3m wide running along the course (v = across). */
+const mix3 = (a: number[], b: number[], t: number): [number, number, number] =>
+  [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+
+/** Healthy race-day turf (sRGB), the straw of dry or thin patches, and the darker blue-green of lusher ones. */
+const TURF_GREEN = [84, 124, 52], TURF_STRAW = [138, 136, 78], TURF_LUSH = [60, 104, 50];
+
+/**
+ * Turf as a photograph of it from a few metres up: deep green, patches drifting toward straw or a lusher blue-green, a
+ * per-pixel grain of light and dark blades, and with `stripes` the mowing bands 3 m wide along the course (v = across).
+ */
 export function turfTexture(stripes = true) {
   const rand = seeded(11);
-  const n = [8, 16, 32, 64].map((k) => tileNoise(rand, k));
-  return tileTexture('#7faf66', (u, v) => {
-    const mown = stripes ? 0.05 * Math.tanh(3 * Math.sin(Math.PI * 8 * v)) : 0;
-    return mown + 0.04 * n[0](u, v) + 0.035 * n[1](u, v) + 0.03 * n[2](u, v) + 0.035 * n[3](u, v);
+  const n = [3, 16, 40, 96].map((k) => tileNoise(rand, k));
+  return colourTexture((u, v) => {
+    const dry = T.MathUtils.smoothstep(0.7 * n[0](u, v) + 0.3 * n[1](u, v), 0.15, 0.75);
+    const lush = T.MathUtils.smoothstep(n[2](u + 0.3, v), 0.2, 0.8);
+    let rgb = mix3(mix3(TURF_GREEN, TURF_LUSH, 0.2 * lush), TURF_STRAW, 0.12 * dry);
+    const mown = stripes ? 0.09 * Math.tanh(3 * Math.sin(Math.PI * 8 * v)) : 0;
+    const grain = 0.1 * (rand() - 0.5) + 0.05 * n[3](u, v);
+    rgb = rgb.map(c => c * (1 + mown + grain)) as [number, number, number];
+    return rgb;
   });
 }
 
-/** Dirt: sand with faint harrow lines along the course. */
+/**
+ * Dirt as the sand of a JRA dirt course: pale grey-beige with a speckle of darker and lighter grains, soft damp-dark
+ * patches, and faint harrow lines that wander along the course (v = across).
+ */
 export function dirtTexture() {
   const rand = seeded(23);
-  const n = [8, 16, 32, 64].map((k) => tileNoise(rand, k));
-  return tileTexture(
-    '#ceb28a',
-    (u, v) =>
-      0.022 * Math.sin(Math.PI * 64 * v) +
-      0.03 * n[0](u, v) +
-      0.03 * n[1](u, v) +
-      0.03 * n[2](u, v) +
-      0.04 * n[3](u, v),
-  );
+  const n = [6, 16, 40, 96].map((k) => tileNoise(rand, k));
+  const sand = [200, 178, 146], damp = [168, 146, 116];
+  return colourTexture((u, v) => {
+    const wet = T.MathUtils.smoothstep(0.6 * n[0](u, v) + 0.4 * n[1](u, v), 0.1, 0.8);
+    const harrow = 0.025 * Math.sin(Math.PI * 64 * v + 1.5 * n[1](u, v));
+    const r = rand();
+    // Single grains: most the sand's own tone, a few dark (stone, clay) and a few bright (quartz).
+    const grain = r < 0.06 ? -0.28 * rand() : r > 0.95 ? 0.18 * rand() : 0.08 * (rand() - 0.5);
+    const k = 1 + harrow + grain + 0.04 * n[2](u, v) + 0.03 * n[3](u, v);
+    return mix3(sand, damp, 0.55 * wet).map(c => c * k) as [number, number, number];
+  });
 }
 
-/** Ground around and inside the courses: pale lawn with broad, soft patches. */
+/** Ground around and inside the courses: unmown lawn, greener in hollows and straw-coloured where it dries out. */
 export function groundTexture() {
   const rand = seeded(37);
   const n = [4, 8, 16, 64].map((k) => tileNoise(rand, k));
-  return tileTexture(
-    GROUND_COLOR,
-    (u, v) => 0.012 * n[0](u, v) + 0.018 * n[1](u, v) + 0.03 * n[2](u, v) + 0.035 * n[3](u, v),
-  );
+  const lawn = [96, 128, 64], straw = [146, 140, 88], lush = [70, 108, 54];
+  return colourTexture((u, v) => {
+    const dry = T.MathUtils.smoothstep(0.5 * n[0](u, v) + 0.5 * n[1](u, v), 0.1, 0.8);
+    const wetter = T.MathUtils.smoothstep(n[2](u, v), 0.3, 0.9);
+    const k = 1 + 0.1 * (rand() - 0.5) + 0.06 * n[3](u, v);
+    return mix3(mix3(lawn, lush, 0.4 * wetter), straw, 0.3 * dry).map(c => c * k) as [number, number, number];
+  });
 }
 
 /** Paved apron: pale concrete with soft stains. */

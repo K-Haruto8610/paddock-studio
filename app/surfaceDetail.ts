@@ -98,7 +98,8 @@ export function flatBladeField(width: number, depth: number, count: number) {
 
 /** One material for every mesh of blades that shares these uniforms. */
 export function bladeMaterial(uniforms: GrassUniforms) {
-  const material = new T.MeshStandardMaterial({color: '#7faf66', roughness: 0.85, side: T.DoubleSide});
+  // Living leaves are a little waxy (roughness under 1): the turf catches a soft sheen toward the sun.
+  const material = new T.MeshStandardMaterial({color: '#6c9a48', roughness: 0.82, side: T.DoubleSide});
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
@@ -113,6 +114,7 @@ export function bladeMaterial(uniforms: GrassUniforms) {
         uniform float uFrom;
         uniform float uTo;
         varying vec3 vGrass;
+        varying float vTip;
         ${WIND}
         // The blade's own axes: up along the ground's normal, and x, z kept as near the world's as the slope allows.
         mat3 standing() {
@@ -130,7 +132,9 @@ export function bladeMaterial(uniforms: GrassUniforms) {
         '#include <beginnormal_vertex>',
         `vec2 bendN = bladeBend();
         mat3 stand = standing();
-        vec3 objectNormal = normalize(stand * vec3(bendN.x * 0.7, 1.0, bendN.y * 0.7));`,
+        // Each blade also turns its face a little toward or away from the light: a field of blades, not one sheet.
+        vec2 faceN = vec2(-sin(aBlade.x), cos(aBlade.x)) * (fract(aLay.w * 7.31) - 0.5) * 1.1;
+        vec3 objectNormal = normalize(stand * vec3(bendN.x * 0.7 + faceN.x, 1.0, bendN.y * 0.7 + faceN.y));`,
       )
       .replace(
         '#include <begin_vertex>',
@@ -148,11 +152,25 @@ export function bladeMaterial(uniforms: GrassUniforms) {
           t * sqrt(1.0 - reach * reach * t * t) * len,
           sin(aBlade.x) * side + dir.y * over);
         float patchTone = 1.0 + 0.07 * sin(aRoot.x * 0.21 + 1.3) * sin(aRoot.z * 0.17);
-        vGrass = mix(vec3(0.5, 0.56, 0.44), vec3(1.25, 1.27, 1.05), t) * (1.0 + aBlade.w) * patchTone;`,
+        // Real turf is not one green: most blades are the sward's own, some yellower (older leaves, a dry tip), some a
+        // deeper blue-green; the base sits in the shade of the mat and the tips catch the light.
+        float kind = fract(aLay.w * 3.977 + aBlade.y * 5.13);
+        vec3 hue = kind < 0.16 ? vec3(1.28, 1.1, 0.72) : kind > 0.86 ? vec3(0.82, 0.96, 1.02) : vec3(1.0);
+        vec3 tipHue = mix(vec3(1.0), vec3(1.16, 1.07, 0.8), smoothstep(0.55, 1.0, t) * step(0.5, fract(kind * 9.7)));
+        vGrass = mix(vec3(0.3, 0.38, 0.26), vec3(1.1, 1.16, 0.92), sqrt(t)) * hue * tipHue * (1.0 + aBlade.w) * patchTone;
+        vTip = t;`,
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vGrass;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGrass;\nvarying float vTip;')
       .replace('#include <color_fragment>', 'diffuseColor.rgb *= vGrass;')
+      // Thin leaves let the sun through: looking toward it, the blades glow yellow-green (more toward their thin tips).
+      .replace('#include <opaque_fragment>', `
+        #if NUM_DIR_LIGHTS > 0
+          float toward = max(dot(-geometryViewDir, directionalLights[0].direction), 0.0);
+          outgoingLight += diffuseColor.rgb * vec3(0.75, 0.95, 0.35) * directionalLights[0].color
+            * pow(toward, 4.0) * (0.05 + 0.16 * vTip);
+        #endif
+        #include <opaque_fragment>`)
       // Both faces keep the sky-facing normal; flipping it would black out every back face.
       .replace('#include <normal_fragment_begin>', T.ShaderChunk.normal_fragment_begin.replace('normal *= faceDirection;', ''));
   };
@@ -257,9 +275,11 @@ export function dirtReliefMap(size = 1024) {
     for (let x = 0; x < size; x++) {
       const u = x / size,
         v = y / size;
-      // Furrows wander a little so they do not read as ruled lines.
-      const furrow = Math.sin(2 * Math.PI * (8 * v + 0.08 * n[0](u, v)));
-      height[y * size + x] = 5 * furrow + 4 * n[0](u, v) + 3 * n[1](u, v) + 1.6 * n[2](u, v) + 0.9 * (rand() - 0.5);
+      // Furrows wander a little and come and go, so they do not read as ruled lines; loose sand, clods and grain carry
+      // most of the relief, as on a harrowed track an hour into the card.
+      const furrow = Math.sin(2 * Math.PI * (8 * v + 0.12 * n[0](u, v))) * (0.55 + 0.45 * n[1](u * 0.5, v));
+      const clod = Math.max(0, n[2](u, v) - 0.35) * 6;
+      height[y * size + x] = 1.8 * furrow + 3 * n[0](u, v) + 2.4 * n[1](u, v) + 1.6 * n[2](u, v) + clod + 1.3 * (rand() - 0.5);
     }
   const c = document.createElement('canvas');
   c.width = c.height = size;

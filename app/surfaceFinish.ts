@@ -3,11 +3,8 @@ import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js'
 import {apronTexture, seeded, tileNoise} from './scenery';
 import {photoTextures, type PhotoSet} from './photoTextures';
 
-// Surface finishes from docs/STYLE_GUIDE.md: the turf is matte felt (a soft green face, faint mottling and mowing stripes,
-// a fine nap that only shows in raking light), the dirt is real sand (grain, and roughness that varies from patch to patch).
-
-/** Metres of felt covered by one repeat of the nap map. */
-export const FELT_TILE = 1.6;
+// Surface finishes from docs/STYLE_GUIDE.md: everything but the horses is photoreal. The turf is real grass (dense green,
+// thatch, mottling and mowing stripes), the dirt is real sand (grain, and roughness that varies from patch to patch).
 
 export function normalFromHeight(height: Float32Array, size: number, strength: number) {
   const c = document.createElement('canvas');
@@ -33,42 +30,70 @@ export function normalFromHeight(height: Float32Array, size: number, strength: n
   return tex;
 }
 
-let feltBase: T.CanvasTexture | null = null;
+/** Metres of turf covered by one repeat of the thatch normal map. */
+export const TURF_TILE = 1.2;
+
+let thatchBase: T.CanvasTexture | null = null;
 
 /**
- * Normal map of felt: a fine, even nap of short fibres, with no lines or blades in it. A copy per use (they share the
- * image), so each surface sets its own repeat; `size` metres is what one repeat should cover.
+ * Normal map of the turf seen from above: the mat of short cut blades and thatch under the standing grass — thousands of
+ * short strokes lying every which way, the mown ones mostly along the course (u), a few raised tufts. A copy per use (they
+ * share the image), so each surface sets its own repeat.
  */
-export function feltNormalMap(repeatX: number, repeatY: number) {
-  if (!feltBase) {
-    const size = 256, rand = seeded(71);
-    const n = [40, 96, 160].map(k => tileNoise(rand, k));
+export function thatchNormalMap(repeatX: number, repeatY: number) {
+  if (!thatchBase) {
+    const size = 512, rand = seeded(71);
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, size, size);
+    g.lineCap = 'round';
+    // Strokes drawn three times shifted by a tile, so the pattern wraps without a seam.
+    const stroke = (x: number, y: number, dx: number, dy: number, width: number, level: number) => {
+      g.strokeStyle = `rgba(255,255,255,${level})`;
+      g.lineWidth = width;
+      for (const ox of [-size, 0, size])
+        for (const oy of [-size, 0, size]) {
+          g.beginPath();
+          g.moveTo(x + ox, y + oy);
+          g.lineTo(x + ox + dx, y + oy + dy);
+          g.stroke();
+        }
+    };
+    for (let i = 0; i < 14000; i++) {
+      const along = rand() < 0.55;
+      const angle = along ? (rand() - 0.5) * 0.9 + (rand() < 0.5 ? 0 : Math.PI) : rand() * Math.PI * 2;
+      const length = 5 + 16 * rand();
+      stroke(rand() * size, rand() * size, Math.cos(angle) * length, Math.sin(angle) * length, 1 + 1.6 * rand(), 0.12 + 0.3 * rand());
+    }
+    const pixels = g.getImageData(0, 0, size, size).data;
+    const n = tileNoise(rand, 24);
     const height = new Float32Array(size * size);
     for (let y = 0; y < size; y++)
-      for (let x = 0; x < size; x++) {
-        const u = x / size, v = y / size;
-        height[y * size + x] = 1.0 * n[0](u, v) + 0.9 * n[1](u, v) + 0.7 * n[2](u, v) + 0.9 * (rand() - 0.5);
-      }
-    feltBase = normalFromHeight(height, size, 0.5);
+      for (let x = 0; x < size; x++) height[y * size + x] = pixels[(y * size + x) * 4] / 255 * 4 + 0.8 * n(x / size, y / size);
+    thatchBase = normalFromHeight(height, size, 0.6);
   }
-  const tex = feltBase.clone();
+  const tex = thatchBase!.clone();
   tex.needsUpdate = true;
   tex.repeat.set(repeatX, repeatY);
   return tex;
 }
 
 /**
- * The material of the turf: matte (roughness 1) with the soft glow of fibres at grazing angles (sheen), the felt nap as
- * a normal map, and the colour and mowing stripes carried by `map`. Never shiny.
+ * The material of the turf ground under and beyond the standing blades: real grass seen from a distance — dense green with
+ * the thatch as a normal map, the colour and mowing stripes carried by `map`, and the faint waxy sheen of living leaves
+ * (roughness a little under 1), which rain turns to a wet gloss (app/raceWeather.ts).
  */
-export function feltMaterial(map: T.Texture | null, repeatX: number, repeatY: number, lift = 0, color = '#ffffff') {
-  return new T.MeshPhysicalMaterial({
-    color, map, roughness: 1, metalness: 0,
-    sheen: 0.22, sheenRoughness: 0.9, sheenColor: new T.Color('#b9d69b'),
-    normalMap: feltNormalMap(repeatX, repeatY), normalScale: new T.Vector2(0.45, 0.45),
+export function turfMaterial(map: T.Texture | null, repeatX: number, repeatY: number, lift = 0, color = '#ffffff') {
+  const material = new T.MeshStandardMaterial({
+    color, map, roughness: 0.86, metalness: 0,
+    normalMap: thatchNormalMap(repeatX, repeatY), normalScale: new T.Vector2(0.7, 0.7),
     side: T.DoubleSide,
     polygonOffset: lift !== 0, polygonOffsetFactor: -lift, polygonOffsetUnits: -lift,
   });
+  material.userData.turf = true;
+  return material;
 }
 
 /**
