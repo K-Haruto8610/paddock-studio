@@ -329,9 +329,11 @@ export function makeRoute(race: Race, track: TrackModel): RaceRoute {
       heights.push(num / den);
     }
     // Where the neighbouring courses' graphs disagree with the main rail's, the pocket still has to
-    // arrive at the rail's own height at the join.
-    const railHeight = track.height(join.distance);
-    for (let i = 0; i <= 64; i++) heights[i] = T.MathUtils.lerp(heights[i], railHeight, T.MathUtils.smoothstep(i / 64, 0, 1));
+    // arrive at the rail's own height at the join: that disagreement is faded in along the pocket.
+    // (Pulling the whole pocket towards the join's one height instead sank it below the courses it
+    // lies on wherever they slope: Hanshin's 2,200m pocket on the outer course's 4コーナー.)
+    const miss = track.height(join.distance) - heights[64];
+    for (let i = 0; i <= 64; i++) heights[i] += miss * T.MathUtils.smoothstep(i / 64, 0, 1);
     const height = (u: number) => {
       const f = T.MathUtils.clamp(u, 0, 1) * 64,
         i = Math.min(63, Math.floor(f));

@@ -265,6 +265,12 @@ export function makeTrack(
     const table: number[][] = [];
     const steps = Math.floor(lap / 2) + 1,
       near: {d: number; w: number}[] = [];
+    // Where the graphs disagree only slightly (Hanshin, Nakayama) the heights are shared for as long as the
+    // two strips overlap at all: one ribbon is drawn whole wherever it is not wholly under the other, so a
+    // strip at another height there covers the horses' legs (Hanshin 2200m, the field in the 4th corner).
+    // Kyoto's outer course really climbs its hill beside the inner, so it keeps its own heights sooner.
+    const spread = SPREAD_BLEND_VENUES.includes(race.venueCode);
+    const [shared, own] = spread ? [inner.width, inner.width + 10] : [6, 16];
     for (let i = 0; i < steps; i++) {
       const d = Math.min(i * 2, lap);
       const p = curve.getPointAt(d / lap);
@@ -277,9 +283,8 @@ export function makeTrack(
           best = q;
         }
       }
-      // The two strips overlap until the rails are a course width apart; keep the
-      // shared heights until the outer course is clear of the lanes horses use.
-      near.push({d: best.d, w: T.MathUtils.smoothstep(Math.sqrt(e), 6, 16)});
+      // The two strips overlap until the rails are a course width apart.
+      near.push({d: best.d, w: T.MathUtils.smoothstep(Math.sqrt(e), shared, own)});
     }
     // The two section graphs can disagree where the outer leaves the inner's line, so the change
     // from the inner's heights to the outer's own is spread over at least 150 m of travel.
@@ -288,7 +293,7 @@ export function makeTrack(
       const gap = Math.abs(inner.profile(inner.lap - near[i].d) - measuredProfile(lap - Math.min(i * 2, lap)));
       return Math.min(1, 2 * 0.006 / Math.max(gap, 1e-6));
     };
-    if (SPREAD_BLEND_VENUES.includes(race.venueCode)) {
+    if (spread) {
       for (let i = 1; i < steps; i++) near[i].w = Math.min(near[i].w, near[i - 1].w + rateAt(i));
       for (let i = steps - 2; i >= 0; i--) near[i].w = Math.min(near[i].w, near[i + 1].w + rateAt(i));
     }
