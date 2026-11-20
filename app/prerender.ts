@@ -12,7 +12,7 @@ import type {Race} from './types';
 import type {Weather} from './raceWeather';
 import type {VideoStore} from './videoExport';
 
-export const PRERENDER_VERSION = 1;
+export const PRERENDER_VERSION = 2;
 const FOLDER = 'prerendered';
 /** The widest video, in pixels. */
 const MAX_WIDTH = 2560;

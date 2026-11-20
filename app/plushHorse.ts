@@ -326,8 +326,15 @@ function stuffedBodyGeometry(color: T.Color, settings: HeadSettings) {
 /** Seams modelled in Blender (blender/seams.py): per vertex, the nearest point on a seam (horse frame) and the arc length there. */
 type SewnLines = {at: Float32Array; along: Float32Array};
 
-function shellGeometry(positions: Float32Array, normals: Float32Array, color: T.Color, settings: HeadSettings, index?: ArrayLike<number>, sewn?: SewnLines) {
+/**
+ * `occlusionKey`: the model's own position array, under which the crease shading (shellOcclusion) is cached for every horse
+ * built from it. Without one (the code-built fallback shell, a dense triangle soup) the shell is left fully open.
+ */
+function shellGeometry(positions: Float32Array, normals: Float32Array, color: T.Color, settings: HeadSettings, index?: ArrayLike<number>, sewn?: SewnLines, occlusionKey?: ArrayLike<number>) {
   const geometry = new T.BufferGeometry();
+  geometry.setAttribute('occlusion', new T.BufferAttribute(occlusionKey
+    ? shellOcclusion(positions, normals, index, occlusionKey).slice()
+    : new Float32Array(positions.length / 3).fill(1), 1));
   if (index) geometry.setIndex(Array.from(index));
   const colors = new Float32Array(positions.length);
   const uvs = new Float32Array(positions.length / 3 * 2);
@@ -352,6 +359,90 @@ function shellGeometry(positions: Float32Array, normals: Float32Array, color: T.
     geometry.setAttribute('seamAlong', new T.BufferAttribute(sewn.along, 1));
   }
   return geometry;
+}
+
+/**
+ * How open each vertex of a closed shell is to the sky around it (1 open, toward 0 deep in a crease): under the belly,
+ * where the legs meet the body, round the jaw and behind the ears. A plush in a photo is darkest there, because the
+ * soft light from around never reaches in; the sun's shadow map is far too coarse to show it. Computed once per shape
+ * (every horse of a race shares the Blender body), treating each vertex as a small disc that shades the others
+ * (Bunnell's disc occlusion, two passes so discs in shadow shade less).
+ */
+const occlusionCache = new WeakMap<ArrayLike<number>, Float32Array>();
+function shellOcclusion(positions: Float32Array, normals: Float32Array, index?: ArrayLike<number>, key: ArrayLike<number> = positions) {
+  const cached = occlusionCache.get(key);
+  if (cached) return cached;
+  const n = positions.length / 3;
+  const area = new Float32Array(n);
+  const triangles = index ? index.length / 3 : n / 3;
+  const corner = (t: number, k: number) => index ? index[t * 3 + k] : t * 3 + k;
+  const a = new T.Vector3(), b = new T.Vector3(), c = new T.Vector3();
+  for (let t = 0; t < triangles; t++) {
+    const i0 = corner(t, 0), i1 = corner(t, 1), i2 = corner(t, 2);
+    a.fromArray(positions, i0 * 3); b.fromArray(positions, i1 * 3); c.fromArray(positions, i2 * 3);
+    const third = b.sub(a).cross(c.sub(a)).length() / 6;
+    area[i0] += third; area[i1] += third; area[i2] += third;
+  }
+  // Emitters: every vertex, or every k-th one with k times the area for dense shells, so the cost stays near 10^8.
+  const step = Math.max(1, Math.ceil(n / 9000));
+  const emitters: number[] = [];
+  for (let j = 0; j < n; j += step) emitters.push(j);
+  let open = new Float32Array(n).fill(1);
+  for (let pass = 0; pass < 2; pass++) {
+    const next = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const px = positions[i * 3], py = positions[i * 3 + 1], pz = positions[i * 3 + 2];
+      const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
+      let shade = 0;
+      for (const j of emitters) {
+        if (j === i) continue;
+        const dx = positions[j * 3] - px, dy = positions[j * 3 + 1] - py, dz = positions[j * 3 + 2] - pz;
+        const r2 = dx * dx + dy * dy + dz * dz + 1e-6;
+        const r = Math.sqrt(r2);
+        const facing = (nx * dx + ny * dy + nz * dz) / r;
+        if (facing <= 0) continue;
+        const back = -(normals[j * 3] * dx + normals[j * 3 + 1] * dy + normals[j * 3 + 2] * dz) / r;
+        const disc = area[j] * step;
+        shade += (1 - 1 / Math.sqrt(1 + disc / (Math.PI * r2))) * Math.min(1, Math.max(0, back) + 0.25) * Math.min(1, 4 * facing) * open[j];
+      }
+      next[i] = Math.max(0, 1 - shade);
+    }
+    open = next;
+  }
+  occlusionCache.set(key, open);
+  return open;
+}
+
+/**
+ * Applies the geometry's `occlusion` attribute: the light from around (environment and hemisphere) is cut where the shell
+ * is closed in, and the direct light a little, for the soft contact shading that the coarse shadow map misses.
+ */
+function creaseShading<M extends T.Material>(material: M): M {
+  const previous = material.onBeforeCompile;
+  const baseKey = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    previous.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+attribute float occlusion;
+varying float vOcclusion;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+vOcclusion = occlusion;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying float vOcclusion;`)
+      .replace('#include <aomap_fragment>', `#include <aomap_fragment>
+{
+  float open = clamp(vOcclusion, 0.0, 1.0);
+  float around = pow(open, 1.6);
+  reflectedLight.indirectDiffuse *= around;
+  reflectedLight.indirectSpecular *= around;
+  reflectedLight.directDiffuse *= mix(1.0, around, 0.3);
+  reflectedLight.directSpecular *= mix(1.0, around, 0.3);
+}`);
+  };
+  material.customProgramCacheKey = () => baseKey + '|crease';
+  return material;
 }
 
 // Small repeatable fibers: generated locally, with no downloaded texture assets.
@@ -559,6 +650,223 @@ function fabricMaterial(color: T.ColorRepresentation, kind: FabricKind, stretch:
   });
 }
 
+let weaveCanvas: HTMLCanvasElement | undefined;
+/** Cotton twill, as the saddle cloth is woven: diagonal ribs of slightly uneven yarn. Grey, for relief and a faint mottle. */
+function weaveTexture(repeat: number) {
+  if (!weaveCanvas) {
+    const size = 256, threads = 64, step = size / threads;
+    weaveCanvas = document.createElement('canvas');
+    weaveCanvas.width = weaveCanvas.height = size;
+    const ctx = weaveCanvas.getContext('2d')!;
+    let seed = 2957;
+    const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+    const warp = Array.from({length: threads}, () => 0.9 + random() * 0.2), weft = Array.from({length: threads}, () => 0.9 + random() * 0.2);
+    for (let row = 0; row < threads; row++) for (let col = 0; col < threads; col++) {
+      // 2/1 twill: the warp floats over two wefts and under one, stepping one thread per row, so the ribs run diagonally.
+      const up = (col - row + threads * 3) % 3 !== 0;
+      const shade = (up ? 214 * warp[col] : 168 * weft[row]) * (0.95 + random() * 0.1);
+      const g = up ? ctx.createLinearGradient(col * step, 0, (col + 1) * step, 0) : ctx.createLinearGradient(0, row * step, 0, (row + 1) * step);
+      g.addColorStop(0, `rgb(${shade * 0.72 | 0},${shade * 0.72 | 0},${shade * 0.72 | 0})`);
+      g.addColorStop(0.5, `rgb(${Math.min(255, shade) | 0},${Math.min(255, shade) | 0},${Math.min(255, shade) | 0})`);
+      g.addColorStop(1, `rgb(${shade * 0.72 | 0},${shade * 0.72 | 0},${shade * 0.72 | 0})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(col * step, row * step, step, step);
+    }
+  }
+  const texture = new T.CanvasTexture(weaveCanvas);
+  texture.wrapS = texture.wrapT = T.RepeatWrapping;
+  texture.repeat.set(repeat, repeat);
+  texture.anisotropy = 4;
+  return texture;
+}
+
+/** Soft drape folds of the saddle cloth, by position on the body, shared by the cloth and the numbers printed on it. */
+const CLOTH_FOLDS_GLSL = `
+float clothFold(vec3 p) {
+  // Mostly long folds hanging down the sides, wavering a little, and a few finer creases across them.
+  return 0.011 * sin(p.x * 8.5 + 0.9 * sin(p.y * 3.1 + p.z * 2.3))
+    + 0.004 * sin(p.x * 21.0 + p.y * 6.0 + 1.7)
+    + 0.0022 * sin(p.y * 17.0 - p.x * 9.0 + 0.4);
+}`;
+
+/**
+ * Folds on a cloth material with a bump map: the fold height, by the local position, tips the normal through three's own
+ * bump code (perturbNormalArb), so the light runs across the folds. With `hem`, the geometry's `hem` attribute (metres to the
+ * cloth's edge) also lays a stitched hem 2.5 cm in from the edge, with the turned-over edge a little raised.
+ */
+function clothDrape<M extends T.MeshStandardMaterial>(material: M, hem: boolean): M {
+  const previous = material.onBeforeCompile;
+  const baseKey = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    previous.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vClothAt;${hem ? `
+attribute float hem;
+varying float vHem;` : ''}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+vClothAt = position;${hem ? `
+vHem = hem;` : ''}`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vClothAt;${hem ? `
+varying float vHem;` : ''}
+${CLOTH_FOLDS_GLSL}`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+{
+  float h = clothFold(vClothAt);${hem ? `
+  // The turned-over edge stands a little proud of the cloth, ending at the hem's stitch line.
+  h += 0.0016 * (1.0 - smoothstep(0.018, 0.026, vHem));` : ''}
+  // Slope per unit of surface: the height's change across the pixel over the pixel's own size.
+  vec2 slope = vec2(dFdx(h) / max(length(dFdx(vViewPosition)), 1e-6), dFdy(h) / max(length(dFdy(vViewPosition)), 1e-6));
+  normal = perturbNormalArb(-vViewPosition, normal, slope, faceDirection);
+}`);
+    if (hem) shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+{
+  float line = abs(vHem - 0.025);
+  float onLine = 1.0 - smoothstep(0.0018, 0.0018 + fwidth(vHem) * 1.5, line);
+  float along = (vClothAt.x + vClothAt.y + vClothAt.z) * 110.0;
+  float dash = 1.0 - smoothstep(0.28, 0.28 + fwidth(along) * 1.5, abs(fract(along) - 0.5));
+  diffuseColor.rgb *= 1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.006, line)) * (1.0 - onLine * dash);
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.25 + 0.03, 0.7 * onLine * dash);
+}`);
+  };
+  material.customProgramCacheKey = () => baseKey + (hem ? '|drape-hem' : '|drape');
+  return material;
+}
+
+/** Metres from each vertex to the cloth's open edge (the edges only one triangle uses), as the `hem` attribute. */
+function addHem(geometry: T.BufferGeometry) {
+  const position = geometry.attributes.position as T.BufferAttribute;
+  const hem = new Float32Array(position.count).fill(1);
+  const index = geometry.index;
+  if (index) {
+    const uses = new Map<string, [number, number, number]>();
+    for (let t = 0; t < index.count; t += 3) for (let k = 0; k < 3; k++) {
+      const a = index.getX(t + k), b = index.getX(t + (k + 1) % 3);
+      const key = a < b ? a + ',' + b : b + ',' + a;
+      const seen = uses.get(key);
+      uses.set(key, seen ? [seen[0], seen[1], seen[2] + 1] : [a, b, 1]);
+    }
+    const edges = [...uses.values()].filter(e => e[2] === 1);
+    const p = new T.Vector3(), a = new T.Vector3(), b = new T.Vector3(), line = new T.Line3(), closest = new T.Vector3();
+    for (let i = 0; i < position.count; i++) {
+      p.fromBufferAttribute(position, i);
+      let best = 1;
+      for (const [ia, ib] of edges) {
+        line.set(a.fromBufferAttribute(position, ia), b.fromBufferAttribute(position, ib));
+        best = Math.min(best, line.closestPointToPoint(p, true, closest).distanceTo(p));
+      }
+      hem[i] = best;
+    }
+  }
+  geometry.setAttribute('hem', new T.BufferAttribute(hem, 1));
+  return geometry;
+}
+
+/** The saddle cloth: dyed cotton twill, matte with a soft fibre sheen, the weave just showing in the colour; folds and a hem. */
+function saddleClothMaterial(color: T.ColorRepresentation) {
+  const weave = weaveTexture(14);
+  const material = new T.MeshPhysicalMaterial({
+    color, bumpMap: weave, bumpScale: 0.8, roughness: 0.94, sheen: 0.45, sheenRoughness: 0.6, sheenColor: '#c9d4ee',
+  });
+  material.onBeforeCompile = shader => {
+    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+#ifdef USE_BUMPMAP
+diffuseColor.rgb *= mix(0.86, 1.06, texture2D(bumpMap, vBumpMapUv).r);
+#endif`);
+  };
+  material.customProgramCacheKey = () => 'saddle-twill';
+  return clothDrape(material, true);
+}
+
+/**
+ * Plastic safety eye: a near-black dome polished to a mirror, so its highlight is the sky and the sun reflected in it. The sky
+ * map holds the open sky far dimmer than a camera sees it beside the sun, so the reflection is raised to read as it does in
+ * a photo of a toy outdoors.
+ */
+function polishedEye() {
+  const material = new T.MeshPhysicalMaterial({color: '#0e0a09', roughness: 0.1, clearcoat: 1, clearcoatRoughness: 0.03, specularIntensity: 1});
+  material.onBeforeCompile = shader => {
+    // What the dome mirrors: the sky above as a bright crescent, the dark grass, rails and stands below; the soft sky map
+    // smears the horizon haze over both, which turned the whole eye grey.
+    shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
+{
+  vec3 mirrored = inverseTransformDirection(reflect(-normalize(vViewPosition), normal), viewMatrix);
+  float skyward = 0.12 + 1.5 * smoothstep(0.08, 0.4, mirrored.y);
+  reflectedLight.indirectSpecular *= skyward;
+#ifdef USE_CLEARCOAT
+  clearcoatSpecularIndirect *= skyward;
+#endif
+}`);
+  };
+  material.customProgramCacheKey = () => 'polished-eye';
+  return material;
+}
+
+/**
+ * Nostrils embroidered in satin stitch: close parallel threads of dark cotton, each catching a little light along its
+ * length, instead of a smooth bead.
+ */
+function embroideredMaterial(color: T.ColorRepresentation) {
+  const material = new T.MeshPhysicalMaterial({color, roughness: 0.62, sheen: 0.7, sheenRoughness: 0.45, sheenColor: '#7a6a60'});
+  material.onBeforeCompile = shader => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vThreadAt;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+vThreadAt = position;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vThreadAt;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+{
+  // Threads about 3 mm apart, laid across the nostril; each is round, so it is brightest along its middle.
+  float across = dot(vThreadAt, normalize(vec3(0.55, 1.0, 0.25))) / 0.0032;
+  float w = fwidth(across);
+  float thread = 0.5 + 0.5 * cos(fract(across) * 6.2832);
+  thread = mix(thread, 0.5, clamp(w * 1.5, 0.0, 1.0));
+  diffuseColor.rgb *= 0.55 + 0.75 * thread;
+}`);
+  };
+  material.customProgramCacheKey = () => 'satin-stitch';
+  return material;
+}
+
+/**
+ * Strap edges stitched as on a real toy's faux-leather straps: a line of short stitches a little in from each edge, on the
+ * face of the strap. Reads the strap's own UVs (u along it, v across it; the face is v 0.041..0.959).
+ */
+function edgeStitched<M extends T.MeshPhysicalMaterial>(material: M): M {
+  const previous = material.onBeforeCompile;
+  const baseKey = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    previous.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+varying vec2 vStrapUv;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+vStrapUv = uv;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec2 vStrapUv;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+{
+  float v = vStrapUv.y;
+  float line = min(abs(v - 0.2), abs(v - 0.8));
+  float lw = fwidth(v);
+  float onLine = 1.0 - smoothstep(0.022, 0.022 + lw * 1.5, line);
+  float along = vStrapUv.x * 110.0;
+  float dash = 1.0 - smoothstep(0.26, 0.26 + fwidth(along) * 1.5, abs(fract(along) - 0.5));
+  // Pressed groove either side of the thread, then the thread itself, a paler waxed cotton.
+  diffuseColor.rgb *= 1.0 - 0.3 * (1.0 - smoothstep(0.0, 0.06, line)) * (1.0 - dash * onLine);
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.9 + vec3(0.04, 0.03, 0.02), 0.75 * onLine * dash);
+}`);
+  };
+  material.customProgramCacheKey = () => baseKey + '|edge-stitch';
+  return material;
+}
+
 /**
  * GLSL: distance from a rest position to the nearest of four rings sewn round the legs where they meet the body (a plush's
  * legs are sewn on), and how far round the ring it is (arc length / 0.3 m, for the stitches). Large away from the legs.
@@ -640,6 +948,8 @@ ${LEG_RING_GLSL}`)
   float across = abs(vSeamRest.z);
   // A shallow groove either side of the line, and the thread itself in the middle.
   float groove = 1.0 - smoothstep(0.0, 0.026, across);
+  // The crease itself, where the cloth is pulled in by the thread: narrow and in its own shade.
+  float crease = 1.0 - smoothstep(0.0, 0.013, across);
   float thread = 1.0 - smoothstep(0.0055, 0.0085, across);
   // Stitches: short dashes along the seam, which runs mostly along x on the back and up y on the face.
   float along = vSeamRest.x * 0.8 + vSeamRest.y * 0.6;
@@ -648,16 +958,20 @@ ${LEG_RING_GLSL}`)
   // The Blender seams: the same groove, thread and dashes, measured to the modelled line.
   float lineAcross = length(vSeamRest - vSeamAt);
   groove = max(groove, 1.0 - smoothstep(0.0, 0.026, lineAcross));
+  crease = max(crease, 1.0 - smoothstep(0.0, 0.013, lineAcross));
   float lineDash = 1.0 - smoothstep(0.55, 0.65, abs(fract(vSeamAlong * 38.0) - 0.5) * 2.0);
   stitched = max(stitched, (1.0 - smoothstep(0.0055, 0.0085, lineAcross)) * lineDash);` : ''}
   float light = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
   vec3 cloth = diffuseColor.rgb;
-  vec3 stitch = light > 0.55 ? cloth * vec3(0.55, 0.5, 0.45) : min(cloth * 1.9 + vec3(0.14, 0.12, 0.1), vec3(1.0));
+  // Thread dyed to match the cloth, a shade off it, as on a real toy: it shows only where the parted pile lets it.
+  vec3 stitch = light > 0.55 ? cloth * vec3(0.8, 0.78, 0.74) : min(cloth * 1.35 + vec3(0.035, 0.03, 0.025), vec3(1.0));
   float ringAlong;
-  float ring = 1.0 - smoothstep(0.0055, 0.0085, legRingDistance(vSeamRest, ringAlong));
+  float ringDistance = legRingDistance(vSeamRest, ringAlong);
+  float ring = 1.0 - smoothstep(0.0055, 0.0085, ringDistance);
+  crease = max(crease, 1.0 - smoothstep(0.0, 0.013, ringDistance));
   float ringDash = 1.0 - smoothstep(0.55, 0.65, abs(fract(ringAlong * 38.0) - 0.5) * 2.0);
-  vec3 sewn = mix(cloth * (1.0 - 0.08 * groove), stitch, stitched);
-  diffuseColor.rgb = mix(sewn, stitch, ring * ringDash);
+  vec3 sewn = mix(cloth * (1.0 - 0.08 * groove) * (1.0 - 0.38 * crease * crease), stitch, 0.7 * stitched);
+  diffuseColor.rgb = mix(sewn, stitch, 0.7 * ring * ringDash);
 }`);
   };
   material.customProgramCacheKey = () => sewn ? 'plush-seam-sewn' : 'plush-seam';
@@ -698,7 +1012,7 @@ function pileNoiseTexture() {
     data[i] = random() * 256;
     data[i + 1] = smooth * 255;
     data[i + 2] = tuft(x + 0.5, y + 0.5) * 255;
-    data[i + 3] = 255;
+    data[i + 3] = random() * 256;
   }
   pileNoise = new T.DataTexture(data, size, size, T.RGBAFormat);
   pileNoise.wrapS = pileNoise.wrapT = T.RepeatWrapping;
@@ -713,7 +1027,7 @@ function pileNoiseTexture() {
  * Raised pile: the same surface drawn several times, each copy pushed a little further out and keeping only
  * the fibres tall enough to reach it. This gives the cloth a soft fuzzy outline instead of a hard edge.
  */
-function pileMaterial(color: T.ColorRepresentation, kind: FabricKind, layers: number, options: {vertexColors?: boolean; seam?: boolean; sewn?: boolean; length?: number} = {}) {
+function pileMaterial(color: T.ColorRepresentation, kind: FabricKind, layers: number, options: {vertexColors?: boolean; seam?: boolean; sewn?: boolean; length?: number; crease?: boolean} = {}) {
   const look = FABRIC_LOOKS[kind];
   const material = new T.MeshPhysicalMaterial({
     color, vertexColors: !!options.vertexColors, roughness: 1,
@@ -738,7 +1052,10 @@ uniform float pileLayers;
 varying float vPileScale;
 varying vec3 vRest;
 varying vec3 vRestNormal;
-varying float vPile;${sewn ? SEWN_VERTEX : ''}`)
+varying float vPile;
+varying vec3 vNap;
+uniform float pileSeam;
+${LEG_RING_GLSL}${sewn ? SEWN_VERTEX : ''}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>${sewn ? SEWN_PASS : ''}
 vPile = (float(gl_InstanceID) + 1.0) / pileLayers;
 vRest = rest;
@@ -746,8 +1063,23 @@ vRestNormal = restNormal;
 vPileScale = pileScale;
 // Fibres stand along the normal and lean a little down and back, as if stroked.
 float pileHeight = pileLength * pileScale * vPile;
-// The stroke direction drifts from patch to patch but stays downward and backward overall.
-vec3 lean = vec3(-0.2, -0.45, 0.0) + 0.25 * vec3(sin(rest.y * 7.1 + rest.z * 5.3), sin(rest.x * 6.3 + rest.z * 4.1), sin(rest.x * 5.1 + rest.y * 3.7));
+// The stroke direction drifts from patch to patch but stays downward and backward overall; smaller patches on top, where
+// the nap was crushed one way or another as the toy was handled.
+vec3 lean = vec3(-0.2, -0.45, 0.0) + 0.25 * vec3(sin(rest.y * 7.1 + rest.z * 5.3), sin(rest.x * 6.3 + rest.z * 4.1), sin(rest.x * 5.1 + rest.y * 3.7))
+  + 0.22 * vec3(sin(rest.y * 23.0 + rest.z * 17.0 + 1.3), sin(rest.x * 19.0 + rest.z * 21.0 + 0.4), sin(rest.x * 18.0 + rest.y * 25.0 + 2.1));
+// At a seam the pile parts: the fibres either side lean away from the line, as they do where two pieces of fur are sewn.
+if (pileSeam > 0.5) {
+  vec3 away = vec3(0.0, 0.0, rest.z < 0.0 ? -1.0 : 1.0) * (1.0 - smoothstep(0.0, 0.035, abs(rest.z)));
+  float ringAlongV;
+  float ringDist = legRingDistance(rest, ringAlongV);
+  away += vec3(0.0, rest.y < 0.55 ? -1.0 : 1.0, 0.0) * (1.0 - smoothstep(0.0, 0.03, ringDist));${sewn ? `
+  vec3 fromLine = rest - seamAt;
+  away += fromLine / max(length(fromLine), 1e-4) * (1.0 - smoothstep(0.0, 0.035, length(fromLine)));` : ''}
+  away -= restNormal * dot(away, restNormal);
+  lean += away * 1.4;
+}
+vec3 napDir = lean - restNormal * dot(lean, restNormal);
+vNap = normalize(mat3(modelViewMatrix) * (napDir + 1e-4 * restNormal));
 transformed += objectNormal * pileHeight + lean * (pileHeight * vPile);`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
@@ -757,13 +1089,14 @@ ${LEG_RING_GLSL}
 varying float vPileScale;
 varying vec3 vRest;
 varying vec3 vRestNormal;
-varying float vPile;${sewn ? SEWN_FRAGMENT : ''}`)
+varying float vPile;
+varying vec3 vNap;${sewn ? SEWN_FRAGMENT : ''}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 {
   // Pile pressed flat under other cloth is not drawn.
   if (vPileScale < 0.08) discard;
   // Project the fibre pattern along the surface's main axis, so it never stretches into streaks.
-  vec3 fp = vRest * 1.35;
+  vec3 fp = vRest * 2.1;
   vec3 fdx = dFdx(fp) * 0.85, fdy = dFdy(fp) * 0.85;
   vec3 an = abs(vRestNormal);
   vec2 fuv, gx, gy;
@@ -773,9 +1106,10 @@ varying float vPile;${sewn ? SEWN_FRAGMENT : ''}`)
   else if (an.y > an.z) { fuv = fp.zx; gx = fdx.zx; gy = fdy.zx; lie = vec2(1.0, 0.65); }
   else { fuv = fp.xy; gx = fdx.xy; gy = fdy.xy; lie = vec2(1.0, 0.65); }
   fuv *= lie; gx *= lie; gy *= lie;
-  float fibre = textureGrad(pileMap, fuv, gx, gy).r;
+  vec4 fibreAt = textureGrad(pileMap, fuv, gx, gy);
+  float fibre = fibreAt.r;
   // Tufts: sampled coarser than the fibres, so each one spans several of them.
-  float tuft = textureGrad(pileMap, fuv * 3.2, gx * 3.2, gy * 3.2).b;
+  float tuft = textureGrad(pileMap, fuv * 2.0, gx * 2.0, gy * 2.0).b;
   float brushed = texture2D(pileMap, vRest.xy * 0.21 + 0.13).g + texture2D(pileMap, vRest.zy * 0.21 + 0.57).g - 1.0;
   // The pile is pinched short along the centre seam where the two halves are sewn together.
   float ringAlong;
@@ -784,6 +1118,14 @@ varying float vPile;${sewn ? SEWN_FRAGMENT : ''}`)
   float reach = (1.0 - 0.7 * seam) * (0.8 + 0.25 * brushed) * mix(0.6, 1.0, tuft);
   diffuseColor.a = fibre - 0.92 * pow(min(vPile / reach, 1.5), 1.2) + 0.5;
   diffuseColor.rgb *= mix(${PILE_ROOT_SHADE.toFixed(2)}, 1.05, pow(vPile, 1.5)) * (1.0 + 0.2 * brushed) * (1.0 - 0.25 * (1.0 - tuft)) * (1.0 - 0.15 * seam);
+  // Dyed fibres are never quite the same shade, and the tips are a little paler where the dye thins.
+  diffuseColor.rgb *= 0.88 + 0.24 * fibreAt.a;
+  float frost = 0.22 * pow(vPile, 3.0);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11))) * 1.18 + 0.015, frost);
+  // Nap: seen along the lie of the fibres the pile shows their sides and looks paler; against it, it shows the shaded
+  // depths and looks deeper and richer. Patches lying different ways therefore shift as the view moves.
+  float napView = dot(normalize(vNap), normalize(vViewPosition));
+  diffuseColor.rgb *= 1.0 + 0.11 * napView;
 }`)
       // The soft glow at grazing angles takes the colour of the fibres, so dark cloth stays dark.
       .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
@@ -792,7 +1134,8 @@ material.sheenColor *= mix(diffuseColor.rgb, vec3(1.0), 0.08);
 #endif`);
   };
   material.customProgramCacheKey = () => sewn ? 'plush-pile-sewn' : 'plush-pile';
-  return rimLight(material);
+  const lit = rimLight(material);
+  return options.crease ? creaseShading(lit) : lit;
 }
 
 /** The shape before any rig moves it, kept as an attribute for shaders that sew or brush by position. */
@@ -1446,7 +1789,7 @@ const MODEL_STRAP_LIFT = 0.01;
  * as the code-built ones do; the ears carry their own short pile.
  */
 function addModelHead(
-  head: T.Group, model: HorseModel, mats: {hood: T.Material; brown: T.Material & {color: T.Color}; eye: T.Material; shine: T.Material; dark: T.Material},
+  head: T.Group, model: HorseModel, mats: {hood: T.Material; brown: T.Material & {color: T.Color}; eye: T.Material; dark: T.Material},
   piled: boolean, blinker: boolean, bodyFabric: FabricKind, layers: number, raise: number,
 ) {
   for (const [name, source] of Object.entries(model.head)) {
@@ -1468,13 +1811,6 @@ function addModelHead(
     part.name = isEye ? 'bead-eye' : 'nostril';
     part.castShadow = part.receiveShadow = true;
     head.add(part);
-    if (isEye) {
-      // The highlight: a small flat disc on the bead, up and toward the nose.
-      const shine = new T.Mesh(new T.SphereGeometry(1, 12, 8), mats.shine);
-      shine.position.set(center.x + 0.044, center.y + 0.077, center.z + side * (0.058 + raise + 0.004));
-      shine.scale.set(0.022, 0.026, 0.008);
-      head.add(shine);
-    }
   }
 }
 
@@ -1493,6 +1829,15 @@ function modelCloth(source: T.BufferGeometry, pileLength: number) {
     position.setZ(i, position.getZ(i) + radial.y);
   }
   geometry.computeVertexNormals();
+  // The cloth comes without UVs (only the number panels have them): lay the weave along the back and round the barrel.
+  if (!geometry.attributes.uv) {
+    const uv = new Float32Array(position.count * 2);
+    for (let i = 0; i < position.count; i++) {
+      uv[i * 2] = position.getX(i);
+      uv[i * 2 + 1] = Math.atan2(position.getZ(i), position.getY(i) - 1.22) * 0.85;
+    }
+    geometry.setAttribute('uv', new T.BufferAttribute(uv, 2));
+  }
   return geometry;
 }
 
@@ -1530,16 +1875,15 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   body.name = 'plush-body';
   g.add(body);
   const fabrics = options.fabric ?? SAVED_FABRIC;
-  const cloth = (color: T.ColorRepresentation) => fabricMaterial(color, 'current');
   const brown = fabricMaterial(coat[h.coatCode] || '#999999', fabrics.body ?? 'current');
-  const dark = cloth('#29272a');
+  const dark = embroideredMaterial('#2a1f1c');
   const hair = fabricMaterial('#29272a', fabrics.mane ?? 'current');
   const bodyFabric = fabrics.body ?? 'current';
   const piled = !!FABRIC_LOOKS[bodyFabric].pile;
-  const blue = cloth('#234b98');
+  const blue = saddleClothMaterial('#234b98');
   const hood = h.blinker ? fabricMaterial(seededPick(h.name, MENKO_COLORS), fabrics.menko ?? 'current') : brown;
-  const eye = new T.MeshStandardMaterial({color: '#151416', roughness: 0.48});
-  const shine = new T.MeshStandardMaterial({color: '#e1d9c9', roughness: 0.6});
+  // Plastic safety eyes: a near-black dome polished to a mirror, so the highlight is the sky and the sun reflected in it.
+  const eye = polishedEye();
   const sphere = new T.SphereGeometry(1, 16, 12);
   const pillow = pillowGeometry();
   const ball = (parent: T.Object3D, mat: T.Material, p: Point, s: Point, stuffed = true) => {
@@ -1555,10 +1899,10 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   const sewnLines: SewnLines | undefined = seamAt && seamAlong
     ? {at: (seamAt.array as Float32Array).slice(), along: (seamAlong.array as Float32Array).slice()}
     : undefined;
-  const shellMaterial = rimLight(stitchSeam(fabricMaterial('#ffffff', fabrics.body ?? 'current'), !!sewnLines));
+  const shellMaterial = creaseShading(rimLight(stitchSeam(fabricMaterial('#ffffff', fabrics.body ?? 'current'), !!sewnLines)));
   shellMaterial.vertexColors = true;
   const shell = new T.Mesh(model
-    ? shellGeometry((model.body.attributes.position.array as Float32Array).slice(), (model.body.attributes.normal.array as Float32Array).slice(), brown.color, settings, model.body.index?.array, sewnLines)
+    ? shellGeometry((model.body.attributes.position.array as Float32Array).slice(), (model.body.attributes.normal.array as Float32Array).slice(), brown.color, settings, model.body.index?.array, sewnLines, model.body.attributes.position.array)
     : stuffedBodyGeometry(brown.color, settings), shellMaterial);
   shell.name = 'seamless-body-and-feet';
   shell.castShadow = shell.receiveShadow = true;
@@ -1567,16 +1911,17 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   const pileLength = FABRIC_LOOKS[bodyFabric].pile ?? 0;
   if (piled) {
     shellMaterial.color.setScalar(PILE_ROOT_SHADE);
-    if (h.blinker) {
-      // The hood presses the pile flat wherever it covers the head.
-      const at = shell.geometry.attributes.position.array as Float32Array;
-      const scale = new Float32Array(at.length / 3);
-      for (let i = 0; i < scale.length; i++) {
-        scale[i] = at[i * 3 + 1] < 1.2 ? 1 : T.MathUtils.smoothstep(hoodDistance(at[i * 3], at[i * 3 + 1], at[i * 3 + 2], settings), -0.012, 0.03);
-      }
-      shell.geometry.setAttribute('pileScale', new T.BufferAttribute(scale, 1));
+    // The hoof socks are a different cloth, a short dense nap like suede; and the hood presses the pile flat wherever it
+    // covers the head.
+    const at = shell.geometry.attributes.position.array as Float32Array;
+    const scale = new Float32Array(at.length / 3);
+    for (let i = 0; i < scale.length; i++) {
+      const y = at[i * 3 + 1];
+      scale[i] = T.MathUtils.lerp(0.32, 1, T.MathUtils.smoothstep(y, 0.235, 0.265));
+      if (h.blinker && y >= 1.2) scale[i] *= T.MathUtils.smoothstep(hoodDistance(at[i * 3], y, at[i * 3 + 2], settings), -0.012, 0.03);
     }
-    addPile(shell, pileMaterial('#ffffff', bodyFabric, layers, {vertexColors: true, seam: true, sewn: !!sewnLines}), layers);
+    shell.geometry.setAttribute('pileScale', new T.BufferAttribute(scale, 1));
+    addPile(shell, pileMaterial('#ffffff', bodyFabric, layers, {vertexColors: true, seam: true, sewn: !!sewnLines, crease: true}), layers);
   }
   // Eyes, nostrils and the saddlecloth sit on top of the pile rather than sinking into it.
   const raise = Math.max(0, pileLength - 0.02);
@@ -1608,7 +1953,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     }
     return (lo + hi) / 2;
   };
-  if (model) addModelHead(head, model, {hood, brown, eye, shine, dark}, piled, !!h.blinker, bodyFabric, layers, raise);
+  if (model) addModelHead(head, model, {hood, brown, eye, dark}, piled, !!h.blinker, bodyFabric, layers, raise);
   else for (const side of [-1, 1]) {
     const ear = new T.Mesh(earGeometry(), hood);
     ear.position.set(-0.06, 0.58, side * 0.3 * headWidth);
@@ -1622,13 +1967,12 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     const eyeZ = surfaceZ(eyeX, eyeY);
     const eyeSize = T.MathUtils.lerp(1.24, 1, settings.eyeScale);
     ball(head, eye, [eyeX, eyeY, side * (eyeZ + 0.012 + raise / 1.18)], [0.085 * eyeSize, 0.105 * eyeSize, 0.035], false);
-    ball(head, shine, [eyeX + 0.02, eyeY + 0.03, side * (eyeZ + 0.044 + raise / 1.18)], [0.019, 0.022, 0.006], false);
     const noseZ = surfaceZ(1.1, -0.13);
     ball(head, dark, [1.1, -0.13, side * (noseZ + 0.006 + raise / 1.18)], [0.027, 0.039, 0.02], false);
   }
   // Tube UVs run 0..1 along each strap, so the grain is tiled many times along its length.
   if (options.bridle) {
-    const leather = fabricMaterial('#5b3826', fabrics.bridle ?? 'current', [12, 0.3]);
+    const leather = edgeStitched(fabricMaterial('#5b3826', fabrics.bridle ?? 'current', [12, 0.3]));
     if (model) addModelBridle(head, model, leather, pileLength);
     else addBridle(head, leather, settings, !!h.blinker, pileLength);
   }
@@ -1678,6 +2022,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     clothGeometry.computeVertexNormals();
   }
   blue.side = T.DoubleSide;
+  addHem(clothGeometry);
   const saddle = new T.Mesh(clothGeometry, blue);
   saddle.castShadow = saddle.receiveShadow = true;
   body.add(saddle);
@@ -1694,7 +2039,8 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   ctx.fillText(h.name, 128, 176, 230);
   const printMap = new T.CanvasTexture(canvas);
   printMap.colorSpace = T.SRGBColorSpace;
-  const printMaterial = new T.MeshStandardMaterial({map: printMap, roughness: 1, transparent: true, depthWrite: false});
+  // The number is printed into the weave: the same cotton relief shows through it.
+  const printMaterial = clothDrape(new T.MeshStandardMaterial({map: printMap, bumpMap: weaveTexture(6), bumpScale: 0.6, roughness: 0.95, transparent: true, depthWrite: false}), false);
   for (const side of [-1, 1]) {
     const geometry = model ? modelCloth(model.saddle[side < 0 ? 'printL' : 'printR'], pileLength) : new T.PlaneGeometry(1, 1, 12, 12);
     if (!model) {
@@ -1726,7 +2072,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     for (let i = 0; i < vertices.count; i++)
       vertices.setXYZ(i, ...clothPoint(-0.65 + vertices.getX(i) * 0.8, -vertices.getY(i) * 0.7, 0.03));
     geometry.computeVertexNormals();
-    const topPrint = new T.Mesh(geometry, new T.MeshStandardMaterial({map: topMap, roughness: 1, transparent: true, depthWrite: false}));
+    const topPrint = new T.Mesh(geometry, clothDrape(new T.MeshStandardMaterial({map: topMap, bumpMap: weaveTexture(5), bumpScale: 0.6, roughness: 0.95, transparent: true, depthWrite: false}), false));
     topPrint.name = 'saddlecloth-top-number';
     body.add(topPrint);
   }
