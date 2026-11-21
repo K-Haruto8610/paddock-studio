@@ -1,0 +1,2777 @@
+{
+ "raceId": "2026111508050411",
+ "raceDay": "20261115",
+ "fitEnd": "20261115",
+ "params": {
+  "alpha": 0.7,
+  "delta": 0.04,
+  "width": 4,
+  "front": 0.25,
+  "hold": 0.03,
+  "beta": 1.0,
+  "k": 3
+ },
+ "giBands": {
+  "v20": [
+   -0.6680497773907846,
+   -0.43908205523526883
+  ],
+  "v19spec": [
+   -0.6680497773907846,
+   -0.43908205523526883
+  ]
+ },
+ "systems": {
+  "v20": {
+   "corners": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "horses": {
+    "1": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 4,
+       "gap": 3.7,
+       "lane": 0.022093626563123706,
+       "wantRank": 4,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 4,
+       "gap": 3.7,
+       "lane": 0.022093626563123706,
+       "wantRank": 4,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 5,
+       "gap": 2.58,
+       "lane": 0.022093626563123706,
+       "wantRank": 5,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 4,
+       "gap": 1.62,
+       "lane": 0.022093626563123706,
+       "wantRank": 5,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.7,
+     "last3Free": 35.7,
+     "kickDelay": 0.0,
+     "paceCost": 0.2,
+     "finish": {
+      "rank": 1,
+      "gap": 0.0
+     }
+    },
+    "2": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 7,
+       "gap": 4.76,
+       "lane": 0.11208790440535821,
+       "wantRank": 8,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 7,
+       "gap": 5.46,
+       "lane": 0.11208790440535821,
+       "wantRank": 7,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 7,
+       "gap": 3.11,
+       "lane": 0.11208790440535821,
+       "wantRank": 7,
+       "held": false,
+       "boxed": true
+      },
+      {
+       "corner": 4,
+       "rank": 7,
+       "gap": 2.63,
+       "lane": 0.11208790440535821,
+       "wantRank": 7,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 36.3,
+     "last3Free": 36.3,
+     "kickDelay": 0.0,
+     "paceCost": 0.47,
+     "finish": {
+      "rank": 17,
+      "gap": 4.17
+     }
+    },
+    "3": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 14,
+       "gap": 8.97,
+       "lane": 0.09188949381900184,
+       "wantRank": 15,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 14,
+       "gap": 10.31,
+       "lane": 0.09188949381900184,
+       "wantRank": 14,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 15,
+       "gap": 5.76,
+       "lane": 0.09188949381900184,
+       "wantRank": 16,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 15,
+       "gap": 4.64,
+       "lane": 0.09188949381900184,
+       "wantRank": 16,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.7,
+     "last3Free": 35.7,
+     "kickDelay": 0.02,
+     "paceCost": 0.04,
+     "finish": {
+      "rank": 15,
+      "gap": 3.26
+     }
+    },
+    "4": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 18,
+       "gap": 12.12,
+       "lane": 0.12867788481466585,
+       "wantRank": 18,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 18,
+       "gap": 12.07,
+       "lane": 0.12867788481466585,
+       "wantRank": 18,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 18,
+       "gap": 6.82,
+       "lane": 0.12867788481466585,
+       "wantRank": 18,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 17,
+       "gap": 4.64,
+       "lane": 3.091889493819002,
+       "wantRank": 17,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.4,
+     "last3Free": 35.4,
+     "kickDelay": 0.0,
+     "paceCost": 0.0,
+     "finish": {
+      "rank": 5,
+      "gap": 1.56
+     }
+    },
+    "5": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 5,
+       "gap": 3.7,
+       "lane": 1.0220936265631237,
+       "wantRank": 6,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 5,
+       "gap": 4.3,
+       "lane": 1.0220936265631237,
+       "wantRank": 5,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 6,
+       "gap": 2.58,
+       "lane": 1.0220936265631237,
+       "wantRank": 6,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 6,
+       "gap": 2.13,
+       "lane": 1.0220936265631237,
+       "wantRank": 6,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 36.0,
+     "last3Free": 36.0,
+     "kickDelay": 0.0,
+     "paceCost": 0.3,
+     "finish": {
+      "rank": 9,
+      "gap": 2.47
+     }
+    },
+    "6": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 3,
+       "gap": 1.57,
+       "lane": 0.08619665804104773,
+       "wantRank": 3,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 3,
+       "gap": 1.68,
+       "lane": 0.08619665804104773,
+       "wantRank": 3,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 3,
+       "gap": 1.15,
+       "lane": 0.08619665804104773,
+       "wantRank": 3,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 5,
+       "gap": 1.62,
+       "lane": 1.0220936265631237,
+       "wantRank": 4,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 36.7,
+     "last3Free": 36.7,
+     "kickDelay": 0.0,
+     "paceCost": 0.46,
+     "finish": {
+      "rank": 18,
+      "gap": 5.07
+     }
+    },
+    "7": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 8,
+       "gap": 4.76,
+       "lane": 1.1120879044053582,
+       "wantRank": 7,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 8,
+       "gap": 6.05,
+       "lane": 1.1120879044053582,
+       "wantRank": 8,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 8,
+       "gap": 3.11,
+       "lane": 1.1120879044053582,
+       "wantRank": 8,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 8,
+       "gap": 3.13,
+       "lane": 1.1120879044053582,
+       "wantRank": 8,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.6,
+     "last3Free": 35.6,
+     "kickDelay": 0.0,
+     "paceCost": 0.17,
+     "finish": {
+      "rank": 3,
+      "gap": 1.37
+     }
+    },
+    "8": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 1,
+       "gap": 0.0,
+       "lane": 0.26566844882445,
+       "wantRank": 1,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 1,
+       "gap": 0.0,
+       "lane": 0.26566844882445,
+       "wantRank": 1,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 1,
+       "gap": 0.0,
+       "lane": 0.26566844882445,
+       "wantRank": 1,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 1,
+       "gap": 0.0,
+       "lane": 0.26566844882445,
+       "wantRank": 2,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 36.7,
+     "last3Free": 36.6,
+     "kickDelay": 0.1,
+     "paceCost": 0.43,
+     "finish": {
+      "rank": 16,
+      "gap": 3.6
+     }
+    },
+    "9": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 10,
+       "gap": 6.31,
+       "lane": 0.34223393909439354,
+       "wantRank": 10,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 10,
+       "gap": 7.31,
+       "lane": 0.34223393909439354,
+       "wantRank": 10,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 12,
+       "gap": 4.7,
+       "lane": 0.34223393909439354,
+       "wantRank": 12,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 10,
+       "gap": 3.64,
+       "lane": 0.34223393909439354,
+       "wantRank": 13,
+       "held": false,
+       "boxed": true
+      }
+     ],
+     "last3": 35.7,
+     "last3Free": 35.7,
+     "kickDelay": 0.04,
+     "paceCost": 0.17,
+     "finish": {
+      "rank": 8,
+      "gap": 2.22
+     }
+    },
+    "10": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 2,
+       "gap": 0.0,
+       "lane": 1.26566844882445,
+       "wantRank": 2,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 2,
+       "gap": 0.58,
+       "lane": 1.26566844882445,
+       "wantRank": 2,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 2,
+       "gap": 0.0,
+       "lane": 1.26566844882445,
+       "wantRank": 2,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 2,
+       "gap": 0.0,
+       "lane": 1.26566844882445,
+       "wantRank": 1,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 36.6,
+     "last3Free": 36.6,
+     "kickDelay": 0.0,
+     "paceCost": 0.42,
+     "finish": {
+      "rank": 14,
+      "gap": 2.9
+     }
+    },
+    "11": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 16,
+       "gap": 9.64,
+       "lane": 0.40665208879122905,
+       "wantRank": 17,
+       "held": false,
+       "boxed": true
+      },
+      {
+       "corner": 2,
+       "rank": 16,
+       "gap": 10.9,
+       "lane": 0.40665208879122905,
+       "wantRank": 16,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 16,
+       "gap": 5.76,
+       "lane": 2.091889493819002,
+       "wantRank": 15,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 16,
+       "gap": 4.64,
+       "lane": 2.091889493819002,
+       "wantRank": 15,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.5,
+     "last3Free": 35.5,
+     "kickDelay": 0.0,
+     "paceCost": 0.05,
+     "finish": {
+      "rank": 10,
+      "gap": 2.48
+     }
+    },
+    "12": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 17,
+       "gap": 9.64,
+       "lane": 1.406652088791229,
+       "wantRank": 16,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 17,
+       "gap": 11.49,
+       "lane": 1.406652088791229,
+       "wantRank": 17,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 17,
+       "gap": 6.29,
+       "lane": 1.406652088791229,
+       "wantRank": 17,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 18,
+       "gap": 5.15,
+       "lane": 1.406652088791229,
+       "wantRank": 18,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.5,
+     "last3Free": 35.5,
+     "kickDelay": 0.0,
+     "paceCost": 0.01,
+     "finish": {
+      "rank": 11,
+      "gap": 2.55
+     }
+    },
+    "13": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 9,
+       "gap": 4.76,
+       "lane": 2.1120879044053584,
+       "wantRank": 9,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 9,
+       "gap": 6.63,
+       "lane": 2.1120879044053584,
+       "wantRank": 9,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 9,
+       "gap": 3.64,
+       "lane": 2.1120879044053584,
+       "wantRank": 9,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 9,
+       "gap": 3.13,
+       "lane": 2.1120879044053584,
+       "wantRank": 9,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.6,
+     "last3Free": 35.6,
+     "kickDelay": 0.0,
+     "paceCost": 0.17,
+     "finish": {
+      "rank": 4,
+      "gap": 1.42
+     }
+    },
+    "14": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 12,
+       "gap": 7.69,
+       "lane": 1.8010192289148441,
+       "wantRank": 11,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 12,
+       "gap": 9.15,
+       "lane": 1.8010192289148441,
+       "wantRank": 12,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 13,
+       "gap": 4.7,
+       "lane": 1.8010192289148441,
+       "wantRank": 13,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 12,
+       "gap": 3.64,
+       "lane": 2.3422339390943936,
+       "wantRank": 12,
+       "held": false,
+       "boxed": true
+      }
+     ],
+     "last3": 35.8,
+     "last3Free": 35.8,
+     "kickDelay": 0.0,
+     "paceCost": 0.09,
+     "finish": {
+      "rank": 13,
+      "gap": 2.71
+     }
+    },
+    "15": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 15,
+       "gap": 8.97,
+       "lane": 1.0918894938190018,
+       "wantRank": 14,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 15,
+       "gap": 10.31,
+       "lane": 1.0918894938190018,
+       "wantRank": 15,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 14,
+       "gap": 5.23,
+       "lane": 1.0918894938190018,
+       "wantRank": 14,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 14,
+       "gap": 4.14,
+       "lane": 1.0918894938190018,
+       "wantRank": 14,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.5,
+     "last3Free": 35.5,
+     "kickDelay": 0.0,
+     "paceCost": 0.05,
+     "finish": {
+      "rank": 6,
+      "gap": 1.72
+     }
+    },
+    "16": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 6,
+       "gap": 3.7,
+       "lane": 2.022093626563124,
+       "wantRank": 5,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 6,
+       "gap": 4.88,
+       "lane": 2.022093626563124,
+       "wantRank": 6,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 4,
+       "gap": 1.15,
+       "lane": 2.022093626563124,
+       "wantRank": 4,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 3,
+       "gap": 0.98,
+       "lane": 2.022093626563124,
+       "wantRank": 3,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.9,
+     "last3Free": 35.9,
+     "kickDelay": 0.0,
+     "paceCost": 0.29,
+     "finish": {
+      "rank": 2,
+      "gap": 0.54
+     }
+    },
+    "17": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 13,
+       "gap": 7.69,
+       "lane": 2.801019228914844,
+       "wantRank": 12,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 13,
+       "gap": 9.73,
+       "lane": 2.801019228914844,
+       "wantRank": 13,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 11,
+       "gap": 4.17,
+       "lane": 2.801019228914844,
+       "wantRank": 11,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 13,
+       "gap": 3.64,
+       "lane": 3.3422339390943936,
+       "wantRank": 11,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.8,
+     "last3Free": 35.8,
+     "kickDelay": 0.0,
+     "paceCost": 0.1,
+     "finish": {
+      "rank": 12,
+      "gap": 2.67
+     }
+    },
+    "18": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 11,
+       "gap": 7.69,
+       "lane": 0.8010192289148442,
+       "wantRank": 13,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 11,
+       "gap": 8.56,
+       "lane": 0.8010192289148442,
+       "wantRank": 11,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 10,
+       "gap": 4.17,
+       "lane": 1.3422339390943936,
+       "wantRank": 10,
+       "held": false,
+       "boxed": true
+      },
+      {
+       "corner": 4,
+       "rank": 11,
+       "gap": 3.64,
+       "lane": 1.3422339390943936,
+       "wantRank": 10,
+       "held": false,
+       "boxed": true
+      }
+     ],
+     "last3": 35.7,
+     "last3Free": 35.6,
+     "kickDelay": 0.06,
+     "paceCost": 0.09,
+     "finish": {
+      "rank": 7,
+      "gap": 2.19
+     }
+    }
+   },
+   "pace": {
+    "early": -0.58,
+    "label": "M",
+    "bands": [
+     -0.67,
+     -0.44
+    ],
+    "frontRunners": [
+     1,
+     8,
+     6,
+     10,
+     5
+    ]
+   }
+  },
+  "v20_nogoing": {
+   "corners": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "horses": {
+    "1": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 4,
+       "gap": 3.88,
+       "lane": 0.022093626563123706,
+       "wantRank": 4,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 4,
+       "gap": 3.81,
+       "lane": 0.022093626563123706,
+       "wantRank": 4,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 5,
+       "gap": 2.47,
+       "lane": 0.022093626563123706,
+       "wantRank": 5,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 4,
+       "gap": 1.91,
+       "lane": 0.022093626563123706,
+       "wantRank": 5,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 34.7,
+     "last3Free": 34.7,
+     "kickDelay": 0.0,
+     "paceCost": 0.41,
+     "finish": {
+      "rank": 1,
+      "gap": 0.0
+     }
+    },
+    "2": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 7,
+       "gap": 5.0,
+       "lane": 0.11208790440535821,
+       "wantRank": 8,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 7,
+       "gap": 5.61,
+       "lane": 0.11208790440535821,
+       "wantRank": 7,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 7,
+       "gap": 3.0,
+       "lane": 0.11208790440535821,
+       "wantRank": 7,
+       "held": false,
+       "boxed": true
+      },
+      {
+       "corner": 4,
+       "rank": 7,
+       "gap": 2.98,
+       "lane": 0.11208790440535821,
+       "wantRank": 7,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.3,
+     "last3Free": 35.3,
+     "kickDelay": 0.0,
+     "paceCost": 0.64,
+     "finish": {
+      "rank": 17,
+      "gap": 4.04
+     }
+    },
+    "3": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 14,
+       "gap": 9.4,
+       "lane": 0.09188949381900184,
+       "wantRank": 15,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 14,
+       "gap": 10.59,
+       "lane": 0.09188949381900184,
+       "wantRank": 14,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 15,
+       "gap": 5.6,
+       "lane": 0.09188949381900184,
+       "wantRank": 16,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 15,
+       "gap": 5.13,
+       "lane": 0.09188949381900184,
+       "wantRank": 16,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 34.6,
+     "last3Free": 34.6,
+     "kickDelay": 0.02,
+     "paceCost": 0.05,
+     "finish": {
+      "rank": 14,
+      "gap": 2.63
+     }
+    },
+    "4": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 18,
+       "gap": 12.71,
+       "lane": 0.12867788481466585,
+       "wantRank": 18,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 18,
+       "gap": 12.42,
+       "lane": 0.12867788481466585,
+       "wantRank": 18,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 18,
+       "gap": 6.64,
+       "lane": 0.12867788481466585,
+       "wantRank": 18,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 17,
+       "gap": 5.13,
+       "lane": 3.091889493819002,
+       "wantRank": 17,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 34.2,
+     "last3Free": 34.2,
+     "kickDelay": 0.0,
+     "paceCost": 0.0,
+     "finish": {
+      "rank": 4,
+      "gap": 0.66
+     }
+    },
+    "5": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 5,
+       "gap": 3.88,
+       "lane": 1.0220936265631237,
+       "wantRank": 6,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 5,
+       "gap": 4.43,
+       "lane": 1.0220936265631237,
+       "wantRank": 5,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 6,
+       "gap": 2.47,
+       "lane": 1.0220936265631237,
+       "wantRank": 6,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 6,
+       "gap": 2.44,
+       "lane": 1.0220936265631237,
+       "wantRank": 6,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.0,
+     "last3Free": 35.0,
+     "kickDelay": 0.0,
+     "paceCost": 0.49,
+     "finish": {
+      "rank": 13,
+      "gap": 2.28
+     }
+    },
+    "6": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 3,
+       "gap": 1.64,
+       "lane": 0.08619665804104773,
+       "wantRank": 3,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 3,
+       "gap": 1.74,
+       "lane": 0.08619665804104773,
+       "wantRank": 3,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 3,
+       "gap": 1.1,
+       "lane": 0.08619665804104773,
+       "wantRank": 3,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 5,
+       "gap": 1.91,
+       "lane": 1.0220936265631237,
+       "wantRank": 4,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.7,
+     "last3Free": 35.7,
+     "kickDelay": 0.0,
+     "paceCost": 0.7,
+     "finish": {
+      "rank": 18,
+      "gap": 5.18
+     }
+    },
+    "7": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 8,
+       "gap": 5.0,
+       "lane": 1.1120879044053582,
+       "wantRank": 7,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 8,
+       "gap": 6.19,
+       "lane": 1.1120879044053582,
+       "wantRank": 8,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 8,
+       "gap": 3.0,
+       "lane": 1.1120879044053582,
+       "wantRank": 8,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 8,
+       "gap": 3.52,
+       "lane": 1.1120879044053582,
+       "wantRank": 8,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 34.6,
+     "last3Free": 34.6,
+     "kickDelay": 0.0,
+     "paceCost": 0.33,
+     "finish": {
+      "rank": 6,
+      "gap": 0.99
+     }
+    },
+    "8": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 1,
+       "gap": 0.0,
+       "lane": 0.26566844882445,
+       "wantRank": 1,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 1,
+       "gap": 0.0,
+       "lane": 0.26566844882445,
+       "wantRank": 1,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 1,
+       "gap": 0.0,
+       "lane": 0.26566844882445,
+       "wantRank": 1,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 1,
+       "gap": 0.0,
+       "lane": 0.26566844882445,
+       "wantRank": 2,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.8,
+     "last3Free": 35.7,
+     "kickDelay": 0.08,
+     "paceCost": 0.71,
+     "finish": {
+      "rank": 16,
+      "gap": 3.52
+     }
+    },
+    "9": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 10,
+       "gap": 6.61,
+       "lane": 0.34223393909439354,
+       "wantRank": 10,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 10,
+       "gap": 7.55,
+       "lane": 0.34223393909439354,
+       "wantRank": 10,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 12,
+       "gap": 4.56,
+       "lane": 0.34223393909439354,
+       "wantRank": 12,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 10,
+       "gap": 4.05,
+       "lane": 0.34223393909439354,
+       "wantRank": 13,
+       "held": false,
+       "boxed": true
+      }
+     ],
+     "last3": 34.5,
+     "last3Free": 34.5,
+     "kickDelay": 0.05,
+     "paceCost": 0.19,
+     "finish": {
+      "rank": 7,
+      "gap": 1.26
+     }
+    },
+    "10": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 2,
+       "gap": 0.0,
+       "lane": 1.26566844882445,
+       "wantRank": 2,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 2,
+       "gap": 0.59,
+       "lane": 1.26566844882445,
+       "wantRank": 2,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 2,
+       "gap": 0.0,
+       "lane": 1.26566844882445,
+       "wantRank": 2,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 2,
+       "gap": 0.0,
+       "lane": 1.26566844882445,
+       "wantRank": 1,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.6,
+     "last3Free": 35.6,
+     "kickDelay": 0.0,
+     "paceCost": 0.63,
+     "finish": {
+      "rank": 15,
+      "gap": 2.64
+     }
+    },
+    "11": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 16,
+       "gap": 10.11,
+       "lane": 0.40665208879122905,
+       "wantRank": 17,
+       "held": false,
+       "boxed": true
+      },
+      {
+       "corner": 2,
+       "rank": 16,
+       "gap": 11.25,
+       "lane": 0.40665208879122905,
+       "wantRank": 16,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 16,
+       "gap": 5.6,
+       "lane": 2.091889493819002,
+       "wantRank": 15,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 16,
+       "gap": 5.13,
+       "lane": 2.091889493819002,
+       "wantRank": 15,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 34.4,
+     "last3Free": 34.4,
+     "kickDelay": 0.0,
+     "paceCost": 0.07,
+     "finish": {
+      "rank": 9,
+      "gap": 1.95
+     }
+    },
+    "12": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 17,
+       "gap": 10.11,
+       "lane": 1.406652088791229,
+       "wantRank": 16,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 17,
+       "gap": 11.84,
+       "lane": 1.406652088791229,
+       "wantRank": 17,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 17,
+       "gap": 6.12,
+       "lane": 1.406652088791229,
+       "wantRank": 17,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 18,
+       "gap": 5.66,
+       "lane": 1.406652088791229,
+       "wantRank": 18,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 34.3,
+     "last3Free": 34.3,
+     "kickDelay": 0.0,
+     "paceCost": 0.01,
+     "finish": {
+      "rank": 8,
+      "gap": 1.68
+     }
+    },
+    "13": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 9,
+       "gap": 5.0,
+       "lane": 2.1120879044053584,
+       "wantRank": 9,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 9,
+       "gap": 6.78,
+       "lane": 2.1120879044053584,
+       "wantRank": 9,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 9,
+       "gap": 3.52,
+       "lane": 2.1120879044053584,
+       "wantRank": 9,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 9,
+       "gap": 3.52,
+       "lane": 2.1120879044053584,
+       "wantRank": 9,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 34.4,
+     "last3Free": 34.4,
+     "kickDelay": 0.0,
+     "paceCost": 0.19,
+     "finish": {
+      "rank": 3,
+      "gap": 0.35
+     }
+    },
+    "14": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 12,
+       "gap": 8.07,
+       "lane": 1.8010192289148441,
+       "wantRank": 11,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 12,
+       "gap": 9.42,
+       "lane": 1.8010192289148441,
+       "wantRank": 12,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 13,
+       "gap": 4.56,
+       "lane": 1.8010192289148441,
+       "wantRank": 13,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 12,
+       "gap": 4.05,
+       "lane": 2.3422339390943936,
+       "wantRank": 12,
+       "held": false,
+       "boxed": true
+      }
+     ],
+     "last3": 34.7,
+     "last3Free": 34.7,
+     "kickDelay": 0.0,
+     "paceCost": 0.14,
+     "finish": {
+      "rank": 11,
+      "gap": 2.11
+     }
+    },
+    "15": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 15,
+       "gap": 9.4,
+       "lane": 1.0918894938190018,
+       "wantRank": 14,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 15,
+       "gap": 10.59,
+       "lane": 1.0918894938190018,
+       "wantRank": 15,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 14,
+       "gap": 5.08,
+       "lane": 1.0918894938190018,
+       "wantRank": 14,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 14,
+       "gap": 4.59,
+       "lane": 1.0918894938190018,
+       "wantRank": 14,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 34.3,
+     "last3Free": 34.3,
+     "kickDelay": 0.0,
+     "paceCost": 0.06,
+     "finish": {
+      "rank": 5,
+      "gap": 0.94
+     }
+    },
+    "16": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 6,
+       "gap": 3.88,
+       "lane": 2.022093626563124,
+       "wantRank": 5,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 6,
+       "gap": 5.02,
+       "lane": 2.022093626563124,
+       "wantRank": 6,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 4,
+       "gap": 1.1,
+       "lane": 2.022093626563124,
+       "wantRank": 4,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 3,
+       "gap": 1.15,
+       "lane": 2.022093626563124,
+       "wantRank": 3,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 34.9,
+     "last3Free": 34.9,
+     "kickDelay": 0.0,
+     "paceCost": 0.43,
+     "finish": {
+      "rank": 2,
+      "gap": 0.18
+     }
+    },
+    "17": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 13,
+       "gap": 8.07,
+       "lane": 2.801019228914844,
+       "wantRank": 12,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 13,
+       "gap": 10.01,
+       "lane": 2.801019228914844,
+       "wantRank": 13,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 11,
+       "gap": 4.04,
+       "lane": 2.801019228914844,
+       "wantRank": 11,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 13,
+       "gap": 4.05,
+       "lane": 3.3422339390943936,
+       "wantRank": 11,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 34.7,
+     "last3Free": 34.7,
+     "kickDelay": 0.0,
+     "paceCost": 0.14,
+     "finish": {
+      "rank": 12,
+      "gap": 2.2
+     }
+    },
+    "18": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 11,
+       "gap": 8.07,
+       "lane": 0.8010192289148442,
+       "wantRank": 13,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 11,
+       "gap": 8.84,
+       "lane": 0.8010192289148442,
+       "wantRank": 11,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 10,
+       "gap": 4.04,
+       "lane": 1.3422339390943936,
+       "wantRank": 10,
+       "held": false,
+       "boxed": true
+      },
+      {
+       "corner": 4,
+       "rank": 11,
+       "gap": 4.05,
+       "lane": 1.3422339390943936,
+       "wantRank": 10,
+       "held": false,
+       "boxed": true
+      }
+     ],
+     "last3": 34.7,
+     "last3Free": 34.6,
+     "kickDelay": 0.08,
+     "paceCost": 0.19,
+     "finish": {
+      "rank": 10,
+      "gap": 2.09
+     }
+    }
+   },
+   "pace": {
+    "early": -0.89,
+    "label": "H",
+    "bands": [
+     -0.67,
+     -0.44
+    ],
+    "frontRunners": [
+     1,
+     8,
+     6,
+     10,
+     5
+    ]
+   }
+  },
+  "v19spec": {
+   "corners": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "horses": {
+    "1": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 4,
+       "gap": 3.7,
+       "lane": 0.022093626563123706,
+       "wantRank": 4,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 4,
+       "gap": 3.92,
+       "lane": 0.022093626563123706,
+       "wantRank": 4,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 5,
+       "gap": 2.58,
+       "lane": 0.022093626563123706,
+       "wantRank": 6,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 5,
+       "gap": 2.05,
+       "lane": 0.022093626563123706,
+       "wantRank": 6,
+       "held": false,
+       "boxed": true
+      }
+     ],
+     "last3": 36.1,
+     "last3Free": 36.0,
+     "kickDelay": 0.05,
+     "paceCost": 0.51,
+     "finish": {
+      "rank": 6,
+      "gap": 1.5
+     }
+    },
+    "2": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 7,
+       "gap": 4.76,
+       "lane": 0.11208790440535821,
+       "wantRank": 10,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 7,
+       "gap": 5.79,
+       "lane": 0.11208790440535821,
+       "wantRank": 7,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 7,
+       "gap": 3.11,
+       "lane": 0.11208790440535821,
+       "wantRank": 7,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 6,
+       "gap": 2.05,
+       "lane": 1.0220936265631237,
+       "wantRank": 7,
+       "held": false,
+       "boxed": true
+      }
+     ],
+     "last3": 36.5,
+     "last3Free": 36.5,
+     "kickDelay": 0.03,
+     "paceCost": 0.79,
+     "finish": {
+      "rank": 15,
+      "gap": 3.67
+     }
+    },
+    "3": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 14,
+       "gap": 8.97,
+       "lane": 0.09188949381900184,
+       "wantRank": 14,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 14,
+       "gap": 10.31,
+       "lane": 0.09188949381900184,
+       "wantRank": 14,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 15,
+       "gap": 5.76,
+       "lane": 0.09188949381900184,
+       "wantRank": 16,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 15,
+       "gap": 4.64,
+       "lane": 0.09188949381900184,
+       "wantRank": 17,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.7,
+     "last3Free": 35.6,
+     "kickDelay": 0.08,
+     "paceCost": 0.08,
+     "finish": {
+      "rank": 12,
+      "gap": 2.3
+     }
+    },
+    "4": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 18,
+       "gap": 12.12,
+       "lane": 0.12867788481466585,
+       "wantRank": 18,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 18,
+       "gap": 12.79,
+       "lane": 0.12867788481466585,
+       "wantRank": 18,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 18,
+       "gap": 6.82,
+       "lane": 0.12867788481466585,
+       "wantRank": 18,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 18,
+       "gap": 4.64,
+       "lane": 3.406652088791229,
+       "wantRank": 16,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.2,
+     "last3Free": 35.2,
+     "kickDelay": 0.0,
+     "paceCost": 0.0,
+     "finish": {
+      "rank": 1,
+      "gap": 0.0
+     }
+    },
+    "5": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 5,
+       "gap": 3.7,
+       "lane": 1.0220936265631237,
+       "wantRank": 6,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 5,
+       "gap": 4.55,
+       "lane": 1.0220936265631237,
+       "wantRank": 5,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 6,
+       "gap": 2.58,
+       "lane": 1.0220936265631237,
+       "wantRank": 5,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 7,
+       "gap": 2.05,
+       "lane": 2.022093626563124,
+       "wantRank": 5,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 36.5,
+     "last3Free": 36.5,
+     "kickDelay": 0.0,
+     "paceCost": 0.67,
+     "finish": {
+      "rank": 14,
+      "gap": 3.59
+     }
+    },
+    "6": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 3,
+       "gap": 1.57,
+       "lane": 0.08619665804104773,
+       "wantRank": 3,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 3,
+       "gap": 1.79,
+       "lane": 0.08619665804104773,
+       "wantRank": 3,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 3,
+       "gap": 1.15,
+       "lane": 0.08619665804104773,
+       "wantRank": 3,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 4,
+       "gap": 1.53,
+       "lane": 0.08619665804104773,
+       "wantRank": 4,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 37.3,
+     "last3Free": 37.3,
+     "kickDelay": 0.0,
+     "paceCost": 0.84,
+     "finish": {
+      "rank": 18,
+      "gap": 7.13
+     }
+    },
+    "7": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 9,
+       "gap": 4.76,
+       "lane": 2.1120879044053584,
+       "wantRank": 7,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 9,
+       "gap": 6.98,
+       "lane": 2.1120879044053584,
+       "wantRank": 9,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 9,
+       "gap": 3.64,
+       "lane": 2.1120879044053584,
+       "wantRank": 9,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 9,
+       "gap": 2.57,
+       "lane": 2.1120879044053584,
+       "wantRank": 8,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.9,
+     "last3Free": 35.9,
+     "kickDelay": 0.0,
+     "paceCost": 0.45,
+     "finish": {
+      "rank": 3,
+      "gap": 1.35
+     }
+    },
+    "8": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 1,
+       "gap": 0.0,
+       "lane": 0.26566844882445,
+       "wantRank": 1,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 1,
+       "gap": 0.0,
+       "lane": 0.26566844882445,
+       "wantRank": 1,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 1,
+       "gap": 0.0,
+       "lane": 0.26566844882445,
+       "wantRank": 1,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 1,
+       "gap": 0.0,
+       "lane": 0.26566844882445,
+       "wantRank": 1,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 37.3,
+     "last3Free": 37.2,
+     "kickDelay": 0.08,
+     "paceCost": 0.88,
+     "finish": {
+      "rank": 17,
+      "gap": 5.52
+     }
+    },
+    "9": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 8,
+       "gap": 4.76,
+       "lane": 1.1120879044053582,
+       "wantRank": 8,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 8,
+       "gap": 6.98,
+       "lane": 1.1120879044053582,
+       "wantRank": 8,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 8,
+       "gap": 3.64,
+       "lane": 1.1120879044053582,
+       "wantRank": 8,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 8,
+       "gap": 2.57,
+       "lane": 1.1120879044053582,
+       "wantRank": 9,
+       "held": false,
+       "boxed": true
+      }
+     ],
+     "last3": 36.1,
+     "last3Free": 36.1,
+     "kickDelay": 0.0,
+     "paceCost": 0.45,
+     "finish": {
+      "rank": 10,
+      "gap": 2.16
+     }
+    },
+    "10": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 2,
+       "gap": 0.0,
+       "lane": 1.26566844882445,
+       "wantRank": 2,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 2,
+       "gap": 0.62,
+       "lane": 1.26566844882445,
+       "wantRank": 2,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 2,
+       "gap": 0.55,
+       "lane": 1.26566844882445,
+       "wantRank": 2,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 2,
+       "gap": 0.0,
+       "lane": 1.26566844882445,
+       "wantRank": 2,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 37.2,
+     "last3Free": 37.2,
+     "kickDelay": 0.0,
+     "paceCost": 1.04,
+     "finish": {
+      "rank": 16,
+      "gap": 5.34
+     }
+    },
+    "11": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 16,
+       "gap": 9.64,
+       "lane": 0.40665208879122905,
+       "wantRank": 17,
+       "held": false,
+       "boxed": true
+      },
+      {
+       "corner": 2,
+       "rank": 16,
+       "gap": 11.56,
+       "lane": 0.40665208879122905,
+       "wantRank": 16,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 16,
+       "gap": 5.76,
+       "lane": 2.091889493819002,
+       "wantRank": 15,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 17,
+       "gap": 4.64,
+       "lane": 2.406652088791229,
+       "wantRank": 15,
+       "held": false,
+       "boxed": true
+      }
+     ],
+     "last3": 35.7,
+     "last3Free": 35.7,
+     "kickDelay": 0.0,
+     "paceCost": 0.05,
+     "finish": {
+      "rank": 9,
+      "gap": 2.14
+     }
+    },
+    "12": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 17,
+       "gap": 9.64,
+       "lane": 1.406652088791229,
+       "wantRank": 16,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 17,
+       "gap": 12.17,
+       "lane": 1.406652088791229,
+       "wantRank": 17,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 17,
+       "gap": 6.29,
+       "lane": 1.406652088791229,
+       "wantRank": 17,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 16,
+       "gap": 4.64,
+       "lane": 1.406652088791229,
+       "wantRank": 18,
+       "held": false,
+       "boxed": true
+      }
+     ],
+     "last3": 35.5,
+     "last3Free": 35.5,
+     "kickDelay": 0.03,
+     "paceCost": 0.02,
+     "finish": {
+      "rank": 5,
+      "gap": 1.47
+     }
+    },
+    "13": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 10,
+       "gap": 4.76,
+       "lane": 3.1120879044053584,
+       "wantRank": 9,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 10,
+       "gap": 7.75,
+       "lane": 3.1120879044053584,
+       "wantRank": 10,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 10,
+       "gap": 4.17,
+       "lane": 3.1120879044053584,
+       "wantRank": 10,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 10,
+       "gap": 3.09,
+       "lane": 3.1120879044053584,
+       "wantRank": 10,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.8,
+     "last3Free": 35.8,
+     "kickDelay": 0.0,
+     "paceCost": 0.37,
+     "finish": {
+      "rank": 4,
+      "gap": 1.45
+     }
+    },
+    "14": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 12,
+       "gap": 7.69,
+       "lane": 1.8010192289148441,
+       "wantRank": 11,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 12,
+       "gap": 9.69,
+       "lane": 1.8010192289148441,
+       "wantRank": 12,
+       "held": false,
+       "boxed": true
+      },
+      {
+       "corner": 3,
+       "rank": 12,
+       "gap": 4.7,
+       "lane": 1.8010192289148441,
+       "wantRank": 13,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 14,
+       "gap": 4.13,
+       "lane": 2.091889493819002,
+       "wantRank": 13,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.7,
+     "last3Free": 35.7,
+     "kickDelay": 0.0,
+     "paceCost": 0.2,
+     "finish": {
+      "rank": 7,
+      "gap": 1.74
+     }
+    },
+    "15": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 15,
+       "gap": 8.97,
+       "lane": 1.0918894938190018,
+       "wantRank": 15,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 15,
+       "gap": 10.31,
+       "lane": 1.0918894938190018,
+       "wantRank": 15,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 14,
+       "gap": 5.23,
+       "lane": 1.0918894938190018,
+       "wantRank": 14,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 13,
+       "gap": 4.13,
+       "lane": 1.0918894938190018,
+       "wantRank": 14,
+       "held": false,
+       "boxed": true
+      }
+     ],
+     "last3": 35.6,
+     "last3Free": 35.5,
+     "kickDelay": 0.03,
+     "paceCost": 0.08,
+     "finish": {
+      "rank": 2,
+      "gap": 1.12
+     }
+    },
+    "16": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 6,
+       "gap": 3.7,
+       "lane": 2.022093626563124,
+       "wantRank": 5,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 6,
+       "gap": 5.17,
+       "lane": 2.022093626563124,
+       "wantRank": 6,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 4,
+       "gap": 1.15,
+       "lane": 2.022093626563124,
+       "wantRank": 4,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 3,
+       "gap": 1.01,
+       "lane": 2.022093626563124,
+       "wantRank": 3,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 36.4,
+     "last3Free": 36.4,
+     "kickDelay": 0.0,
+     "paceCost": 0.71,
+     "finish": {
+      "rank": 13,
+      "gap": 2.36
+     }
+    },
+    "17": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 13,
+       "gap": 7.69,
+       "lane": 2.801019228914844,
+       "wantRank": 12,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 13,
+       "gap": 9.69,
+       "lane": 2.801019228914844,
+       "wantRank": 13,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 13,
+       "gap": 4.7,
+       "lane": 2.801019228914844,
+       "wantRank": 12,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 12,
+       "gap": 3.61,
+       "lane": 2.801019228914844,
+       "wantRank": 11,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.8,
+     "last3Free": 35.8,
+     "kickDelay": 0.0,
+     "paceCost": 0.22,
+     "finish": {
+      "rank": 8,
+      "gap": 1.78
+     }
+    },
+    "18": {
+     "positions": [
+      {
+       "corner": 1,
+       "rank": 11,
+       "gap": 7.69,
+       "lane": 0.8010192289148442,
+       "wantRank": 13,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 2,
+       "rank": 11,
+       "gap": 9.08,
+       "lane": 0.8010192289148442,
+       "wantRank": 11,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 3,
+       "rank": 11,
+       "gap": 4.7,
+       "lane": 0.8010192289148442,
+       "wantRank": 11,
+       "held": false,
+       "boxed": false
+      },
+      {
+       "corner": 4,
+       "rank": 11,
+       "gap": 3.61,
+       "lane": 0.8010192289148442,
+       "wantRank": 12,
+       "held": false,
+       "boxed": false
+      }
+     ],
+     "last3": 35.9,
+     "last3Free": 35.9,
+     "kickDelay": 0.03,
+     "paceCost": 0.27,
+     "finish": {
+      "rank": 11,
+      "gap": 2.26
+     }
+    }
+   },
+   "pace": {
+    "early": -0.58,
+    "label": "M",
+    "bands": [
+     -0.67,
+     -0.44
+    ],
+    "frontRunners": [
+     1,
+     8,
+     6,
+     10,
+     5
+    ]
+   }
+  }
+ },
+ "leakCheck": {
+  "raceId": "2026111508050411",
+  "raceDay": "20261115",
+  "fitEnd": "20261115",
+  "frameRows": 84687,
+  "frameFirstDay": "20200105",
+  "frameLastDay": "20261114",
+  "frameRowsOnOrAfterRaceDay": 0,
+  "targetRaceRowsInFrame": 0,
+  "fitRows": 82444,
+  "fitRaces": 6105,
+  "fitFirstDay": "20200105",
+  "fitLastDay": "20261114",
+  "ratingRunsRows": 318858,
+  "ratingRunsLastDay": "20261114",
+  "ratingRunsOnOrAfterRaceDay": 0,
+  "ratingRunsTargetRace": 0,
+  "ratingTableLastDay": "20261114",
+  "ratingTargetRaceRows": 0,
+  "courseNormEnd": "20250601",
+  "frameRowsAfterRaceDayInSource": 0,
+  "sourceLastDay": "20261115",
+  "forwardPaceChunkStarts": [
+   "20200105",
+   "20201108",
+   "20210925",
+   "20220807",
+   "20230618",
+   "20240504",
+   "20250309",
+   "20260112"
+  ],
+  "forwardPaceLastRaceDay": "20261114",
+  "cardVsHistoryPathMaxAbsDiff": {
+   "distance": 0.0,
+   "surface": 0.0,
+   "venue": 0.0,
+   "track": 0.0,
+   "gate": 0.0,
+   "weight": 0.0,
+   "age": 0.0,
+   "field": 0.0,
+   "blinker": 0.0,
+   "past_r1": 0.0,
+   "past_g1": 0.0,
+   "past_l1": 0.0,
+   "past_r2": 0.0,
+   "past_g2": 0.0,
+   "past_l2": 0.0,
+   "past_r3": 0.0,
+   "past_g3": 0.0,
+   "past_l3": 0.0,
+   "past_r4": 0.0,
+   "past_g4": 0.0,
+   "past_l4": 0.0,
+   "past_last3": 0.0,
+   "starts": 0.0,
+   "early_rel": 0.0,
+   "late_rel": 0.0,
+   "front_pressure": 0.0,
+   "outer_pressure": 0.0,
+   "rating_pre": 0.0,
+   "past_m2": 0.0,
+   "past_m3": 0.0,
+   "past_m4": 0.0,
+   "past_mall": 3.469446951953614e-18,
+   "past_up": 0.0,
+   "past_down": 0.0,
+   "past_mall_rel": 0.0,
+   "field_movers": 0.0,
+   "early_wish": 0.0,
+   "going": 0.0,
+   "n_front": 0.0,
+   "n_leaders": 0.0,
+   "front3_wish": 0.0,
+   "front_pace_hist": 0.0,
+   "past_pace": 0.0,
+   "past_led": 0.0
+  },
+  "cardVsHistoryPathWorst": 3.469446951953614e-18,
+  "cardVsHistoryPathNaNMismatch": [],
+  "ratingPreCardVsFullTableMaxAbsDiff": 0.0,
+  "giBandsRaces": 160
+ }
+}
