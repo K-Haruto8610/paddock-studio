@@ -7,5 +7,6 @@ PyMySQL==1.1.2        # mykeibadb（MySQL）への読み取り専用接続
 # コース図の取り込み（digitize_jra_courses.py / draw_route_overlays.py）だけで使う
 pillow==12.2.0
 scipy==1.17.1
-# v3 レースシミュレーター（scripts/v3）。CPU 版で足りる: pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
+# v3 レースシミュレーター（scripts/v3）。GPU 版（RTX 3070、CUDA 13.2）: pip install torch==2.15.0+cu132 --index-url https://download.pytorch.org/whl/cu132
+# GPU がない環境は CPU 版: pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu（train.py --device cpu）
 torch==2.15.0

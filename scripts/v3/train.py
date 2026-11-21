@@ -31,6 +31,7 @@ OUT = ROOT / 'outputs' / 'v3'
 H = 18
 WINDOWS = {'sel': ('20250601', '20250601', '20250831'), 'rep': ('20250901', '20250901', '20251231')}
 torch.set_num_threads(6)
+DEVICE = torch.device('cpu')  # --device cuda: the RTX 3070 (torch 2.15.0+cu132)
 
 
 class Data:
@@ -100,7 +101,7 @@ class Data:
         b['y_corner'], b['m_corner'] = tt(np.nan_to_num(self.y_corner[ks], nan=9)), tt(self.m_corner[ks], torch.bool)
         y = self.y_lead[ks]
         b['y_lead'], b['m_lead'] = tt(np.nan_to_num(y)), tt(~np.isnan(y) & (self.mark_idx[ks] > 0), torch.bool)
-        return b
+        return {k: v.to(DEVICE, non_blocking=True) for k, v in b.items()}
 
     def batches(self, size, rng=None):
         order = np.argsort(self.steps, kind='stable')
@@ -209,9 +210,9 @@ def cmd_real(args):
     print(f'history tensor {X.shape} in {time.time() - t0:.0f}s; train {len(train_codes)} val {len(val_codes)} eval {len(eval_codes)} races', flush=True)
     mk = lambda codes: Data(races, r, codes, X, M, C, rowpos)
     train, val, ev = mk(train_codes), mk(val_codes), mk(eval_codes)
-    model = sim.Model(X.shape[2], C.shape[1])
+    model = sim.Model(X.shape[2], C.shape[1]).to(DEVICE)
     log = []
-    best = fit(model, train, val, args.seed, log=log, max_epochs=args.epochs)
+    best = fit(model, train, val, args.seed, log=log, max_epochs=args.epochs, size=args.batch)
     pred = predict(model, ev)
     name = f's1_{args.pool}{args.tag}_{args.window}_seed{args.seed}'
     pred.to_pickle(OUT / f'{name}.pkl')
@@ -306,16 +307,16 @@ def cmd_synthetic(args):
     nval = len(tr) // 10
     mk = lambda cc: Data(syn_races, rr, list(cc), X, M, C, rowpos)
     train, val, test = mk(tr[nval:]), mk(tr[:nval]), mk([c for c in codes if has_test[c]])
-    model = sim.Model(X.shape[2], C.shape[1])
+    model = sim.Model(X.shape[2], C.shape[1]).to(DEVICE)
     model.physics.load_state_dict(phys.state_dict())
     for p in model.physics.parameters():
         p.requires_grad_(False)   # mechanism known: the test is whether the abilities are identifiable from the records
-    fit(model, train, val, args.seed, max_epochs=args.epochs, patience=12)
+    fit(model, train, val, args.seed, max_epochs=args.epochs, patience=12, size=args.batch)
     pred = predict(model, test)
     key = syn.set_index(['RACE_CODE', 'UMABAN']).hid
     pred['hid'] = [key[(a, b)] for a, b in zip(pred.RACE_CODE, pred.UMABAN)]
     with torch.no_grad():
-        par_by_race = dict(zip(codes, par.numpy()))
+        par_by_race = dict(zip(codes, par.cpu().numpy()))
         truth = sim.physical(torch.tensor(true_z[pred.hid.to_numpy()]), torch.tensor([par_by_race[c] for c in pred.RACE_CODE]), phys)
     # only rows with history (the first run of a horse has nothing to recover from)
     hist = np.array([test.M[test.rowpos[i]].any() for i in rr.set_index(['RACE_CODE', 'UMABAN']).index.get_indexer(list(zip(pred.RACE_CODE, pred.UMABAN)))])
@@ -350,9 +351,15 @@ def main():
     ap.add_argument('--horses', type=int, default=3000)
     ap.add_argument('--loss', choices=['absolute', 'centred'], default='centred')
     ap.add_argument('--abilities', choices=['six', 'merged'], default='six')
+    ap.add_argument('--device', choices=['cpu', 'cuda'], default='cpu')
+    ap.add_argument('--batch', type=int, default=32, help='races per training batch')
     ap.add_argument('--tag', default='', help='suffix of the run name (outputs/v3/s1_<pool><tag>_...)')
     args = ap.parse_args()
     sim.LOSS, sim.ABILITY_SET = args.loss, args.abilities
+    global DEVICE
+    DEVICE = torch.device(args.device)
+    if args.device == 'cuda':
+        torch.cuda.manual_seed_all(args.seed)
     {'real': cmd_real, 'synthetic': cmd_synthetic}[args.mode](args)
 
 

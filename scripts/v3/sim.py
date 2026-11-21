@@ -98,9 +98,9 @@ def run(ab, physics, distance, steps):
     vc, W, vmax, dash = ab['vc'], ab['reserve'], ab['vmax'], ab['dash']
     cruise = vc + ab['intent']
     kick_at = distance[:, None] - ab['kick']                      # metres from the start where the kick starts
-    v = torch.zeros(B, H)
+    v = torch.zeros(B, H, device=vc.device)
     E = W
-    t = [torch.zeros(B, H)]
+    t = [torch.zeros(B, H, device=vc.device)]
     for j in range(steps):
         x = (j + 0.5) * DX
         k = torch.sigmoid((x - kick_at) / physics.kick_width)
@@ -153,7 +153,7 @@ class Model(nn.Module):
         """b: a batch dict (see train.batch). Returns physical abilities [B, H] each."""
         z = self.encoder(b['X'], b['M'], b['C'])            # [R, 6] for the R real horse rows
         Bn, H = b['slot'].shape
-        zz = torch.zeros(Bn * H, len(ABILITIES))
+        zz = torch.zeros(Bn * H, len(ABILITIES), device=z.device)
         zz[b['flat']] = z
         zz = zz.view(Bn, H, -1)
         par = self.physics.par(b['course'], b['surface'], b['going'], b['log_dist'], b['cls'])
@@ -167,7 +167,7 @@ class Model(nn.Module):
 def read_out(t, b):
     """Times read from the runs: finish T, t600, last3, corner times [B, H, 4], leader marks [B, M]."""
     Bn, H, _ = t.shape
-    ar = torch.arange(Bn)
+    ar = torch.arange(Bn, device=t.device)
     T = t[ar, :, b['steps']]
     t600 = t[ar, :, b['steps'] - int(600 / DX)]
     corners = torch.gather(t, 2, b['corner_idx'][:, None, :].expand(Bn, H, 4).clamp(min=0))
