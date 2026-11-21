@@ -528,3 +528,7 @@
 .prerender-store .text-button {
   margin-left: 0.75rem;
 }
+.prerender-folder {
+  display: block;
+  margin-top: 0.25rem;
+}

@@ -39,6 +39,11 @@ import {
   prerenderSize,
   prerenderStore,
   prerenderUsage,
+  videoFolder,
+  pickVideoFolder,
+  allowVideoFolder,
+  readyVideoFolder,
+  type VideoFolder,
 } from './prerender';
 
 async function readJson<T>(url: string): Promise<T> {
@@ -100,7 +105,10 @@ export default function Home() {
     [prerendered, setPrerendered] = useState<{key: string; url: string} | null>(null),
     // Touching the video hands the view to the live 3D scene (rotate, select, zoom) until play is pressed.
     [liveView, setLiveView] = useState(false),
-    [usage, setUsage] = useState<{count: number; bytes: number} | null>(null);
+    [usage, setUsage] = useState<{count: number; bytes: number} | null>(null),
+    // Where the smooth-playback videos are kept: a folder on this computer, or the browser's storage.
+    [store, setStore] = useState<VideoFolder | null>(null),
+    [storeVersion, setStoreVersion] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const observeStage = useCallback((el: HTMLDivElement | null) => {
@@ -114,7 +122,10 @@ export default function Home() {
     measure();
     return () => observer.disconnect();
   }, []);
-  const refreshUsage = () => void prerenderUsage().then(setUsage);
+  const refreshUsage = () => {
+    void prerenderUsage().then(setUsage);
+    void videoFolder().then(setStore);
+  };
   const shownVideo = useRef<{key: string; url: string} | null>(null);
   /** Show this kept video (or none), releasing the previous one's object URL. */
   const showVideo = (next: {key: string; file: Blob} | null) => {
@@ -137,6 +148,7 @@ export default function Home() {
       setRecordSupport(config ? 'export' : mp4MimeType() ? 'simple' : 'unavailable');
     });
     prerenderUsage().then((u) => mounted && setUsage(u));
+    videoFolder().then((f) => mounted && setStore(f));
     return () => {
       mounted = false;
       exportAbort.current?.abort();
@@ -229,7 +241,43 @@ export default function Home() {
     return () => {
       live = false;
     };
-  }, [race, plan, cameraMode, speed, weather, going, courseDay, postTime, stageAspect]);
+  }, [race, plan, cameraMode, speed, weather, going, courseDay, postTime, stageAspect, storeVersion]);
+  /** Readable part of the video's file name: what the picture shows. */
+  const videoLabel = race
+    ? [
+        race.date,
+        race.name,
+        editing ? '手動エディット' : mode === 'forecast' ? 'モデル予想' : '実績',
+        cameraMode === 'pack' ? '馬群を追尾' : '自動演出',
+        `${speed}倍速`,
+        WEATHER_LABEL[weather],
+      ].join('_')
+    : '';
+  const storeName = (f: VideoFolder | null) => (f?.kind === 'local' ? `フォルダー「${f.name}」` : 'このブラウザー');
+  /** After the folder changes: show what it holds for the race on screen. */
+  const reloadStore = () => {
+    showVideo(null);
+    refreshUsage();
+    setStoreVersion((v) => v + 1);
+  };
+  const chooseFolder = async () => {
+    try {
+      const picked = await pickVideoFolder();
+      if (!picked) return;
+      setRecordMessage(
+        `滑らか再生の動画をフォルダー「${picked.name}」に保存します。` +
+          (picked.moved ? `ブラウザー内に保存していた動画${picked.moved}本をこのフォルダーに移しました。` : ''),
+      );
+    } catch (error) {
+      setRecordMessage(`フォルダーを選べませんでした（${String(error)}）`);
+    }
+    reloadStore();
+  };
+  const allowFolder = async () => {
+    if (!(await allowVideoFolder().catch(() => false)))
+      setRecordMessage('フォルダーへのアクセスが許可されなかったため、保存した動画を読み込めません。');
+    reloadStore();
+  };
   // Video frame k shows the race at output time k / fps; aim between frames so the right one is shown.
   const videoTime = (p: number) => (Math.round(outputSeconds(p * distance, speed) * RACE_FPS) + 0.5) / RACE_FPS;
   useEffect(() => {
@@ -386,6 +434,12 @@ export default function Home() {
     const key = currentKey;
     const stage = stageRef.current;
     if (kind === 'prerender' && (!key || !stage)) return;
+    // First, while the click still counts: pick the folder, or ask for it again on a new visit.
+    if (kind === 'prerender' && !(await readyVideoFolder().catch(() => false))) {
+      refreshUsage();
+      return setRecordMessage('保存先のフォルダーが使えないため、滑らか再生の動画を作りませんでした。');
+    }
+    if (exportAbort.current) return;
     const abort = new AbortController();
     exportAbort.current = abort;
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -417,7 +471,7 @@ export default function Home() {
         ? window as Window & {paddockExportHashes?: string[]; paddockFailAt?: number}
         : null;
       if (debug?.paddockExportHashes) debug.paddockExportHashes.length = 0;
-      const store = size ? await prerenderStore(key!) : null;
+      const target = size ? await prerenderStore(key!, videoLabel) : null;
       const blob = await encodeRaceVideo({
         config, timeline, signal: abort.signal,
         draw: frame => exportFrame.current!({
@@ -430,16 +484,17 @@ export default function Home() {
         progress: (done, count) => setExportStatus((s) => s && {...s, done, count}),
         hash: debug?.paddockExportHashes ? hash => debug.paddockExportHashes!.push(hash) : undefined,
         failAt: debug?.paddockFailAt,
-        store: store ?? undefined,
+        store: target ?? undefined,
       });
       if (size) {
         showVideo({key: key!, file: blob});
         setSmooth(true);
         setLiveView(false);
         refreshUsage();
-        setRecordMessage(store
-          ? '滑らか再生用の動画を作り、このブラウザーに保存しました。同じ条件なら次からすぐ再生できます。'
-          : '滑らか再生用の動画を作りました（このブラウザーでは保存できないため、ページを閉じると消えます）。');
+        const where = await videoFolder();
+        setRecordMessage(target
+          ? `滑らか再生用の動画を作り、${storeName(where)}に保存しました${where.kind === 'local' ? `（${target.name}）` : ''}。同じ条件なら次からすぐ再生できます。`
+          : '滑らか再生用の動画を作りました（保存できないため、ページを閉じると消えます）。');
         updateProgress(0);
         playAfter = true;
       } else {
@@ -461,12 +516,19 @@ export default function Home() {
   };
   const clearVideos = async () => {
     if (!usage?.count) return;
-    if (!confirm(`このブラウザーに保存した滑らか再生の動画${usage.count}本（${formatBytes(usage.bytes)}）を削除しますか？`)) return;
+    if (!confirm(
+      `${storeName(store)}に保存した滑らか再生の動画${usage.count}本（${formatBytes(usage.bytes)}）を削除しますか？` +
+        (store?.kind === 'local' ? '\nこのアプリが作った動画だけを削除し、フォルダー内のほかのファイルは残します。' : ''),
+    )) return;
     setPlaying(false);
-    await clearPrerenders();
+    try {
+      await clearPrerenders();
+      setRecordMessage('保存した滑らか再生の動画を削除しました。');
+    } catch (error) {
+      setRecordMessage(`動画を削除できませんでした（${String(error)}）`);
+    }
     showVideo(null);
     refreshUsage();
-    setRecordMessage('保存した滑らか再生の動画を削除しました。');
   };
   const overlay = useRef<() => ReturnType<typeof raceOverlay>>(() => { throw Error('No race'); });
   if (race && plan) overlay.current = () => raceOverlay(race, plan, progressRef.current, editing, pace?.model);
@@ -879,7 +941,7 @@ export default function Home() {
                   <button
                     className="smooth-toggle"
                     disabled={!plan.available || recordSupport !== 'export' || !currentKey}
-                    title="このレース・カメラ・再生速度・天候の映像を1コマずつ書き出し、このブラウザーに保存して滑らかに再生します（書き出しには数分かかります）"
+                    title={`このレース・カメラ・再生速度・天候の映像を1コマずつ書き出し、${store?.kind === 'browser' && !store.canPick ? 'このブラウザー' : '保存先のフォルダー'}に保存して滑らかに再生します（書き出しには数分かかります）`}
                     onClick={() => startExport('prerender')}
                   >
                     滑らか再生を生成
@@ -901,7 +963,7 @@ export default function Home() {
               {!actual && recordSupport === 'unavailable' && (
                 <p className="notice record-message">このブラウザーはMP4の録画に対応していません。Chrome・Edge（最新版）またはSafariでお試しください。</p>
               )}
-              {(videoReady || !!usage?.count) && (
+              {(videoReady || !!usage?.count || store?.kind === 'local' || (store?.kind === 'browser' && store.canPick)) && (
                 <p className="notice record-message prerender-store">
                   {videoReady ? 'この条件の動画は保存済みです。' : 'この条件の動画はまだありません（カメラ・再生速度・天候・編集を変えると別の動画になります）。'}
                   {usage?.count ? `保存した動画：${usage.count}本・${formatBytes(usage.bytes)}` : ''}
@@ -911,6 +973,22 @@ export default function Home() {
                   {!!usage?.count && (
                     <button className="text-button" onClick={clearVideos}>すべて削除</button>
                   )}
+                  {store?.kind === 'local' ? (
+                    <span className="prerender-folder">
+                      {store.ready
+                        ? `保存先：PCのフォルダー「${store.name}」`
+                        : `保存先：PCのフォルダー「${store.name}」（読み込むには許可が必要です）`}
+                      {!store.ready && (
+                        <button className="text-button" onClick={allowFolder}>許可する</button>
+                      )}
+                      <button className="text-button" onClick={chooseFolder}>変更</button>
+                    </span>
+                  ) : store?.canPick ? (
+                    <span className="prerender-folder">
+                      保存先：ブラウザー内（PCのフォルダーからは見えません）
+                      <button className="text-button" onClick={chooseFolder}>フォルダーを選ぶ</button>
+                    </span>
+                  ) : null}
                 </p>
               )}
               {recordMessage && (
