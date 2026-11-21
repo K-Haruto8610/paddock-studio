@@ -14,6 +14,8 @@ export type PhotoSet = {
 };
 export type PhotoTextures = {
   concrete: PhotoSet; roof: PhotoSet;
+  /** The main stands' apron paving and the timber soffit of Kyoto's roof. */
+  paving: PhotoSet; cedar: PhotoSet;
   dirt: PhotoSet; grass: PhotoSet;
   bark: Record<TreeShape, PhotoSet>;
 };
@@ -54,13 +56,13 @@ export function loadPhotoTextures(): Promise<PhotoTextures> {
       }
       return {map, roughnessMap, normalMap, average: meanColour(map.image as CanvasImageSource), size};
     };
-    const [concrete, roof, dirt, grass, zelkova, cherry, camphor, pine, maple] = await Promise.all([
+    const [concrete, roof, dirt, grass, zelkova, cherry, camphor, pine, maple, paving, cedar] = await Promise.all([
       set('concrete_slab_wall_02', 9), set('corrugated_iron', 3), set('raked_dirt', 2), set('sparse_grass', 2),
       set('japanese_zelkova_bark', 1.8), set('sakura_bark', 1.6), set('japanese_camphor_bark', 1.8), set('pine_bark', 2),
-      set('trident_maple_bark', 1.8),
+      set('trident_maple_bark', 1.8), set('patterned_concrete_pavers', 1.8), set('japanese_cedar_planks', 1.13),
     ]);
     // No ginkgo scan: its grey-brown, vertically furrowed bark is closest to the camphor's.
-    loaded = {concrete, roof, dirt, grass, bark: {zelkova, cherry, camphor, pine, maple, ginkgo: camphor}};
+    loaded = {concrete, roof, paving, cedar, dirt, grass, bark: {zelkova, cherry, camphor, pine, maple, ginkgo: camphor}};
     return loaded;
   })();
   return loading;

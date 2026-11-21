@@ -3,6 +3,8 @@ import type {TrackModel} from './trackGeometry';
 import {seeded} from './scenery';
 import {photoTextures} from './photoTextures';
 import {foliage, type Foliage, type Species} from './raceSeason';
+import {chainShader} from './surfaceFinish';
+import {AVENUE_LINES, avenueRuns, walkRuns, type AvenueSite} from './raceAvenue';
 import {barkTextures, foliageMaterial, leafAtlas, SHAPES, treeModel, type LeafKind, type TreeShape} from './treeModels';
 
 type Tree = {position: T.Vector3; height: number; width: number; species: Species; shape: TreeShape; variant: number;
@@ -36,46 +38,28 @@ function pick(r: number): Species {
 const shapeOf = (species: Species, r: number): TreeShape =>
   species === 'evergreen' ? (r < 0.67 ? 'camphor' : 'pine') : species;
 
-/** The lane (m from the inside rail) of avenue row 0 (course side) or 1; it steps back behind the main stand. */
-export function avenueLane(track: TrackModel, distance: number, row: number) {
-  const nearStand = Math.min(distance, track.lap - distance) < 100;
-  return track.width + (nearStand ? 150 : 118) + row * 12;
-}
-
-/** The species of the avenue along each stretch: cherry on the back straight, ginkgo on the far turn, zelkova elsewhere. */
-export function avenueSpecies(track: TrackModel, distance: number): Species {
-  const f = distance / track.lap;
-  return f > 0.3 && f < 0.62 ? 'cherry' : f >= 0.62 && f < 0.85 ? 'ginkgo' : 'zelkova';
-}
-
 /**
  * Where the trees stand. Two kinds of planting, as round a real course:
- * - avenues (並木): two even rows flanking a promenade outside the course, one species to a stretch, every 8.5 m along the
- *   ground (not along the course, so the rows stay even round the turns); behind the main stand they step back. One tree in
- *   sixteen is a younger replacement, smaller than its neighbours;
+ * - avenues (並木): two even rows along a promenade just outside the outermost rail (app/raceAvenue.ts), the first row
+ *   2 m from it, one species to a stretch, every 8.5 m along the ground (so the rows stay even round the turns). One tree
+ *   in sixteen is a younger replacement, smaller than its neighbours;
  * - woods: mixed groves further out, mostly evergreen, three deep, leaning a little more.
+ * Neither stands on ground the site keeps clear (the main stand and its apron).
  */
-function plantTrees(track: TrackModel, ground: (distance: number, lane: number) => T.Vector3) {
+function plantTrees(site: AvenueSite, track: TrackModel, ground: (p: T.Vector3) => T.Vector3) {
   const trees: Tree[] = [];
-  for (const row of [0, 1]) {
+  for (const [row, offset] of [AVENUE_LINES.front, AVENUE_LINES.back].entries()) {
     const random = seeded(9011 + row * 31);
-    let walked = 0, previous: T.Vector3 | null = null;
-    for (let d = 0; d < track.lap; d += 1) {
-      const lane = avenueLane(track, d, row);
-      const here = track.sample(d, lane).point;
-      if (previous) walked += Math.hypot(here.x - previous.x, here.z - previous.z);
-      previous = here;
-      if (walked < 8.5) continue;
-      walked = 0;
-      const species = avenueSpecies(track, d);
+    for (const {at, species} of walkRuns(avenueRuns(site, offset), 8.5, row ? 8.5 : 4.25)) {
       const shape = shapeOf(species, 0);
       const {height, width} = SHAPES[shape];
       const young = random() < 1 / 16 ? 0.62 + 0.15 * random() : 1;
-      trees.push({position: ground(d, lane), species, shape, variant: Math.floor(random() * VARIANTS),
+      trees.push({position: ground(at), species, shape, variant: Math.floor(random() * VARIANTS),
         jitter: (random() - 0.5) * 8, tilt: 0.035 * random(),
         height: height * young * (0.92 + 0.16 * random()), width: width * young * (0.92 + 0.16 * random())});
     }
   }
+  const clear = (p: T.Vector3) => !site.keepOut.some(out => out(p));
   for (let segment = 0; segment < 96; segment++) {
     const random = seeded(7283 + segment * 457);
     const distance = track.lap * segment / 96;
@@ -85,13 +69,66 @@ function plantTrees(track: TrackModel, ground: (distance: number, lane: number) 
         const shape = shapeOf(species, random());
         const {height, width} = SHAPES[shape];
         const size = 0.75 + 0.5 * random();
-        trees.push({position: ground(distance + (random() - 0.5) * 22, lane + random() * 16), species, shape,
+        const at = track.sample(distance + (random() - 0.5) * 22, lane + random() * 16).point;
+        const tree = {position: ground(at), species, shape,
           variant: Math.floor(random() * VARIANTS), jitter: (random() - 0.5) * 14, tilt: 0.07 * random(),
-          height: height * size, width: width * size * (0.85 + 0.3 * random())});
+          height: height * size, width: width * size * (0.85 + 0.3 * random())};
+        if (clear(at)) trees.push(tree);
       }
     }
   }
   return trees;
+}
+
+/**
+ * What the camera looks at, for the trees to step aside: the avenue stands 2 m from the rail, between the course and a
+ * camera outside it. Each frame the scene sets `from` (the camera) and `to` (the field's centre); `reach` is how far
+ * the view of the field widens toward it (its half spread).
+ */
+export type TreeSight = {from: T.Vector3; to: T.Vector3; reach: number};
+
+/**
+ * Fades out (by dithering, so it stays in the opaque pass) a tree that stands between the camera and the field and is tall
+ * enough to cut the view of it, or that the camera is inside: as broadcast pictures leave out what stands in front of
+ * the lens. Its shadow stays. `size` is the shape's nominal height and width; each instance's own comes from its scale.
+ */
+function sightFade<M extends T.Material>(material: M, sight: TreeSight, size: {height: number; width: number}) {
+  return chainShader(material, 'tree-sight', shader => {
+    shader.uniforms.uSightFrom = {value: sight.from};
+    shader.uniforms.uSightTo = {value: sight.to};
+    shader.uniforms.uSightReach = {get value() { return sight.reach; }};
+    shader.uniforms.uTreeSize = {value: new T.Vector2(size.height, size.width)};
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+        uniform vec3 uSightFrom;
+        uniform vec3 uSightTo;
+        uniform float uSightReach;
+        uniform vec2 uTreeSize;
+        varying float vSightHide;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vSightHide = 0.0;
+        #ifdef USE_INSTANCING
+          vec3 treeBase = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+          float treeTop = treeBase.y + uTreeSize.x * length(instanceMatrix[1].xyz);
+          float crown = 0.5 * uTreeSize.y * length(instanceMatrix[0].xyz);
+          vec2 view = uSightTo.xz - uSightFrom.xz;
+          float along = dot(treeBase.xz - uSightFrom.xz, view) / max(dot(view, view), 1.0);
+          float off = length(uSightFrom.xz + view * clamp(along, 0.0, 1.0) - treeBase.xz);
+          float reach = crown + 1.5 + uSightReach * clamp(along, 0.0, 1.0);
+          // The lowest line of sight, to the horses' feet: hidden only if the tree reaches up into it.
+          float lineY = mix(uSightFrom.y, uSightTo.y - 2.0, clamp(along, 0.0, 1.0));
+          float between = step(0.0, along) * (1.0 - smoothstep(0.97, 1.03, along));
+          float across = 1.0 - smoothstep(reach, reach + 2.0, off);
+          float under = 1.0 - smoothstep(treeTop, treeTop + 1.5, lineY);
+          float inside = 1.0 - smoothstep(crown + 2.0, crown + 4.0, length(treeBase.xz - uSightFrom.xz));
+          vSightHide = max(between * across * under, inside * step(uSightFrom.y, treeTop + 2.0));
+        #endif`)
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying float vSightHide;`)
+      .replace('void main() {', `void main() {
+        if (vSightHide > 0.001 && fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) < vSightHide) discard;`);
+  });
 }
 
 /**
@@ -145,9 +182,10 @@ export function barkMaterial(shape: TreeShape) {
  * The trees round the course, dressed for the race day (`day` of the year) and the weather's snow cover: for each shape and
  * layout, one instanced skeleton of bark and one of leaf cards (seasonal leaves, blossom, or bare twigs).
  */
-export function addTrees(scene: T.Scene, track: TrackModel, ground: (distance: number, lane: number) => T.Vector3,
+export function addTrees(scene: T.Scene, site: AvenueSite, track: TrackModel, ground: (p: T.Vector3) => T.Vector3,
   day: number, snow: number) {
-  const trees = plantTrees(track, ground);
+  const trees = plantTrees(site, track, ground);
+  const sight: TreeSight = {from: new T.Vector3(0, 1e4, 0), to: new T.Vector3(), reach: 14};
   const groups = new Map<string, number[]>();
   trees.forEach((tree, i) => {
     const key = `${tree.shape}:${tree.variant}`;
@@ -172,7 +210,7 @@ export function addTrees(scene: T.Scene, track: TrackModel, ground: (distance: n
   for (const [key, members] of groups) {
     const [shape, variant] = key.split(':') as [TreeShape, string];
     const model = treeModel(shape, Number(variant));
-    if (!woods.has(shape)) woods.set(shape, barkMaterial(shape));
+    if (!woods.has(shape)) woods.set(shape, sightFade(barkMaterial(shape), sight, SHAPES[shape]));
     const bark = new T.InstancedMesh(model.wood, woods.get(shape)!, members.length);
     const tint = new T.Color();
     members.forEach((tree, k) => {
@@ -185,7 +223,8 @@ export function addTrees(scene: T.Scene, track: TrackModel, ground: (distance: n
     const looks = members.map(tree => foliage(trees[tree].species, day, trees[tree].jitter));
     const leaves = leafInstances(model.leaves, shape, snow, looks, members.map(tree => matrices[tree]), 2203 + members[0]);
     leaves.name = `tree-leaves-${key}`;
+    sightFade(leaves.material as T.Material, sight, SHAPES[shape]);
     scene.add(bark, leaves);
   }
-  return trees.length;
+  return {count: trees.length, sight};
 }

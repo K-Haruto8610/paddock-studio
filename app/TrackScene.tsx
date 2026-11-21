@@ -242,12 +242,16 @@ export default function TrackScene({
     const terrain = addGround(scene, courses.tracks, route);
     // On soft ground the turf along the inside rail is cut up (ground and blades share the pattern).
     const wear = {amount: turfWearAmount(look, going, courseDay), wet: look.wet};
-    const surface = addCourseSurfaces(scene, courses, terrain, tokyo, route, tokyo ? tokyoChutes(race) : [], wear);
+    const chutes = tokyo ? tokyoChutes(race) : [];
+    const surface = addCourseSurfaces(scene, courses, terrain, tokyo, route, chutes, wear);
     addRails(scene, courses, track.width, route, race.distance);
     const gate = addMarkers(scene, race, track, route);
     const floor = Math.min(...terrain.samples.map(s => s.y));
     addFarGround(scene, floor, look.snowCover);
-    addRaceLandscape(scene, track, terrain, floor - 1, {
+    const landscape = addRaceLandscape(scene, track, terrain, floor - 1, {
+      venueCode: race.venueCode, courses: courses.tracks, turf: courses.turf,
+      pockets: [...(route.chuteSurface && !tokyo ? [route.chuteSurface] : []), ...chutes.map(c => c.surface)],
+      clear: [route.sample(0, track.width + 5).point],
       day: dayOfYear(race.date), look,
       board: {
         title: race.name,
@@ -259,7 +263,7 @@ export default function TrackScene({
     const grass = track.kind === 'dirt' ? null : addRaceGrass(scene, route, track.width, surface, wear);
     const disposeDistantGrass = grass && quality.extendedGrass ? addDistantGrass(scene, track, surface, grass.uniforms, wear) : null;
     // The infield and the land around the rails are grass as well, not only the course itself.
-    const verge = addVergeGrass(scene, terrain.heightAt, surface, !!grass);
+    const verge = addVergeGrass(scene, terrain.heightAt, surface, !!grass, landscape.paved);
     const gateBox = new T.Box3().setFromObject(gate);
     // Everything built so far is the course and its surroundings: wet it in the rain (not the horses, added next).
     wetSurfaces(scene, look.wet);
@@ -507,6 +511,10 @@ export default function TrackScene({
         shadowCamera.updateProjectionMatrix();
       }
       sun.target.position.copy(packCenter);
+      // Trees between the camera and the field step aside (the avenue stands 2 m outside the rail).
+      landscape.sight.from.copy(camera.position);
+      landscape.sight.to.copy(packCenter);
+      landscape.sight.reach = T.MathUtils.clamp((Math.max(...gaps) - Math.min(...gaps)) / 2 + 6, 8, 40);
       sun.position.copy(packCenter).add(sunOffset);
       if (!verificationFrame) previousTick = tick;
     }

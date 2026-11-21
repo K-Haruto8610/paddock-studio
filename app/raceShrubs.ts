@@ -1,9 +1,9 @@
 import * as T from 'three';
-import type {TrackModel} from './trackGeometry';
 import {seeded} from './scenery';
 import {shrubFoliage, type Foliage, type Shrub} from './raceSeason';
 import {shrubModel, type ShrubForm} from './treeModels';
-import {avenueLane, avenueSpecies, leafInstances} from './raceTrees';
+import {leafInstances} from './raceTrees';
+import {AVENUE_LINES, avenueRuns, walkRuns, type AvenueSite} from './raceAvenue';
 
 type Plant = {matrix: T.Matrix4; form: ShrubForm; kind: Shrub; variant: number; look: Foliage};
 
@@ -12,12 +12,13 @@ const HEDGE: Record<string, Shrub> = {cherry: 'azalea', ginkgo: 'box', zelkova: 
 
 /**
  * The clipped planting (植え込み) round the course, dressed for the race day and the snow:
- * - a clipped hedge along the course side of the avenue, broken every 60 m or so where a path comes through;
- * - azalea balls (ツツジの玉作り) between the trees of the outer row;
+ * - a clipped hedge along the promenade behind the first row of the avenue, broken every 60 m or so where a path comes
+ *   through (app/raceAvenue.ts: the lines run just outside the outermost rail, broken at pockets and the stand);
+ * - azalea balls (ツツジの玉作り) between the trees of the second row;
  * - in each infield bed (`beds`: its frame, standing on the bed's soil, x along it), a row of azalea balls between two low
  *   enkianthus hedges.
  */
-export function addShrubs(scene: T.Scene, track: TrackModel, ground: (distance: number, lane: number) => T.Vector3,
+export function addShrubs(scene: T.Scene, site: AvenueSite, ground: (p: T.Vector3) => T.Vector3,
   beds: T.Matrix4[], day: number, snow: number) {
   const plants: Plant[] = [];
   const random = seeded(4421);
@@ -25,33 +26,18 @@ export function addShrubs(scene: T.Scene, track: TrackModel, ground: (distance: 
     new T.Matrix4().compose(at, new T.Quaternion().setFromEuler(new T.Euler(0, yaw, 0)), scale);
   const look = (kind: Shrub, hue = random()) => shrubFoliage(kind, day, (random() - 0.5) * 8, hue);
 
-  // Along the avenue: walk each line on the ground, so pieces abut round the turns too.
-  const walk = (lane: (d: number) => number, step: number, first: number,
-    plant: (at: T.Vector3, yaw: number, d: number, index: number) => void) => {
-    let walked = step - first, previous: T.Vector3 | null = null, index = 0;
-    for (let d = 0; d < track.lap; d += 0.5) {
-      const here = track.sample(d, lane(d)).point;
-      if (previous) walked += Math.hypot(here.x - previous.x, here.z - previous.z);
-      if (walked >= step && previous) {
-        walked = 0;
-        const ahead = track.sample(d + 1, lane(d + 1)).point;
-        plant(ground(d, lane(d)), Math.atan2(ahead.x - here.x, ahead.z - here.z) - Math.PI / 2, d, index++);
-      }
-      previous = here;
-    }
-  };
-  walk(d => avenueLane(track, d, 0) - 5, 3.4, 0, (at, yaw, d, index) => {
-    if (index % 18 === 9) return;
-    const kind = HEDGE[avenueSpecies(track, d)];
+  for (const {at, yaw, species, index} of walkRuns(avenueRuns(site, AVENUE_LINES.hedge), 3.4, 3.4)) {
+    if (index % 18 === 9) continue;
+    const kind = HEDGE[species];
     // A hedge of azalea flowers in runs of one colour, 5 pieces (17 m) long.
-    plants.push({matrix: place(at, yaw, new T.Vector3(1, 0.95 + 0.1 * random(), 1)), form: 'hedge', kind,
+    plants.push({matrix: place(ground(at), yaw, new T.Vector3(1, 0.95 + 0.1 * random(), 1)), form: 'hedge', kind,
       variant: index % 3, look: look(kind, (Math.floor(index / 5) * 0.618) % 1)});
-  });
-  walk(d => avenueLane(track, d, 1), 8.5, 4.25, (at, yaw, _d, index) => {
+  }
+  for (const {at, yaw, index} of walkRuns(avenueRuns(site, AVENUE_LINES.back), 8.5, 4.25)) {
     const s = 0.85 + 0.3 * random();
-    plants.push({matrix: place(at, yaw + random() * 6.3, new T.Vector3(s, s, s)), form: 'ball', kind: 'azalea',
+    plants.push({matrix: place(ground(at), yaw + random() * 6.3, new T.Vector3(s, s, s)), form: 'ball', kind: 'azalea',
       variant: index % 3, look: look('azalea')});
-  });
+  }
 
   // The infield beds.
   beds.forEach((bed, b) => {

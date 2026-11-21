@@ -1,7 +1,7 @@
 # Photo-scanned PBR textures
 
 From Poly Haven (https://polyhaven.com), licence CC0 (public domain; no attribution required, credited here anyway).
-Downloaded 2026-11-19 (stands) and 2026-11-20 (ground, bark) at 1k, JPG: colour (`_diff`), roughness (`_rough`), normal, OpenGL convention (`_nor_gl`).
+Downloaded 2026-11-19 (stands), 2026-11-20 (ground, bark) and 2026-11-21 (apron paving, cedar soffit) at 1k, JPG: colour (`_diff`), roughness (`_rough`), normal, OpenGL convention (`_nor_gl`).
 
 | Folder | Asset | Credit | Used for |
 |---|---|---|---|
@@ -14,5 +14,7 @@ Downloaded 2026-11-19 (stands) and 2026-11-20 (ground, bark) at 1k, JPG: colour 
 | `japanese_camphor_bark/` | Japanese Camphor Bark | Charlotte Baglioni | クスノキ, and イチョウ (no ginkgo scan) |
 | `pine_bark/` | Pine Bark | Dimitrios Savva | マツ |
 | `trident_maple_bark/` | Trident Maple Bark | Charlotte Baglioni | モミジ |
+| `patterned_concrete_pavers/` | Patterned Concrete Pavers | Amal Kumar | the main stands' aprons (app/standFinish.ts) |
+| `japanese_cedar_planks/` | Japanese Cedar Planks | Charlotte Baglioni (scanning), Rico Cilliers (processing) | the timber underside of Kyoto's stand roof |
 
 Source URL pattern: `https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/<asset>/<asset>_<map>_1k.jpg`.

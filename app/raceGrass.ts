@@ -220,7 +220,9 @@ const VERGE_RADIUS = 64;
  * grass) and dropped once the field has moved on. Course turf stands blades too, except the lanes of the race's own turf (`ownTurf`),
  * which carry denser ones; dirt stays bare.
  */
-export function addVergeGrass(scene: T.Scene, heightAt: (x: number, z: number) => number, ground: Ground, ownTurf: boolean) {
+export function addVergeGrass(scene: T.Scene, heightAt: (x: number, z: number) => number, ground: Ground, ownTurf: boolean,
+  /** Ground that is paved or built on (the main stand and its apron): no blades there. */
+  paved: (x: number, z: number) => boolean = () => false) {
   const uniforms = grassUniforms();
   const material = bladeMaterial(uniforms);
   const group = new T.Group();
@@ -239,6 +241,7 @@ export function addVergeGrass(scene: T.Scene, heightAt: (x: number, z: number) =
       // Turf of the courses the race is not run on (every course, when it is run on dirt) is grass too.
       const found = ground(x, z, hit);
       if (found && (ownTurf || hit.dirt)) continue;
+      if (!found && paved(x, z)) continue;
       field.root[n * 3] = x;
       field.root[n * 3 + 1] = found ? hit.y : heightAt(x, z) + 0.03;
       field.root[n * 3 + 2] = z;

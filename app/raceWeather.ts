@@ -78,7 +78,8 @@ export function wetSurfaces(scene: T.Scene, wet: number) {
       done.add(m);
       const turf = !!m.userData.turf;
       m.color.multiplyScalar(1 - (turf ? 0.18 : 0.3) * wet);
-      m.roughness *= 1 - (turf ? 0.3 : 0.45) * wet;
+      // How much smoother a surface gets when wet (`userData.wetGloss`: porous paving drinks the rain in and stays matt).
+      m.roughness *= 1 - ((m.userData.wetGloss as number | undefined) ?? (turf ? 0.3 : 0.45)) * wet;
     }
   });
 }

@@ -5,6 +5,8 @@ import {seeded} from './scenery';
 import {standSeatGeometry} from './standSeat';
 import {bevelBox, CONCRETE_TILE, standMaterials} from './surfaceFinish';
 import {addTrees} from './raceTrees';
+import {addMainStand} from './raceStands';
+import type {AvenueSite} from './raceAvenue';
 import {addShrubs} from './raceShrubs';
 import {WEATHER_LOOKS, type WeatherLook} from './raceWeather';
 
@@ -252,6 +254,13 @@ function ledBoard(title: string, lines: string[]) {
 }
 
 export type LandscapeOptions = {
+  venueCode: string;
+  /** Every course drawn for the race, the one outermost along the home straight, and the pockets drawn. */
+  courses: TrackModel[];
+  turf: TrackModel;
+  pockets: AvenueSite['pockets'];
+  /** Points the avenue keeps clear of (the start sign beside the rail). */
+  clear: T.Vector3[];
   /** Day of the year of the race (app/raceSeason.ts dresses the trees for it). */
   day: number;
   look: WeatherLook;
@@ -295,21 +304,9 @@ export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Ter
     return group;
   };
 
-  const stand = groupAt(0, track.width + 92);
-  piece(stand, box, concrete, 0, 2.5, 0, 96, 6, 20);
-  // Terraces: five steps rising away from the track (-z). With the Blender seat, the steps are concrete and carry rows of
-  // seats (two on each 2.2 m tread, four on the deep top one, an aisle every 11 m); without it, flat seat blocks as before.
+  // The venue's main stand (app/raceStands.ts) outside the home straight, with its apron and crowd.
+  const main = addMainStand(scene, options.venueCode, options.turf, options.courses, terrain.heightAt, options.day, look);
   const seat = standSeatGeometry();
-  for (let row = 0; row < 5; row++) {
-    piece(stand, box, seat ? concrete : seats, 0, 6 + row * 0.9, (row - 2) * 2.2, 93, 1.2, 5);
-  }
-  if (seat) {
-    const terraces = [0, 1, 2, 3, 4].map(t => ({floor: 6.6 + t * 0.9, front: (t - 2) * 2.2 - 2.5, lines: t === 4 ? 4 : 2}));
-    stand.add(seatRows(seat, terraces, 46, 11, '#6f8a88', 5531));
-  }
-  for (const x of [-44, -22, 0, 22, 44]) piece(stand, box, roof, x, 10, 6, 0.8, 12, 0.8);
-  piece(stand, box, roof, 0, 16, 2, 98, 1.1, 23);
-  piece(stand, box, seats, 0, 15, -9, 98, 1.2, 0.5);
 
   // The infield stand faces out across the course: a front walk, three concrete steps of seats, a concourse behind, and a
   // roof on three columns.
@@ -327,7 +324,15 @@ export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Ter
   for (const x of [-21, 0, 21]) piece(infield, box, roof, x, 9.2, 4.6, 0.5, 4.6, 0.5);
   piece(infield, box, roof, 0, 11.7, 0.6, 50, 0.6, 13);
 
-  addTrees(scene, track, (distance, lane) => at(distance, lane).point, options.day, look.snowCover);
+  const onGround = (p: T.Vector3) => p.clone().setY(Math.max(floor, terrain.heightAt(p.x, p.z) - 0.3));
+  const site: AvenueSite = {
+    tracks: options.courses, pockets: options.pockets,
+    keepOut: [
+      ...(main ? [main.keepOut] : []),
+      (p: T.Vector3) => options.clear.some(c => (c.x - p.x) ** 2 + (c.z - p.z) ** 2 < 49),
+    ],
+  };
+  const {sight} = addTrees(scene, site, track, onGround, options.day, look.snowCover);
 
   const hills = new T.MeshBasicMaterial({color: new T.Color('#97aba7').lerp(new T.Color('#d9dde0'), 0.7 * look.snowCover), toneMapped: false});
   for (let i = 0; i < 28; i++) {
@@ -357,5 +362,6 @@ export function addRaceLandscape(scene: T.Scene, track: TrackModel, terrain: Ter
     bed.updateMatrixWorld(true);
     beds.push(bed.matrixWorld.clone().multiply(new T.Matrix4().makeTranslation(0, 0.52, 0)));
   }
-  addShrubs(scene, track, (distance, lane) => at(distance, lane).point, beds, options.day, look.snowCover);
+  addShrubs(scene, site, onGround, beds, options.day, look.snowCover);
+  return {sight, paved: main?.paved ?? (() => false)};
 }
