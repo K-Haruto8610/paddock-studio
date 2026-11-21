@@ -10,6 +10,7 @@ import {plush, posePlush, PREVIOUS_HEAD, CURRENT_HEAD, SAVED_HEAD, normalizeHead
 import './preview.css';
 import {disposeScene} from '../sceneBuilders';
 import type {Horse} from '../types';
+import {silkedHorses, silksFor} from '../silks';
 import {KICK_CADENCE, STRIDE_LENGTH, type Kick} from '../closingKick';
 
 const sliders: {key: keyof HeadSettings; label: string; left: string; right: string}[] = [
@@ -28,6 +29,8 @@ const storageKey = 'paddock-plush-head-v1';
 export default function PlushPreview() {
   const host = useRef<HTMLDivElement>(null);
   const [coatCode, setCoatCode] = useState('07');
+  // The saddle cloth in a listed horse's silks (勝負服), or the plain blue cloth.
+  const [silksHorse, setSilksHorse] = useState('');
   const [settings, setSettings] = useState<HeadSettings>({...SAVED_HEAD});
   const [renderSettings, setRenderSettings] = useState(settings);
   const [blinker, setBlinker] = useState(false);
@@ -156,13 +159,13 @@ export default function PlushPreview() {
       discarded.add(modelRef.current);
       disposeScene(discarded);
     }
-    const horse: Horse = {number: 10, name: 'ぬいぐるみ', coat: '', coatCode, blinker, gate: 1, jockey: '', age: 4, weight: 500, positions: [], last3: 0, history: []};
+    const horse: Horse = {number: 10, name: silksHorse || 'ぬいぐるみ', coat: '', coatCode, blinker, gate: 1, jockey: '', age: 4, weight: 500, positions: [], last3: 0, history: []};
     const model = plush(horse, {...renderSettings, bridle, model: blender && horseModel() ? 'blender' : 'code'});
     model.getObjectByName('nameplate')!.visible = false;
     model.getObjectByName('numberplate')!.visible = false;
     modelRef.current = model;
     scene.add(model);
-  }, [coatCode, blinker, bridle, renderSettings, blender, horseReady]);
+  }, [coatCode, silksHorse, blinker, bridle, renderSettings, blender, horseReady]);
   useEffect(() => {
     const views: Record<string, [number, number, number]> = {'斜め': [6, 3.9, 7], '横': [0, 2.8, 9], '正面': [9, 2.8, 0], '後ろ': [-7, 3, 4]};
     cameraRef.current?.position.set(...views[view]);
@@ -199,6 +202,7 @@ export default function PlushPreview() {
       <section className="plush-viewer">
         <div className="plush-actions">
           <label>毛色 <select aria-label="毛色" value={coatCode} onChange={e => setCoatCode(e.target.value)}><option value="07">芦毛</option><option value="01">栗毛</option><option value="03">鹿毛</option><option value="05">青毛</option><option value="11">白毛</option></select></label>
+          <label>勝負服 <select aria-label="勝負服" value={silksHorse} onChange={e => setSilksHorse(e.target.value)}><option value="">なし（青）</option>{silkedHorses().map(name => <option key={name} value={name}>{name}（{silksFor(name)!.label}）</option>)}</select></label>
           <label><input type="checkbox" checked={blinker} onChange={e => setBlinker(e.target.checked)} /> メンコ</label>
           <label><input type="checkbox" checked={bridle} onChange={e => setBridle(e.target.checked)} /> 頭絡</label>
           <label><input type="checkbox" checked={blender} onChange={e => setBlender(e.target.checked)} /> Blender のモデル{!horseReady ? '（読み込み中）' : !horseModel() ? '（読み込めず、コード版）' : ''}</label>

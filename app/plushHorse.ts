@@ -4,6 +4,7 @@ import {MarchingCubes} from 'three/addons/objects/MarchingCubes.js';
 import type {Horse} from './types';
 import {STRIDE_LENGTH, NO_KICK, type Kick} from './closingKick';
 import {horseModel, type HorseModel} from './blenderHorse';
+import {drawSilks, dyeLuminance, silksFor, type Silks} from './silks';
 const coat: Record<string, string> = {
   '01': '#b8773c',
   '02': '#845330',
@@ -764,20 +765,68 @@ function addHem(geometry: T.BufferGeometry) {
   return geometry;
 }
 
-/** The saddle cloth: dyed cotton twill, matte with a soft fibre sheen, the weave just showing in the colour; folds and a hem. */
-function saddleClothMaterial(color: T.ColorRepresentation) {
+/** Silks printed on the saddle cloth: one side's picture, and where the cloth lies (along the body, and round the barrel). */
+type ClothSilks = {map: T.Texture; x: [number, number]; angle: number};
+
+/**
+ * The saddle cloth: dyed cotton twill, matte with a soft fibre sheen, the weave just showing in the colour; folds and a hem.
+ * With `silks`, the cloth is dyed in the owner's silks instead: the picture is laid by the cloth's own position, from the
+ * rear edge to the front edge and from the spine down to the hem, the same on both sides.
+ */
+function saddleClothMaterial(color: T.ColorRepresentation, silks?: ClothSilks) {
   const weave = weaveTexture(14);
   const material = new T.MeshPhysicalMaterial({
-    color, bumpMap: weave, bumpScale: 0.8, roughness: 0.94, sheen: 0.45, sheenRoughness: 0.6, sheenColor: '#c9d4ee',
+    color: silks ? '#ffffff' : color, bumpMap: weave, bumpScale: 0.8, roughness: 0.94, sheen: 0.45, sheenRoughness: 0.6,
+    // The fibre sheen was tinted for the blue cloth; silks of any colour take a neutral one.
+    sheenColor: silks ? '#d4d4d4' : '#c9d4ee',
   });
   material.onBeforeCompile = shader => {
-    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+    if (silks) {
+      shader.uniforms.silksMap = {value: silks.map};
+      shader.uniforms.silksX = {value: new T.Vector2(...silks.x)};
+      shader.uniforms.silksAngle = {value: silks.angle};
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>
+uniform sampler2D silksMap;
+uniform vec2 silksX;
+uniform float silksAngle;`);
+    }
+    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>${silks ? `
+{
+  // vClothAt (from clothDrape) is the body position; the angle about the back's axis runs from the spine down each side.
+  float turn = atan(vClothAt.z, vClothAt.y - 1.22);
+  vec2 at = vec2((vClothAt.x - silksX.x) / (silksX.y - silksX.x), 1.0 - abs(turn) / silksAngle);
+  diffuseColor.rgb *= texture2D(silksMap, clamp(at, 0.0, 1.0)).rgb;
+}` : ''}
 #ifdef USE_BUMPMAP
 diffuseColor.rgb *= mix(0.86, 1.06, texture2D(bumpMap, vBumpMapUv).r);
 #endif`);
   };
-  material.customProgramCacheKey = () => 'saddle-twill';
+  material.customProgramCacheKey = () => silks ? 'saddle-twill-silks' : 'saddle-twill';
   return clothDrape(material, true);
+}
+
+/** The silks picture for a saddle cloth of this shape: its reach along the body and round the barrel, and one side painted to match. */
+function clothSilks(silks: Silks, geometry: T.BufferGeometry): ClothSilks {
+  const position = geometry.attributes.position as T.BufferAttribute;
+  let x0 = Infinity, x1 = -Infinity, angle = 0, radius = 0;
+  for (let i = 0; i < position.count; i++) {
+    const x = position.getX(i), dy = position.getY(i) - 1.22, z = position.getZ(i);
+    x0 = Math.min(x0, x);
+    x1 = Math.max(x1, x);
+    angle = Math.max(angle, Math.abs(Math.atan2(z, dy)));
+    radius += Math.hypot(dy, z);
+  }
+  radius /= position.count;
+  // The canvas takes the side's proportions: its length against the drop from the spine to the hem.
+  const width = 512, height = Math.round(T.MathUtils.clamp(width * angle * radius / (x1 - x0), 256, 1024));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  drawSilks(canvas.getContext('2d')!, silks, width, height);
+  const map = new T.CanvasTexture(canvas);
+  map.colorSpace = T.SRGBColorSpace;
+  map.anisotropy = 4;
+  return {map, x: [x0, x1], angle};
 }
 
 /**
@@ -1880,7 +1929,7 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   const hair = fabricMaterial('#29272a', fabrics.mane ?? 'current');
   const bodyFabric = fabrics.body ?? 'current';
   const piled = !!FABRIC_LOOKS[bodyFabric].pile;
-  const blue = saddleClothMaterial('#234b98');
+  const silks = silksFor(h.name);
   const hood = h.blinker ? fabricMaterial(seededPick(h.name, MENKO_COLORS), fabrics.menko ?? 'current') : brown;
   // Plastic safety eyes: a near-black dome polished to a mirror, so the highlight is the sky and the sun reflected in it.
   const eye = polishedEye();
@@ -2021,9 +2070,11 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     }
     clothGeometry.computeVertexNormals();
   }
-  blue.side = T.DoubleSide;
+  // The owner's silks where they are known, else the plain blue cloth.
+  const clothMaterial = saddleClothMaterial('#234b98', silks && clothSilks(silks, clothGeometry));
+  clothMaterial.side = T.DoubleSide;
   addHem(clothGeometry);
-  const saddle = new T.Mesh(clothGeometry, blue);
+  const saddle = new T.Mesh(clothGeometry, clothMaterial);
   saddle.castShadow = saddle.receiveShadow = true;
   body.add(saddle);
   const canvas = document.createElement('canvas');
@@ -2031,12 +2082,23 @@ export function plush(h: Horse, options: PlushOptions = {}) {
   canvas.height = 192;
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, 256, 192);
-  ctx.fillStyle = '#fff8e9';
   ctx.textAlign = 'center';
+  // On silks the print takes the ink that stands off the body colour, edged in the other, so it reads over any pattern.
+  const ink = silks ? (dyeLuminance(silks.body) > 0.35 ? ['#1b1b1e', '#fff8e9'] : ['#fff8e9', '#1b1b1e']) : ['#fff8e9'];
+  const printText = (c: CanvasRenderingContext2D, text: string, x: number, y: number, edge: number, maxWidth?: number) => {
+    if (ink[1]) {
+      c.strokeStyle = ink[1];
+      c.lineWidth = edge;
+      c.lineJoin = 'round';
+      c.strokeText(text, x, y, maxWidth);
+    }
+    c.fillStyle = ink[0];
+    c.fillText(text, x, y, maxWidth);
+  };
   ctx.font = 'bold 146px sans-serif';
-  ctx.fillText(String(h.number), 128, 132);
+  printText(ctx, String(h.number), 128, 132, 12);
   ctx.font = 'bold 22px sans-serif';
-  ctx.fillText(h.name, 128, 176, 230);
+  printText(ctx, h.name, 128, 176, 5, 230);
   const printMap = new T.CanvasTexture(canvas);
   printMap.colorSpace = T.SRGBColorSpace;
   // The number is printed into the weave: the same cotton relief shows through it.
@@ -2060,11 +2122,10 @@ export function plush(h: Horse, options: PlushOptions = {}) {
     const top = document.createElement('canvas');
     top.width = top.height = 128;
     const tctx = top.getContext('2d')!;
-    tctx.fillStyle = '#fff8e9';
     tctx.textAlign = 'center';
     tctx.textBaseline = 'middle';
     tctx.font = 'bold 104px sans-serif';
-    tctx.fillText(String(h.number), 64, 70, 112);
+    printText(tctx, String(h.number), 64, 70, 9, 112);
     const topMap = new T.CanvasTexture(top);
     topMap.colorSpace = T.SRGBColorSpace;
     const geometry = new T.PlaneGeometry(1, 1, 8, 8);
