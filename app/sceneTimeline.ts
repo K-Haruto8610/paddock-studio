@@ -38,7 +38,7 @@ type TimelineOptions = {
 };
 
 export function createSceneTimeline(race: Race, route: RaceRoute, straight: number,
-  gateBox: T.Box3, trail: DirtTrail | null) {
+  gateBox: T.Box3, trail: DirtTrail | null, beyondRail?: (p: T.Vector3) => number) {
   const camera = new T.PerspectiveCamera(40, 1, 0.3, 6000);
   const controls = new OrbitControls(camera);
   const view = new T.Matrix4();
@@ -48,7 +48,7 @@ export function createSceneTimeline(race: Race, route: RaceRoute, straight: numb
     at: race.horses.map(() => 0),
     kick: race.horses.map(() => NO_KICK),
   };
-  let pack = createPackCamera(camera, controls);
+  let pack = createPackCamera(camera, controls, undefined, beyondRail);
   let options: TimelineOptions | undefined;
   let lastTick = -1;
   let gateVisible = true;
@@ -61,7 +61,7 @@ export function createSceneTimeline(race: Race, route: RaceRoute, straight: numb
     pack.dispose();
     camera.position.set(0, 800, 800);
     controls.target.set(0, 0, 0);
-    pack = createPackCamera(camera, controls);
+    pack = createPackCamera(camera, controls, undefined, beyondRail);
     lastTick = -1;
     cameras.length = 0;
     gateVisible = true;

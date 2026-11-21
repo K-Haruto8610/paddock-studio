@@ -60,6 +60,21 @@ export function acrossOf(track: TrackModel) {
 }
 
 /**
+ * Metres a point lies outside the outermost rail of the drawn courses there (negative inside a course): the least of
+ * its distances outside each course's outer rail and each pocket's strip. The avenue's first row stands at AVENUE_GAP.
+ */
+export function beyondRailOf(tracks: TrackModel[], pockets: AvenueSite['pockets'] = []) {
+  const across = tracks.map(acrossOf);
+  // A pocket is part of the course here: metres outside its strip.
+  const strips = pockets.map(pocket => ({
+    half: pocket.width / 2,
+    points: Array.from({length: 241}, (_, i) => pocket.sample(i / 240, pocket.width / 2).point),
+  }));
+  return (p: T.Vector3) => Math.min(...across.map((a, i) => a(p) - tracks[i].width),
+    ...strips.map(({half, points}) => Math.sqrt(Math.min(...points.map(q => (q.x - p.x) ** 2 + (q.z - p.z) ** 2))) - half));
+}
+
+/**
  * The runs of one avenue line `offset` metres outside the outermost rail. Each course's line is walked (outermost course
  * first); a point is kept when it lies at least `offset` outside every course, clear of the pockets and of `keepOut`, and
  * is not already on a line kept from another course (where two courses share a rail).

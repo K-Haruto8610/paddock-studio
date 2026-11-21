@@ -14,6 +14,35 @@ const K = HORSE_SCALE;
 const LEADER_NOSE = 2.4 * HORSE_SCALE;
 /** Seconds over which the final straight's leader pin eases in. */
 const PIN_BLEND = 1.5;
+/**
+ * Metres outside the outermost rail the camera may stand (negative: inside it). The avenue's first row stands 2 m
+ * outside the rail, so a camera further out would look through the trees.
+ */
+const CAMERA_RAIL = -1;
+/** Steepest look down (rise over run, about 30°) a camera brought in from beyond the rail climbs to. */
+const MAX_LOOK_DOWN = 0.58;
+
+/**
+ * Brings a camera standing `offset` from `target` back inside the rail: it comes in toward the field and rises as it
+ * does, keeping its distance from the target so the frame still holds the field. `outward` points away from the field.
+ */
+function insideRail(target: T.Vector3, offset: T.Vector3, outward: T.Vector3, beyondRail: (p: T.Vector3) => number) {
+  const distance = offset.length(), height = offset.y;
+  for (let pass = 0; pass < 3; pass++) {
+    const over = beyondRail(target.clone().add(offset)) - CAMERA_RAIL;
+    if (!(over > 0.05)) break;
+    const flat = offset.clone().setY(0);
+    const length = flat.length();
+    const facing = length > 1e-3 ? flat.dot(outward) / length : 0;
+    if (facing > 0.35) flat.setLength(Math.max(4, length - over / facing));
+    // Seen from behind or ahead, step it sideways onto the course (a little at a time: the rail may bend away).
+    else flat.addScaledVector(outward.clone().setY(0).normalize(), -Math.min(over, 12));
+    // Rise no steeper than a camera high in the stands looks down: past that it simply comes closer.
+    const rise = Math.min(Math.sqrt(Math.max(0, distance ** 2 - flat.lengthSq())), flat.length() * MAX_LOOK_DOWN);
+    offset.set(flat.x, Math.max(height, rise), flat.z);
+  }
+  return offset;
+}
 
 /**
  * Metres to move the camera (and its target) along `tangent` so that the horse furthest towards the
@@ -51,6 +80,8 @@ export function createPackCamera(
   camera: T.PerspectiveCamera,
   controls: OrbitControls,
   canvas?: HTMLCanvasElement,
+  /** Metres a point lies outside the outermost rail (see beyondRailOf): the camera keeps inside it. */
+  beyondRail?: (p: T.Vector3) => number,
 ) {
   let following = true;
   let lastFollowKey = -1;
@@ -192,6 +223,7 @@ export function createPackCamera(
         desired.add(fromOffset(frame));
         packOffset.multiplyScalar(zoom);
       }
+      if (beyondRail) insideRail(desired, packOffset, frame.outward, beyondRail);
       if (following) {
         const snap = first || Math.abs(progress - lastProgress) > 0.03;
         const blended = transition(`${mode}:${mode === 'broadcast' ? shot : 'pack'}:${followKey}`,

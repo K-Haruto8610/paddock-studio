@@ -12,6 +12,7 @@ import {createPackCamera} from './packCamera';
 import type {CameraMode} from './raceCamera';
 import {completeTick, outputSeconds, RACE_FPS} from './raceClock';
 import {cameraFrame, createSceneTimeline} from './sceneTimeline';
+import {beyondRailOf} from './raceAvenue';
 import {createRaceRenderer, PREVIEW_QUALITY, type SceneQuality} from './sceneQuality';
 import {addHorseLabels} from './horseLabels';
 import {addRaceLandscape, addRaceSky, skyEnvironment} from './raceLandscape';
@@ -243,6 +244,7 @@ export default function TrackScene({
     // On soft ground the turf along the inside rail is cut up (ground and blades share the pattern).
     const wear = {amount: turfWearAmount(look, going, courseDay), wet: look.wet};
     const chutes = tokyo ? tokyoChutes(race) : [];
+    const pockets = [...(route.chuteSurface && !tokyo ? [route.chuteSurface] : []), ...chutes.map(c => c.surface)];
     const surface = addCourseSurfaces(scene, courses, terrain, tokyo, route, chutes, wear);
     addRails(scene, courses, track.width, route, race.distance);
     const gate = addMarkers(scene, race, track, route);
@@ -250,7 +252,7 @@ export default function TrackScene({
     addFarGround(scene, floor, look.snowCover);
     const landscape = addRaceLandscape(scene, track, terrain, floor - 1, {
       venueCode: race.venueCode, courses: courses.tracks, turf: courses.turf,
-      pockets: [...(route.chuteSurface && !tokyo ? [route.chuteSurface] : []), ...chutes.map(c => c.surface)],
+      pockets,
       clear: [route.sample(0, track.width + 5).point],
       day: dayOfYear(race.date), look,
       board: {
@@ -402,12 +404,14 @@ export default function TrackScene({
     observer.observe(el);
     resize();
 
-    const packCamera = createPackCamera(camera, controls, renderer.domElement);
+    // The cameras keep inside the outermost rail, in front of the avenue.
+    const beyondRail = beyondRailOf(courses.tracks, pockets);
+    const packCamera = createPackCamera(camera, controls, renderer.domElement, beyondRail);
     const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
     let verificationMotion: boolean | undefined;
     // Hoofprints and kicked-up sand on a dirt course.
     const trail = track.kind === 'dirt' ? addDirtTrail(scene, surface, () => verificationMotion ?? motionPreference.matches) : null;
-    const timeline = createSceneTimeline(race, route, straight, gateBox, trail);
+    const timeline = createSceneTimeline(race, route, straight, gateBox, trail, beyondRail);
     let frame = 0;
     let previousTick = -1;
     let lastFollowKey = state.current.followKey;
