@@ -1,6 +1,6 @@
-"""v3 S1: the solo-run race simulator and the ability encoder (docs/race-simulator-design.md 5.1-5.3, S1).
+"""v3: the race simulator and the ability encoder (docs/race-simulator-design.md 5.1-5.3; S1 solo runs, S2 pace interaction).
 
-Every horse runs the race on the distance axis in steps of DX metres, on its own (S1: no interaction). State: speed v and
+Every horse runs the race on the distance axis in steps of DX metres (S1: on its own; S2: see STAGE). State: speed v and
 the anaerobic reserve E (metres that may still be run above the critical speed, the critical-speed model of exercise
 physiology). Per step:
 
@@ -28,7 +28,20 @@ import torch.nn.functional as F
 import features as ft
 
 DX = 25.0          # metres per step (every JRA distance and every 200 m mark is a multiple of 25 m from the post)
-ABILITIES = ('vc', 'reserve', 'vmax', 'dash', 'intent', 'kick')
+ABILITIES = ('vc', 'reserve', 'vmax', 'dash', 'intent', 'kick', 'wish')
+STAGE = 's2'
+# 's1' solo runs (wish unused). 's2' (design S2, pace interaction): every step each horse sees the field at the same point
+#      of the course (the distance axis: who passed it earlier is ahead):
+#      contention  before its kick a horse behind the place it wishes (wish, 0 = the lead, 1 = last) runs faster than
+#                  its cruise, one ahead of it eases: + CONTEND x tanh((share of the field ahead - wish) / 0.25) m/s,
+#                  so several horses wanting the lead push the pace and spend their reserve (M2 should follow);
+#      shelter     a horse running up to SHELTER_GAP s behind another drains its reserve less (x (1 - SHELTER)); the
+#                  leader has none. How much shelter is worth is learnt (design 5.2: "効くかどうかは学習に任せる").
+SHELTER_GAP = 0.3   # seconds behind the nearest horse ahead (about 1.5 lengths)
+CONTEND_SPAN = 'kick'
+# 'kick'  contention acts until the horse's kick (first S2 runs: ranks fell against S1, most at the 4th corner).
+# 'early' contention acts only through the position-taking stretch after the start (Physics.settle, learnt, 600 m at
+#         first); after it a horse holds its cruise (positions are taken early and then kept).
 
 
 def softmin(x, tau, dim, mask=None):
@@ -56,6 +69,9 @@ class Physics(nn.Module):
         self.e_soft = nn.Parameter(torch.tensor(math.log(15.0)))     # metres of reserve over which the cap falls
         self.kick_width = 40.0
         self.dash = nn.Parameter(torch.tensor(0.0))                  # logit of the shared acceleration (ABILITY_SET 'merged')
+        self.contend = nn.Parameter(torch.tensor(math.log(math.e ** 0.3 - 1)))  # softplus -> m/s per unit of wish gap (S2)
+        self.shelter = nn.Parameter(torch.tensor(-1.0))              # logit; drain saved in shelter = 0.5 sigmoid (S2)
+        self.settle = nn.Parameter(torch.tensor(math.log(600.0)))    # metres of position taking (CONTEND_SPAN 'early')
 
     def par(self, course, surface, going, log_dist, cls):
         s = surface.long()
@@ -83,12 +99,26 @@ def physical(z, par, physics=None):
         kick = (W * vmax / (vmax - vc)).clamp(150, 1500)
     else:
         dash, kick = 3 + 5 * torch.sigmoid(z[..., 3]), 200 + 800 * torch.sigmoid(z[..., 5])
-    return {'vc': vc, 'reserve': W, 'vmax': vmax, 'dash': dash, 'intent': 0.8 * torch.tanh(z[..., 4]), 'kick': kick}
+    return {'vc': vc, 'reserve': W, 'vmax': vmax, 'dash': dash, 'intent': 0.8 * torch.tanh(z[..., 4]), 'kick': kick,
+            'wish': torch.sigmoid(z[..., 6])}
 
 
-def run(ab, physics, distance, steps):
-    """Solo runs. ab: abilities [B, H] each; distance [B] (m); steps = max steps in the batch.
-    Returns t [B, H, steps + 1]: elapsed time at every DX mark from the start."""
+def field_view(t, present):
+    """At the current point: share of the (present) field ahead of each horse, and the time gap to the nearest horse
+    ahead (large for the leader). t [B, H] times at this point; present [B, H] bool."""
+    d = t[:, :, None] - t[:, None, :]                       # [b, i, j] > 0: j passed earlier (ahead of i)
+    other = present[:, None, :] & present[:, :, None] & ~torch.eye(t.shape[1], dtype=torch.bool, device=t.device)
+    ahead = torch.sigmoid(d / 0.1) * other
+    n = (other.sum(2) .clamp(min=1)).float()
+    share = ahead.sum(2) / n
+    gap = d + 10 * (1 - torch.sigmoid(d / 0.02))            # horses behind count as far away
+    gap = softmin(gap, 0.02, 2, other)
+    return share, gap
+
+
+def run(ab, physics, distance, steps, present=None):
+    """Runs of a field. ab: abilities [B, H] each; distance [B] (m); steps = max steps in the batch; present [B, H] (S2:
+    who is in the field). Returns t [B, H, steps + 1]: elapsed time at every DX mark from the start."""
     B, H = ab['vc'].shape
     relax = torch.exp(physics.relax)
     keep = torch.exp(-DX / relax)
@@ -100,11 +130,24 @@ def run(ab, physics, distance, steps):
     kick_at = distance[:, None] - ab['kick']                      # metres from the start where the kick starts
     v = torch.zeros(B, H, device=vc.device)
     E = W
+    s2 = STAGE == 's2'
+    if s2:
+        present = torch.ones(B, H, dtype=torch.bool, device=vc.device) if present is None else present
+        contend = F.softplus(physics.contend)
+        save = 0.5 * torch.sigmoid(physics.shelter)
     t = [torch.zeros(B, H, device=vc.device)]
     for j in range(steps):
         x = (j + 0.5) * DX
         k = torch.sigmoid((x - kick_at) / physics.kick_width)
-        wanted = cruise + k * (vmax - cruise)
+        base = cruise
+        if s2:
+            share, gap = field_view(t[-1], present)
+            push = contend * torch.tanh((share - ab['wish']) / 0.25)
+            if CONTEND_SPAN == 'early':
+                push = push * torch.sigmoid((torch.exp(physics.settle) - x) / 50)
+            base = cruise + push
+            drain = 1 - save * torch.sigmoid((SHELTER_GAP - gap) / 0.05)
+        wanted = base + k * (vmax - base)
         e_pos = F.softplus(E / 2) * 2
         cap = vc - fat + (vmax - vc + fat) * (1 - torch.exp(-e_pos / esoft))
         target = softmin(torch.stack([wanted, cap]), 0.1, 0)
@@ -115,7 +158,7 @@ def run(ab, physics, distance, steps):
         vm = 0.5 * (v + v_new)
         dt = DX / vm.clamp(min=1.0)
         above = vm - vc
-        E = torch.minimum(E - F.relu(above) * dt + rec * F.relu(-above) * dt, W)
+        E = torch.minimum(E - F.relu(above) * dt * (drain if s2 else 1) + rec * F.relu(-above) * dt, W)
         t.append(t[-1] + dt)
         v = v_new
     return torch.stack(t, -1)
@@ -161,7 +204,7 @@ class Model(nn.Module):
 
     def forward(self, b):
         ab = self.abilities(b)
-        return run(ab, self.physics, b['distance'], int(b['steps'].max())), ab
+        return run(ab, self.physics, b['distance'], int(b['steps'].max()), b['present']), ab
 
 
 def read_out(t, b):

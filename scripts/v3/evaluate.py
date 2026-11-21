@@ -34,8 +34,21 @@ def actuals():
     return runs.set_index(['RACE_CODE', 'UMABAN'])
 
 
-def table(name, window, seed, act):
-    base = pd.read_pickle(OUT / f'v20_{window}_seed{seed}.pkl')
+def as_base(name, window, seed):
+    """A v3 run in the columns of a v2.0 baseline file (so a later stage can be compared with an earlier one)."""
+    v20 = pd.read_pickle(OUT / f'v20_{window}_seed{seed}.pkl')
+    corners = v20.drop_duplicates('RACE_CODE').set_index('RACE_CODE').corners
+    v = pd.read_pickle(OUT / f'{name}_{window}_seed{seed}.pkl')
+    v = v[v.RACE_CODE.isin(corners.index)].copy()
+    v['corners'] = v.RACE_CODE.map(corners)
+    v['finSeconds'] = v['T'] - v.groupby('RACE_CODE')['T'].transform('min')
+    for c in (1, 2, 3, 4):
+        v[f'rank{c}'] = v[f'ct{c}']
+    return v
+
+
+def table(name, window, seed, act, base_name='v20'):
+    base = pd.read_pickle(OUT / f'v20_{window}_seed{seed}.pkl') if base_name == 'v20' else as_base(base_name, window, seed)
     v3 = pd.read_pickle(OUT / f'{name}_{window}_seed{seed}.pkl')
     common = sorted(set(base.RACE_CODE) & set(v3.RACE_CODE))
     tab = es.RaceTable()
@@ -78,7 +91,12 @@ def table(name, window, seed, act):
 
 
 def main():
-    names = sys.argv[1:] or ['s1_named']
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument('names', nargs='+')
+    ap.add_argument('--base', default='v20', help="'v20' or an earlier v3 run name (e.g. s1_all_g); its columns show as 'v20'")
+    args = ap.parse_args()
+    names = args.names
     act = actuals()
     res = {}
     for name in names:
@@ -86,7 +104,9 @@ def main():
             for seed in SEEDS:
                 if not (OUT / f'{name}_{window}_seed{seed}.pkl').exists():
                     continue
-                r = table(name, window, seed, act)
+                if args.base != 'v20' and not (OUT / f'{args.base}_{window}_seed{seed}.pkl').exists():
+                    continue
+                r = table(name, window, seed, act, args.base)
                 res[f'{name}/{window}/seed{seed}'] = r
                 line = [f'{name:10} {window} seed {seed:2d} races {r["races"]:3d}']
                 for m in ('last3', 'finTau', 'finGap', 'winner', 'r1.tau', 'r3.tau', 'r4.tau'):
@@ -94,7 +114,7 @@ def main():
                         d = r[m]['diff']
                         line.append(f'{m} {r[m]["v20"]:.3f}->{r[m]["v3"]:.3f} ({d["diff"]:+.3f} [{d["lo"]:+.3f},{d["hi"]:+.3f}])')
                 print('  '.join(line))
-    (OUT / f'eval_{"_".join(names)}.json').write_text(json.dumps(res, indent=1, default=float), encoding='utf-8')
+    (OUT / f'eval_{"_".join(names)}{"" if args.base == "v20" else "_vs_" + args.base}.json').write_text(json.dumps(res, indent=1, default=float), encoding='utf-8')
 
 
 if __name__ == '__main__':

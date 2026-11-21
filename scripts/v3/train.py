@@ -169,10 +169,11 @@ def predict(model, data, size=96):
         b = data.batch(ks)
         t, ab = model(b)
         T, t600, last3, corners, lead = sim.read_out(t, b)
+        lead600 = sim.softmin(t[:, :, int(600 / sim.DX)], 0.05, 1, b['present'])   # the leader's time at 600 m (M2 check)
         for bi, k in enumerate(ks):
             for h in np.flatnonzero(data.present[k]):
                 r = {'RACE_CODE': data.codes[k], 'UMABAN': int(data.umaban[k, h]), 'T': float(T[bi, h]), 't600': float(t600[bi, h]),
-                     'last3': float(last3[bi, h])}
+                     'last3': float(last3[bi, h]), 'lead600': float(lead600[bi])}
                 for c in range(4):
                     r[f'ct{c + 1}'] = float(corners[bi, h, c]) if data.corner_idx[k, c] >= 0 else np.nan
                 for a in sim.ABILITIES:
@@ -214,14 +215,15 @@ def cmd_real(args):
     log = []
     best = fit(model, train, val, args.seed, log=log, max_epochs=args.epochs, size=args.batch)
     pred = predict(model, ev)
-    name = f's1_{args.pool}{args.tag}_{args.window}_seed{args.seed}'
+    name = f'{args.stage}_{args.pool}{args.tag}_{args.window}_seed{args.seed}'
     pred.to_pickle(OUT / f'{name}.pkl')
     torch.save(model.state_dict(), OUT / f'{name}.pt')
     ph = model.physics
     info = {'best_val': best, 'log': log, 'train_races': len(train_codes), 'val_races': len(val_codes), 'eval_races': len(eval_codes),
             'physics': {'relax_m': float(torch.exp(ph.relax)), 'recovery': float(torch.sigmoid(ph.recovery)),
                         'fatigue_ms': float(torch.exp(ph.fatigue)), 'e_soft_m': float(torch.exp(ph.e_soft)),
-                        'dash_ms2': float(3 + 5 * torch.sigmoid(ph.dash)), 'abilitySet': sim.ABILITY_SET, 'loss': sim.LOSS,
+                        'dash_ms2': float(3 + 5 * torch.sigmoid(ph.dash)), 'stage': sim.STAGE, 'span': sim.CONTEND_SPAN, 'settle_m': float(torch.exp(ph.settle)),
+                        'contend_ms': float(torch.nn.functional.softplus(ph.contend)), 'shelter_save': float(0.5 * torch.sigmoid(ph.shelter)), 'abilitySet': sim.ABILITY_SET, 'loss': sim.LOSS,
                         'dist_slope': ph.dist_slope.tolist(), 'surface0': ph.surface0.tolist(), 'cls_slope': float(ph.cls_slope)}}
     (OUT / f'{name}.json').write_text(json.dumps(info, indent=1), encoding='utf-8')
     print('wrote', name, flush=True)
@@ -322,7 +324,7 @@ def cmd_synthetic(args):
     hist = np.array([test.M[test.rowpos[i]].any() for i in rr.set_index(['RACE_CODE', 'UMABAN']).index.get_indexer(list(zip(pred.RACE_CODE, pred.UMABAN)))])
     res = {'horses': n_horses, 'runsPerHorse': per_horse, 'testRows': int(hist.sum()), 'noise_s': 0.15, 'corr': {}}
     for a in sim.ABILITIES:
-        if sim.ABILITY_SET == 'merged' and a == 'dash':
+        if (sim.ABILITY_SET == 'merged' and a == 'dash') or (sim.STAGE == 's1' and a == 'wish'):
             continue
         tv = truth[a].numpy()[hist]
         pv = pred[f'ab_{a}'].to_numpy()[hist]
@@ -332,11 +334,11 @@ def cmd_synthetic(args):
         res['corr'][a] = float(np.corrcoef(tv, pv)[0, 1])
         print(f'{a:8} corr(true, recovered) {res["corr"][a]:+.3f}')
     # pairwise: which abilities the records cannot tell apart (correlated errors)
-    names = [a for a in sim.ABILITIES if not (sim.ABILITY_SET == 'merged' and a == 'dash')]
+    names = [a for a in sim.ABILITIES if not ((sim.ABILITY_SET == 'merged' and a == 'dash') or (sim.STAGE == 's1' and a == 'wish'))]
     errs = np.column_stack([(pred[f'ab_{a}'].to_numpy() - truth[a].numpy())[hist] for a in names])
     res['abilitySet'], res['errorCorrNames'] = sim.ABILITY_SET, names
     res['errorCorr'] = np.round(np.corrcoef(errs.T), 3).tolist()
-    out = OUT / f's1_recovery{args.tag}_seed{args.seed}.json'
+    out = OUT / f'{args.stage}_recovery{args.tag}_seed{args.seed}.json'
     out.write_text(json.dumps(res, indent=1), encoding='utf-8')
     print('wrote', out)
 
@@ -351,11 +353,13 @@ def main():
     ap.add_argument('--horses', type=int, default=3000)
     ap.add_argument('--loss', choices=['absolute', 'centred'], default='centred')
     ap.add_argument('--abilities', choices=['six', 'merged'], default='six')
-    ap.add_argument('--device', choices=['cpu', 'cuda'], default='cpu')
+    ap.add_argument('--stage', choices=['s1', 's2'], default='s2')
+    ap.add_argument('--span', choices=['kick', 'early'], default='kick', help='S2 contention span (sim.CONTEND_SPAN)')
+    ap.add_argument('--device', choices=['cpu', 'cuda'], default='cuda')
     ap.add_argument('--batch', type=int, default=32, help='races per training batch')
     ap.add_argument('--tag', default='', help='suffix of the run name (outputs/v3/s1_<pool><tag>_...)')
     args = ap.parse_args()
-    sim.LOSS, sim.ABILITY_SET = args.loss, args.abilities
+    sim.LOSS, sim.ABILITY_SET, sim.STAGE, sim.CONTEND_SPAN = args.loss, args.abilities, args.stage, args.span
     global DEVICE
     DEVICE = torch.device(args.device)
     if args.device == 'cuda':
