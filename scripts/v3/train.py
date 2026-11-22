@@ -263,6 +263,12 @@ def new_model(args, X, C):
         state = torch.load(OUT / f'{args.init}.pt', map_location=DEVICE)
         missing, _ = model.load_state_dict(state, strict=False)
         print(f'warm start from {args.init} (new: {missing})', flush=True)
+    if args.freeze:
+        fixed = set(args.freeze.split(','))
+        for name, p in model.named_parameters():
+            if name.split('.')[-1] in fixed:
+                p.requires_grad = False
+        print('frozen at the --init values', {n: float(p) for n, p in model.named_parameters() if not p.requires_grad and p.numel() == 1}, flush=True)
     if args.train_only:
         keep = set(args.train_only.split(','))
         for name, p in model.named_parameters():
@@ -294,7 +300,7 @@ def cmd_real(args):
                         'contend_ms': float(torch.nn.functional.softplus(ph.contend)), 'shelter_save': float(0.5 * torch.sigmoid(ph.shelter)), 'abilitySet': sim.ABILITY_SET, 'loss': sim.LOSS,
                         'hold': float(torch.sigmoid(ph.hold)), 'traffic': sim.TRAFFIC, 'init': args.init,
                         'samples': sim.SAMPLES, 'predSamples': PRED_SAMPLES, 'form': sim.FORM, 'start': sim.START, 'wishn': sim.WISHN, 'read': sim.READ,
-                        'trainOnly': args.train_only, 'gap_scale': float(torch.exp(ph.gap_scale)),
+                        'trainOnly': args.train_only, 'freeze': args.freeze, 'gap_scale': float(torch.exp(ph.gap_scale)),
                         'dist_slope': ph.dist_slope.tolist(), 'surface0': ph.surface0.tolist(), 'cls_slope': float(ph.cls_slope)}}
     (OUT / f'{name}.json').write_text(json.dumps(info, indent=1), encoding='utf-8')
     print('wrote', name, flush=True)
@@ -539,6 +545,7 @@ def main():
     ap.add_argument('--start', type=float, default=0.0, help='scale of the start delay, s (sim.START)')
     ap.add_argument('--wishn', type=float, default=0.0, help='sd of the wished place, logits (sim.WISHN)')
     ap.add_argument('--read', choices=['mean', 'run'], default='mean', help='training losses on averaged runs or per run (sim.READ)')
+    ap.add_argument('--freeze', default='', help='comma list of parameter names kept at the --init values (e.g. contend,settle)')
     ap.add_argument('--calib', choices=['form', 'wish'], default='form', help='calibrate: which noise sizes')
     ap.add_argument('--train-only', default='', help='comma list of parameter names to train, the rest frozen '
                                                      '(e.g. hold,gap_scale: S3 on a deterministic model)')
