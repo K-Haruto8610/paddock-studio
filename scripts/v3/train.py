@@ -129,6 +129,8 @@ def fit(model, train, val, seed, max_epochs=40, patience=8, lr=2e-3, size=32, lo
     best, best_state, bad = np.inf, None, 0
     for ep in range(max_epochs):
         model.train()
+        if getattr(model, 'frozen_encoder', False):
+            model.encoder.eval()
         t0, tot = time.time(), []
         for ks in train.batches(size, rng):
             b = train.batch(ks)
@@ -261,6 +263,12 @@ def new_model(args, X, C):
         state = torch.load(OUT / f'{args.init}.pt', map_location=DEVICE)
         missing, _ = model.load_state_dict(state, strict=False)
         print(f'warm start from {args.init} (new: {missing})', flush=True)
+    if args.train_only:
+        keep = set(args.train_only.split(','))
+        for name, p in model.named_parameters():
+            p.requires_grad = name.split('.')[-1] in keep
+        model.frozen_encoder = True   # its dropout stays off in fit (the abilities are the --init model's)
+        print('training only', sorted(n for n, p in model.named_parameters() if p.requires_grad), flush=True)
     return model
 
 
@@ -285,57 +293,113 @@ def cmd_real(args):
                         'dash_ms2': float(3 + 5 * torch.sigmoid(ph.dash)), 'stage': sim.STAGE, 'span': sim.CONTEND_SPAN, 'settle_m': float(torch.exp(ph.settle)), 'wish': sim.WISH, 'wish_scale': float(torch.exp(ph.wish_scale)),
                         'contend_ms': float(torch.nn.functional.softplus(ph.contend)), 'shelter_save': float(0.5 * torch.sigmoid(ph.shelter)), 'abilitySet': sim.ABILITY_SET, 'loss': sim.LOSS,
                         'hold': float(torch.sigmoid(ph.hold)), 'traffic': sim.TRAFFIC, 'init': args.init,
-                        'samples': sim.SAMPLES, 'predSamples': PRED_SAMPLES, 'form': sim.FORM, 'start': sim.START, 'gap_scale': float(torch.exp(ph.gap_scale)),
+                        'samples': sim.SAMPLES, 'predSamples': PRED_SAMPLES, 'form': sim.FORM, 'start': sim.START, 'wishn': sim.WISHN,
+                        'trainOnly': args.train_only, 'gap_scale': float(torch.exp(ph.gap_scale)),
                         'dist_slope': ph.dist_slope.tolist(), 'surface0': ph.surface0.tolist(), 'cls_slope': float(ph.cls_slope)}}
     (OUT / f'{name}.json').write_text(json.dumps(info, indent=1), encoding='utf-8')
     print('wrote', name, flush=True)
 
 
+LPS = 5.0   # lengths per second for the corner width of the runs (the fixed conversion of the reports, not learnt)
+
+
 @torch.no_grad()
-def spread(model, data, K, size=48):
-    """Median over races of the within-race sd (normal finishers) of the 600 m-mark time and of the finish time:
-    of the runs (mean over the K runs of a race) and of the records."""
+def spread(model, data, K, size=48, solo=None):
+    """Within-race spread of the runs and of the records, medians over races (normal finishers; corners: horses with a
+    passing-string gap): sd of the 600 m-mark time and the finish time (s), sd at corners 3 and 4 (lengths; the runs'
+    seconds behind the corner leader x LPS), and (S3, `solo` = {(code, umaban, corner): label}) the share of horses
+    running alone (lane 0) at corners 3 and 4. Each run is measured on its own, then averaged over the K runs."""
+    import evaluate as ev
     model.eval()
     gen = torch.Generator(device=DEVICE).manual_seed(777)
-    p6, pT, a6, aT = [], [], [], []
+    out = {k: [] for k in ('p600', 'pT', 'a600', 'aT', 'p3', 'p4', 'a3', 'a4', 'z3', 'z4', 'y3', 'y4')}
     for ks in data.batches(size):
         b = data.batch(ks)
         t, _ = model(b, samples=K, gen=gen)
-        Tk, t6k, *_ = sim.read_out(t, sim.repeat_batch(b, K))
-        Tk, t6k = Tk.view(K, len(ks), -1).cpu().numpy(), t6k.view(K, len(ks), -1).cpu().numpy()
+        bk = sim.repeat_batch(b, K)
+        Tk, t6k, _, ck, _ = sim.read_out(t, bk)
+        n = len(ks)
+        Tk, t6k = Tk.view(K, n, -1).cpu().numpy(), t6k.view(K, n, -1).cpu().numpy()
+        ck = ck.view(K, n, *ck.shape[1:]).cpu().numpy()
+        yk = None
+        if model.y is not None:
+            idx = bk['corner_idx'][:, None, :].expand(t.shape[0], t.shape[1], 4).clamp(min=0)
+            yk = torch.gather(model.y, 2, idx).view(K, n, t.shape[1], 4).cpu().numpy()
         m = (b['m_T'] & b['m_t600']).cpu().numpy()
         yT, y6 = b['y_T'].cpu().numpy(), b['y_t600'].cpu().numpy()
-        for bi in range(len(ks)):
+        yg, mg = b['y_gap'].cpu().numpy(), b['m_gap'].cpu().numpy()
+        for bi, k in enumerate(ks):
             mm = m[bi]
-            if mm.sum() < 5:
-                continue
-            p6.append(t6k[:, bi, mm].std(1, ddof=1).mean())
-            pT.append(Tk[:, bi, mm].std(1, ddof=1).mean())
-            a6.append(y6[bi, mm].std(ddof=1))
-            aT.append(yT[bi, mm].std(ddof=1))
-    return float(np.median(p6)), float(np.median(pT)), float(np.median(a6)), float(np.median(aT))
+            if mm.sum() >= 5:
+                out['p600'].append(t6k[:, bi, mm].std(1, ddof=1).mean())
+                out['pT'].append(Tk[:, bi, mm].std(1, ddof=1).mean())
+                out['a600'].append(y6[bi, mm].std(ddof=1))
+                out['aT'].append(yT[bi, mm].std(ddof=1))
+            hs = np.flatnonzero(data.present[k])
+            for c in (2, 3):
+                if data.corner_idx[k, c] < 0:
+                    continue
+                g = mg[bi, hs, c]
+                if g.sum() >= 5:
+                    out[f'p{c + 1}'].append(np.mean([((ck[j, bi, hs, c] - ck[j, bi, hs, c].min()) * LPS)[g].std(ddof=1)
+                                                     for j in range(K)]))
+                    out[f'a{c + 1}'].append(yg[bi, hs, c][g].std(ddof=1))
+                if yk is not None and solo is not None:
+                    lab = np.array([solo.get((data.codes[k], int(data.umaban[k, h]), c + 1), np.nan) for h in hs])
+                    ok = ~np.isnan(lab)
+                    if ok.sum() >= 5:
+                        runs = [ev.v3_lanes(ck[j, bi, hs, c], yk[j, bi, hs, c]) for j in range(K)]
+                        out[f'z{c + 1}'].append(np.mean([np.mean(l[ok] == 0) for l in runs]))
+                        out[f'y{c + 1}'].append(np.mean(lab[ok] == 0))
+    med = lambda x: float(np.median(x)) if x else float('nan')
+    mean = lambda x: float(np.mean(x)) if x else float('nan')
+    return {'sd600': med(out['p600']), 'sdT': med(out['pT']), 'actual600': med(out['a600']), 'actualT': med(out['aT']),
+            'c3': med(out['p3']), 'c4': med(out['p4']), 'actual3': med(out['a3']), 'actual4': med(out['a4']),
+            'solo3': mean(out['z3']), 'solo4': mean(out['z4']),
+            'actualSolo3': mean(out['y3']), 'actualSolo4': mean(out['y4'])}
 
 
 def cmd_calibrate(args):
-    """FORM and START so the runs' within-race spread matches the records' (median sd at the 600 m mark and at the
-    finish), on races before the window's fit date only (1,500 training races + the validation races). No score is used."""
+    """Noise sizes so the runs' within-race spread matches the records', on races before the window's fit date only.
+    No score is used.
+      --calib form  FORM x START grid on 1,500 training + the validation races; target: the sd at the 600 m mark and at
+                    the finish (first stochastic runs, 2026-11-22)
+      --calib wish  FORM and START as given (--form --start), WISHN grid on 600 training + the validation races; the
+                    target adds the sd at corners 3 and 4 and (S3) the share running alone there"""
     torch.manual_seed(args.seed)
     mk, train_codes, val_codes, eval_codes, X, C = prepare(args)
     rng = np.random.default_rng(args.seed)
-    codes = list(rng.choice(train_codes, 1500, replace=False)) + list(val_codes)
+    n = 1500 if args.calib == 'form' else 600
+    codes = list(rng.choice(train_codes, n, replace=False)) + list(val_codes)
     data = mk(codes)
     model = new_model(args, X, C)
+    solo = None
+    if args.calib == 'wish' and sim.STAGE == 's3':
+        lab = pd.read_pickle(OUT / 'lanes.pkl')
+        lab = lab[lab.RACE_CODE.isin(set(codes))]
+        solo = {(a, int(u), c): v for c in (3, 4) for a, u, v in zip(lab.RACE_CODE, lab.UMABAN, lab[f'l{c}']) if v == v}
+    rel = lambda p, a: (p / a - 1) ** 2
+    if args.calib == 'form':
+        cells = [(f, st, 0.0) for f in (0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4) for st in (0.0, 0.2, 0.4, 0.7, 1.0)]
+    else:
+        cells = [(sim.FORM, sim.START, w) for w in (0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0)]
     grid = []
-    for form in (0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4):
-        for start in (0.0, 0.2, 0.4, 0.7, 1.0):
-            sim.FORM, sim.START = form, start
-            p6, pT, a6, aT = spread(model, data, 8)
-            err = (p6 / a6 - 1) ** 2 + (pT / aT - 1) ** 2
-            grid.append({'form': form, 'start': start, 'sd600': p6, 'sdT': pT, 'actual600': a6, 'actualT': aT, 'err': err})
-            print(f'form {form:.2f} start {start:.1f}  sd600 {p6:.3f} (actual {a6:.3f})  sdT {pT:.3f} (actual {aT:.3f})  err {err:.4f}', flush=True)
+    for form, start, wn in cells:
+        sim.FORM, sim.START, sim.WISHN = form, start, wn
+        r = spread(model, data, 8, solo=solo)
+        err = rel(r['sd600'], r['actual600']) + rel(r['sdT'], r['actualT'])
+        if args.calib == 'wish':
+            err += rel(r['c3'], r['actual3']) + rel(r['c4'], r['actual4'])
+            if solo is not None:
+                err += rel(r['solo3'], r['actualSolo3']) + rel(r['solo4'], r['actualSolo4'])
+        r.update({'form': form, 'start': start, 'wishn': wn, 'err': err})
+        grid.append(r)
+        print(' '.join(f'{k} {v:.3f}' for k, v in r.items()), flush=True)
     best = min(grid, key=lambda g: g['err'])
     print('best', best, flush=True)
-    (OUT / f'calib_{args.init}.json').write_text(json.dumps({'best': best, 'grid': grid, 'races': len(codes)}, indent=1), encoding='utf-8')
+    suffix = '' if args.calib == 'form' else '_wish'
+    (OUT / f'calib{suffix}_{args.init}.json').write_text(json.dumps({'best': best, 'grid': grid, 'races': len(codes)},
+                                                                    indent=1), encoding='utf-8')
 
 
 # --- recovery test --------------------------------------------------------------------------------------------
@@ -473,15 +537,19 @@ def main():
     ap.add_argument('--pred-samples', type=int, default=0, help='runs per race when predicting (default 32 if stochastic, else 1)')
     ap.add_argument('--form', type=float, default=0.0, help='sd of the day form, m/s (sim.FORM)')
     ap.add_argument('--start', type=float, default=0.0, help='scale of the start delay, s (sim.START)')
+    ap.add_argument('--wishn', type=float, default=0.0, help='sd of the wished place, logits (sim.WISHN)')
+    ap.add_argument('--calib', choices=['form', 'wish'], default='form', help='calibrate: which noise sizes')
+    ap.add_argument('--train-only', default='', help='comma list of parameter names to train, the rest frozen '
+                                                     '(e.g. hold,gap_scale: S3 on a deterministic model)')
     ap.add_argument('--device', choices=['cpu', 'cuda'], default='cuda')
     ap.add_argument('--batch', type=int, default=32, help='races per training batch')
     ap.add_argument('--tag', default='', help='suffix of the run name (outputs/v3/s1_<pool><tag>_...)')
     args = ap.parse_args()
     sim.LOSS, sim.ABILITY_SET, sim.STAGE, sim.CONTEND_SPAN, sim.WISH = args.loss, args.abilities, args.stage, args.span, args.wish
     sim.TRAFFIC = args.traffic
-    sim.SAMPLES, sim.FORM, sim.START = args.samples, args.form, args.start
+    sim.SAMPLES, sim.FORM, sim.START, sim.WISHN = args.samples, args.form, args.start, args.wishn
     global PRED_SAMPLES
-    PRED_SAMPLES = args.pred_samples or (32 if (args.form > 0 or args.start > 0) else 1)
+    PRED_SAMPLES = args.pred_samples or (32 if (args.form > 0 or args.start > 0 or args.wishn > 0) else 1)
     global DEVICE  # noqa
     DEVICE = torch.device(args.device)
     if args.device == 'cuda':

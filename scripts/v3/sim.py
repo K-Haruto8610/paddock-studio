@@ -69,6 +69,12 @@ TRAFFIC = 'full'
 # on each sampled run; the read-outs (times, corner times, gaps behind the corner leader, the leader's marks) are taken
 # per run and only then averaged. SAMPLES 1 and FORM = START = 0 are the deterministic runs of S1-S3.
 SAMPLES, FORM, START = 1, 0.0, 0.0
+# WISHN (2026-11-23, after the first stochastic runs: FORM widens the field in proportion to distance, so the corners
+# stayed at 0.5-0.8 of the measured width while 600 m and the finish matched): each horse's wished place in each run,
+# logit(wish) + WISHN x N(0, 1), one draw for the run. It acts only through the contention of the position-taking
+# stretch; a horse that pushed forward spends reserve and one that eased saves it, so the spread it makes early partly
+# closes by the finish. Calibrated with FORM and START kept, on the corner 3 / 4 width and the share running alone.
+WISHN = 0.0
 # 'full'  the rules above (first S3 runs, 2026-11-22: lanes 3-5x the constant-0 error and the 4th-corner order -0.09 tau
 #         against S2; the point forecast's field is 0.35-0.6 of the real spread, so the rules fire far too often)
 # 'none'  no blocking: lanes, no overlap and the corner distance only (is the geometry alone worth anything?)
@@ -295,6 +301,9 @@ class Model(nn.Module):
         B, H = ab['vc'].shape
         abk = {a: x.repeat(K, 1) for a, x in ab.items()}
         t0 = None
+        if WISHN > 0 and STAGE in ('s2', 's3'):
+            eta = torch.randn(K * B, H, device=ab['vc'].device, generator=gen)
+            abk['wish'] = torch.sigmoid(torch.logit(abk['wish'].clamp(1e-4, 1 - 1e-4)) + WISHN * eta)
         if FORM > 0 or START > 0:
             dev = ab['vc'].device
             eps = torch.randn(K * B, H, device=dev, generator=gen)
