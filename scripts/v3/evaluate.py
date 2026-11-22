@@ -11,6 +11,12 @@ v2.0's (baseline_v20.py) on the races both scored (rep: v1.6's 273 races) and th
   winner     share of races whose predicted winner won
   r<c>.tau   within-race Kendall tau of the corner order (v2.0 = its published formation) on the corners v2.0 scores
              (S1 may lose on these: no interaction yet)
+  g<c>       MAE of the lengths behind the corner's leader against the passing string (data.py g1..g4); v2.0 = its
+             published formation's gap; v3 = its corner times x the learnt lengths per second (S1/S2 runs: x 5)
+  l<c>       (S3 runs) MAE of the lane inside the abreast group (lanes.py, E0's label) against the constant-0 forecast:
+             'v20' columns are the constant 0 here (design S3: lanes must beat the constant, v2.0 itself does not).
+             v3's lane: horses whose corner times chain within ABREAST s form a group; the lane is the place of the
+             horse's lateral position y in its group, from the inside
 Differences are v3 - v2.0 with a 95% race-paired bootstrap interval (2,000 draws).
 """
 import json
@@ -27,11 +33,36 @@ import eval_standard as es  # noqa: E402
 ROOT = HERE.parents[1]
 OUT = ROOT / 'outputs' / 'v3'
 SEEDS = (42, 7)
+ABREAST = 0.1   # seconds: horses closer than this at a corner are one abreast group (the passing string's brackets)
 
 
 def actuals():
     runs = pd.read_pickle(OUT / 'runs.pkl')
+    lanes = pd.read_pickle(OUT / 'lanes.pkl')
+    runs = runs.merge(lanes, on=['RACE_CODE', 'UMABAN'], how='left')
     return runs.set_index(['RACE_CODE', 'UMABAN'])
+
+
+def v3_lengths(v, c):
+    if f'gl{c}' in v:
+        return v[f'gl{c}'].to_numpy()
+    ct = v[f'ct{c}'].to_numpy()
+    return (ct - np.nanmin(ct)) * 5.0
+
+
+def v3_lanes(ct, y):
+    """Lane inside the abreast group from corner times and lateral positions (0 = innermost or alone)."""
+    order = np.argsort(ct)
+    lane = np.zeros(len(ct))
+    group = [order[0]]
+    for a, b in zip(order[:-1], order[1:]):
+        if ct[b] - ct[a] < ABREAST:
+            group.append(b)
+            continue
+        lane[group] = np.argsort(np.argsort(y[group], kind='stable'), kind='stable')
+        group = [b]
+    lane[group] = np.argsort(np.argsort(y[group], kind='stable'), kind='stable')
+    return lane
 
 
 def as_base(name, window, seed):
@@ -44,6 +75,7 @@ def as_base(name, window, seed):
     v['finSeconds'] = v['T'] - v.groupby('RACE_CODE')['T'].transform('min')
     for c in (1, 2, 3, 4):
         v[f'rank{c}'] = v[f'ct{c}']
+        v[f'gap{c}'] = v.groupby('RACE_CODE', group_keys=False).apply(lambda g: pd.Series(v3_lengths(g, c), index=g.index))
     return v
 
 
@@ -82,8 +114,17 @@ def table(name, window, seed, act, base_name='v20'):
                 continue
             tab.add_value(f'r{c}.tau', 'v20', code, es.kendall(b.loc[nums, f'rank{c}'].to_numpy(), y))
             tab.add_value(f'r{c}.tau', 'v3', code, es.kendall(ct, y))
+            g = a[f'g{c}'].to_numpy()
+            if not np.isnan(g).any():
+                tab.add(f'g{c}', 'v20', code, np.abs(b.loc[nums, f'gap{c}'].to_numpy() - g), keys)
+                tab.add(f'g{c}', 'v3', code, np.abs(v3_lengths(v.loc[nums], c) - g), keys)
+            lab = a[f'l{c}'].to_numpy()
+            if f'y{c}' in v and not np.isnan(lab).any():
+                tab.add(f'l{c}', 'v20', code, np.abs(lab), keys)
+                tab.add(f'l{c}', 'v3', code, np.abs(v3_lanes(ct, v.loc[nums, f'y{c}'].to_numpy()) - lab), keys)
     out = {'races': len(common), 'baseRaces': int(base.RACE_CODE.nunique()), 'v3Races': int(v3.RACE_CODE.nunique())}
-    for m in ['last3', 'finTau', 'finGap', 'winner'] + [f'r{c}.tau' for c in (1, 2, 3, 4)]:
+    for m in ['last3', 'finTau', 'finGap', 'winner'] + [f'{k}{c}' for k in ('r', 'g', 'l') for c in (1, 2, 3, 4)]:
+        m = m.replace('r1', 'r1.tau').replace('r2', 'r2.tau').replace('r3', 'r3.tau').replace('r4', 'r4.tau') if m[0] == 'r' else m
         if (m, 'v3') not in tab.rows:
             continue
         out[m] = {'v20': tab.mean(m, 'v20'), 'v3': tab.mean(m, 'v3'), 'diff': tab.diff(m, 'v3', 'v20')}
@@ -109,7 +150,7 @@ def main():
                 r = table(name, window, seed, act, args.base)
                 res[f'{name}/{window}/seed{seed}'] = r
                 line = [f'{name:10} {window} seed {seed:2d} races {r["races"]:3d}']
-                for m in ('last3', 'finTau', 'finGap', 'winner', 'r1.tau', 'r3.tau', 'r4.tau'):
+                for m in ('last3', 'finTau', 'finGap', 'winner', 'r1.tau', 'r3.tau', 'r4.tau', 'g3', 'g4', 'l3', 'l4'):
                     if m in r:
                         d = r[m]['diff']
                         line.append(f'{m} {r[m]["v20"]:.3f}->{r[m]["v3"]:.3f} ({d["diff"]:+.3f} [{d["lo"]:+.3f},{d["hi"]:+.3f}])')

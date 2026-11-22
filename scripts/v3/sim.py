@@ -47,6 +47,24 @@ WISH = 'free'
 # 'kick'  contention acts until the horse's kick (first S2 runs: ranks fell against S1, most at the 4th corner).
 # 'early' contention acts only through the position-taking stretch after the start (Physics.settle, learnt, 600 m at
 #         first); after it a horse holds its cruise (positions are taken early and then kept).
+# 's3' (design S3, lanes and traffic; everything of 's2' too): every horse also has a lateral position y (metres outside
+#      the innermost path). The rules are geometry and fixed, not learnt (design 8, M3: lanes are not learnable from the
+#      records); y is computed without gradients:
+#      start       y = (UMABAN - 1) x STALL (horse 1 is on the inside)
+#      drift       each step a horse moves DRIFT towards the rail ...
+#      no overlap  ... but stays SEP outside any horse alongside it (|time gap| < ALONG) that is further in
+#      blocked     a horse up to BLOCK s behind another within SEP sideways is held to that horse's speed (how fully is
+#                  learnt: Physics.hold); a held horse that wants to go faster (by WANT_OUT m/s) moves MOVE_OUT outwards
+#                  unless a horse alongside is there (boxed in)
+#      distance    a step at y through a turn of a radians runs DX + a y metres (radius + y), so running wide costs
+#                  exactly the geometry's ground (M3)
+#      Corner gaps in lengths are read as Physics.gap_scale x seconds behind the leader (learnt, the 'gap' loss).
+STALL, DRIFT, SEP, ALONG, BLOCK, WANT_OUT, MOVE_OUT = 1.0, 1.0, 1.1, 0.12, 0.2, 0.15, 0.8
+TRAFFIC = 'full'
+# 'full'  the rules above (first S3 runs, 2026-11-22: lanes 3-5x the constant-0 error and the 4th-corner order -0.09 tau
+#         against S2; the point forecast's field is 0.35-0.6 of the real spread, so the rules fire far too often)
+# 'none'  no blocking: lanes, no overlap and the corner distance only (is the geometry alone worth anything?)
+# 'half'  ALONG and BLOCK halved, for the tighter predicted field
 
 
 def softmin(x, tau, dim, mask=None):
@@ -78,6 +96,8 @@ class Physics(nn.Module):
         self.shelter = nn.Parameter(torch.tensor(-1.0))              # logit; drain saved in shelter = 0.5 sigmoid (S2)
         self.settle = nn.Parameter(torch.tensor(math.log(600.0)))    # metres of position taking (CONTEND_SPAN 'early')
         self.wish_scale = nn.Parameter(torch.tensor(math.log(0.2)))  # m/s of intent per logit of wish (WISH 'intent')
+        self.hold = nn.Parameter(torch.tensor(1.0))                  # logit of how fully a blocked horse is held (S3)
+        self.gap_scale = nn.Parameter(torch.tensor(math.log(5.0)))   # passing-string lengths per second (S3)
 
     def par(self, course, surface, going, log_dist, cls):
         s = surface.long()
@@ -126,9 +146,39 @@ def field_view(t, present):
     return share, gap
 
 
-def run(ab, physics, distance, steps, present=None):
+@torch.no_grad()
+def lanes_step(y, t, v, wanted, present):
+    """S3 lateral rules for one step (no gradients). y, t, v, wanted [B, H] at the current mark. Returns the new y and
+    the blocking horse of each (index into H; -1 = free)."""
+    H = y.shape[1]
+    f = 0.5 if TRAFFIC == 'half' else 1.0
+    other = present[:, None, :] & present[:, :, None] & ~torch.eye(H, dtype=torch.bool, device=y.device)
+    d = t[:, :, None] - t[:, None, :]                        # [b, i, j] > 0: j ahead of i
+    dy = y[:, None, :] - y[:, :, None]                        # [b, i, j] = y_j - y_i
+    along = other & (d.abs() < ALONG * f)
+    near = other & (d > 0) & (d < BLOCK * f) & (dy.abs() < SEP)
+    dd = d.masked_fill(~near, 1e4)
+    nearest = dd.argmin(2)
+    blocked = near.any(2)
+    nearest = torch.where(blocked, nearest, torch.full_like(nearest, -1))
+    v_ahead = torch.gather(v, 1, nearest.clamp(min=0))
+    wants_out = blocked & (wanted > v_ahead + WANT_OUT) & (TRAFFIC != 'none')
+    out_y = y + MOVE_OUT
+    # boxed in: a horse alongside already there
+    boxed = (along & (dy > 0) & ((y[:, None, :] - out_y[:, :, None]).abs() < SEP)).any(2)
+    want = torch.where(wants_out & ~boxed, out_y, torch.where(wants_out, y, (y - DRIFT).clamp(min=0)))
+    new = want
+    for _ in range(3):                                        # stay SEP outside horses alongside further in
+        inside = along & (y[:, None, :] < y[:, :, None] - 1e-3)
+        floor = (new[:, None, :] + SEP).masked_fill(~inside, 0).amax(2)
+        new = torch.maximum(want, floor)
+    return torch.where(present, new, y), nearest
+
+
+def run(ab, physics, distance, steps, present=None, lanes=None):
     """Runs of a field. ab: abilities [B, H] each; distance [B] (m); steps = max steps in the batch; present [B, H] (S2:
-    who is in the field). Returns t [B, H, steps + 1]: elapsed time at every DX mark from the start."""
+    who is in the field); lanes (S3): {'turn': [B, steps] radians per step, 'y0': [B, H] start positions}.
+    Returns t [B, H, steps + 1]: elapsed time at every DX mark from the start, and (S3) y [B, H, steps + 1]."""
     B, H = ab['vc'].shape
     relax = torch.exp(physics.relax)
     keep = torch.exp(-DX / relax)
@@ -140,12 +190,17 @@ def run(ab, physics, distance, steps, present=None):
     kick_at = distance[:, None] - ab['kick']                      # metres from the start where the kick starts
     v = torch.zeros(B, H, device=vc.device)
     E = W
-    s2 = STAGE == 's2'
+    s2 = STAGE in ('s2', 's3')
+    s3 = STAGE == 's3' and lanes is not None
     if s2:
         present = torch.ones(B, H, dtype=torch.bool, device=vc.device) if present is None else present
         contend = F.softplus(physics.contend)
         save = 0.5 * torch.sigmoid(physics.shelter)
     t = [torch.zeros(B, H, device=vc.device)]
+    if s3:
+        hold = torch.sigmoid(physics.hold)
+        y = lanes['y0'].clone()
+        ys = [y]
     for j in range(steps):
         x = (j + 0.5) * DX
         k = torch.sigmoid((x - kick_at) / physics.kick_width)
@@ -161,17 +216,29 @@ def run(ab, physics, distance, steps, present=None):
         e_pos = F.softplus(E / 2) * 2
         cap = vc - fat + (vmax - vc + fat) * (1 - torch.exp(-e_pos / esoft))
         target = softmin(torch.stack([wanted, cap]), 0.1, 0)
+        if s3:
+            y_new, ahead = lanes_step(y, t[-1].detach(), v.detach(), wanted.detach(), present)
+            held = (ahead >= 0) & (TRAFFIC != 'none')
+            v_ahead = torch.gather(v, 1, ahead.clamp(min=0))
+            target = target - hold * held.float() * F.softplus((target - v_ahead) / 0.1) * 0.1
         # speeding up is limited by the horse's acceleration (the standing start, the kick); slowing down relaxes
         up = softmin(torch.stack([target, torch.sqrt(v * v + 2 * dash * DX + 1e-6)]), 0.1, 0)
         down = target + (v - target) * keep
         v_new = torch.where(target > v, up, down)
         vm = 0.5 * (v + v_new)
-        dt = DX / vm.clamp(min=1.0)
+        if s3:
+            ym = 0.5 * (y + y_new)
+            path = (DX + lanes['turn'][:, j, None] * ym).clamp(min=0.5 * DX)
+            y = y_new
+            ys.append(y)
+        else:
+            path = DX
+        dt = path / vm.clamp(min=1.0)
         above = vm - vc
         E = torch.minimum(E - F.relu(above) * dt * (drain if s2 else 1) + rec * F.relu(-above) * dt, W)
         t.append(t[-1] + dt)
         v = v_new
-    return torch.stack(t, -1)
+    return torch.stack(t, -1), (torch.stack(ys, -1) if s3 else None)
 
 
 class Encoder(nn.Module):
@@ -214,7 +281,9 @@ class Model(nn.Module):
 
     def forward(self, b):
         ab = self.abilities(b)
-        return run(ab, self.physics, b['distance'], int(b['steps'].max()), b['present']), ab
+        lanes = {'turn': b['turn'], 'y0': b['y0']} if STAGE == 's3' else None
+        t, self.y = run(ab, self.physics, b['distance'], int(b['steps'].max()), b['present'], lanes)
+        return t, ab
 
 
 def read_out(t, b):
@@ -232,7 +301,7 @@ def read_out(t, b):
 LOSS = 'centred'   # 'absolute' (first S1 run): finish and 600 m times as they are; 'centred': within-race differences
 #                    for the horses plus the race mean on its own, so the day's track speed does not drown the horse terms
 WEIGHTS = {'absolute': {'T': 1.0, 't600': 1.0, 'last3': 2.0, 'lead': 0.5, 'order': 0.5, 'corner': 0.5},
-           'centred': {'T': 1.0, 't600': 1.0, 'mean': 0.5, 'last3': 2.0, 'lead': 0.5, 'order': 1.0, 'corner': 0.5}}
+           'centred': {'T': 1.0, 't600': 1.0, 'mean': 0.5, 'last3': 2.0, 'lead': 0.5, 'order': 1.0, 'corner': 0.5, 'gap': 0.1}}
 
 
 def centred(p, y, m):
@@ -245,7 +314,13 @@ def centred(p, y, m):
     return dev, (F.huber_loss(pm[has], ym[has], delta=0.5) if has.any() else p.sum() * 0)
 
 
-def losses(t, b, w=None):
+def corner_lengths(corners, present, physics):
+    """Corner times [B, H, 4] -> lengths behind the leader of each corner (S3)."""
+    lead = softmin(corners, 0.02, 1, present[:, :, None].expand_as(corners))
+    return (corners - lead[:, None, :]) * torch.exp(physics.gap_scale)
+
+
+def losses(t, b, w=None, physics=None):
     w = w or WEIGHTS[LOSS]
     T, t600, last3, corners, lead = read_out(t, b)
     hub = lambda p, y, m: (F.huber_loss(p[m], y[m], delta=0.5) if m.any() else p.sum() * 0)
@@ -264,6 +339,9 @@ def losses(t, b, w=None):
         if m.any():
             cl.append(pair_loss(corners[:, :, c], b['y_corner'][:, :, c], m, 0.15))
     out['corner'] = torch.stack(cl).mean() if cl else T.sum() * 0
+    if STAGE == 's3':
+        # passing-string lengths behind the leader at each corner (design 5.3), lengths = gap_scale x seconds
+        out['gap'] = hub(corner_lengths(corners, b['present'], physics), b['y_gap'], b['m_gap'])
     total = sum(w[k] * v for k, v in out.items())
     return total, {k: float(v.detach()) for k, v in out.items()}
 

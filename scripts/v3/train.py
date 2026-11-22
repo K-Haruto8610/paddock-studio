@@ -74,6 +74,14 @@ class Data:
             n = int(np.ceil(dist / 200))
             marks.append([int(round((dist - 200 * (n - 1 - i)) / sim.DX)) for i in range(n)])
         self.m_corner &= (self.corner_idx >= 0)[:, None, :]
+        # S3: the turn of every step, the start positions from the gate, the passing-string lengths at each corner
+        self.turn = np.zeros((R, int(self.steps.max())), np.float32)
+        for k, (v, tr, dist) in enumerate(zip(races.venue, races.track, races.distance)):
+            tn = cs.race_course(v, tr, dist, sim.DX).turn
+            self.turn[k, :len(tn)] = tn
+        self.y0 = np.where(present, (self.umaban - 1) * sim.STALL, 0).astype(np.float32)
+        self.y_gap = np.stack([get(f'g{c}') for c in (1, 2, 3, 4)], -1)
+        self.m_gap = ~np.isnan(self.y_gap) & self.m_corner
         Mx = max(len(m) for m in marks)
         self.mark_idx = np.zeros((R, Mx), int)
         self.y_lead = np.full((R, Mx), np.nan, np.float32)
@@ -93,7 +101,9 @@ class Data:
              'X': torch.from_numpy(self.X[rows]), 'M': torch.from_numpy(self.M[rows]), 'C': torch.from_numpy(self.C[rows]),
              'steps': tt(self.steps[ks], torch.long), 'distance': tt(self.distance[ks]), 'course': tt(self.course[ks], torch.long),
              'surface': tt(self.surface[ks], torch.long), 'going': tt(self.going[ks], torch.long), 'cls': tt(self.cls[ks]),
-             'log_dist': tt(self.log_dist[ks]), 'corner_idx': tt(self.corner_idx[ks], torch.long), 'mark_idx': tt(self.mark_idx[ks], torch.long)}
+             'log_dist': tt(self.log_dist[ks]), 'corner_idx': tt(self.corner_idx[ks], torch.long), 'mark_idx': tt(self.mark_idx[ks], torch.long),
+             'turn': tt(self.turn[ks][:, :int(self.steps[ks].max())]), 'y0': tt(self.y0[ks]),
+             'y_gap': tt(np.nan_to_num(self.y_gap[ks])), 'm_gap': tt(self.m_gap[ks], torch.bool)}
         for name in ('T', 't600', 'last3'):
             y = getattr(self, f'y_{name}')[ks]
             b[f'm_{name}'] = tt(~np.isnan(y), torch.bool)
@@ -123,7 +133,7 @@ def fit(model, train, val, seed, max_epochs=40, patience=8, lr=2e-3, size=32, lo
         for ks in train.batches(size, rng):
             b = train.batch(ks)
             t, _ = model(b)
-            loss, parts = sim.losses(t, b)
+            loss, parts = sim.losses(t, b, physics=model.physics)
             opt.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
@@ -153,7 +163,7 @@ def evaluate_loss(model, data, size):
     for ks in data.batches(size):
         b = data.batch(ks)
         t, _ = model(b)
-        loss, p = sim.losses(t, b)
+        loss, p = sim.losses(t, b, physics=model.physics)
         tot += float(loss) * len(ks)
         for k, x in p.items():
             parts[k] = parts.get(k, 0) + x * len(ks)
@@ -170,12 +180,22 @@ def predict(model, data, size=96):
         t, ab = model(b)
         T, t600, last3, corners, lead = sim.read_out(t, b)
         lead600 = sim.softmin(t[:, :, int(600 / sim.DX)], 0.05, 1, b['present'])   # the leader's time at 600 m (M2 check)
+        lengths = sim.corner_lengths(corners, b['present'], model.physics)
+        Y = model.y
+        if Y is not None:
+            ycorner = torch.gather(Y, 2, b['corner_idx'][:, None, :].expand(Y.shape[0], Y.shape[1], 4).clamp(min=0))
+            yfin = Y[torch.arange(Y.shape[0], device=Y.device), :, b['steps']]
         for bi, k in enumerate(ks):
             for h in np.flatnonzero(data.present[k]):
                 r = {'RACE_CODE': data.codes[k], 'UMABAN': int(data.umaban[k, h]), 'T': float(T[bi, h]), 't600': float(t600[bi, h]),
                      'last3': float(last3[bi, h]), 'lead600': float(lead600[bi])}
                 for c in range(4):
                     r[f'ct{c + 1}'] = float(corners[bi, h, c]) if data.corner_idx[k, c] >= 0 else np.nan
+                    r[f'gl{c + 1}'] = float(lengths[bi, h, c]) if data.corner_idx[k, c] >= 0 else np.nan
+                    if Y is not None:
+                        r[f'y{c + 1}'] = float(ycorner[bi, h, c]) if data.corner_idx[k, c] >= 0 else np.nan
+                if Y is not None:
+                    r['yfin'] = float(yfin[bi, h])
                 for a in sim.ABILITIES:
                     r[f'ab_{a}'] = float(ab[a][bi, h])
                 rows.append(r)
@@ -224,6 +244,7 @@ def cmd_real(args):
                         'fatigue_ms': float(torch.exp(ph.fatigue)), 'e_soft_m': float(torch.exp(ph.e_soft)),
                         'dash_ms2': float(3 + 5 * torch.sigmoid(ph.dash)), 'stage': sim.STAGE, 'span': sim.CONTEND_SPAN, 'settle_m': float(torch.exp(ph.settle)), 'wish': sim.WISH, 'wish_scale': float(torch.exp(ph.wish_scale)),
                         'contend_ms': float(torch.nn.functional.softplus(ph.contend)), 'shelter_save': float(0.5 * torch.sigmoid(ph.shelter)), 'abilitySet': sim.ABILITY_SET, 'loss': sim.LOSS,
+                        'hold': float(torch.sigmoid(ph.hold)), 'traffic': sim.TRAFFIC, 'gap_scale': float(torch.exp(ph.gap_scale)),
                         'dist_slope': ph.dist_slope.tolist(), 'surface0': ph.surface0.tolist(), 'cls_slope': float(ph.cls_slope)}}
     (OUT / f'{name}.json').write_text(json.dumps(info, indent=1), encoding='utf-8')
     print('wrote', name, flush=True)
@@ -262,7 +283,7 @@ def cmd_synthetic(args):
                        torch.tensor(syn_races.going.to_numpy()), torch.log(dist / 1600), torch.tensor(syn_races.cls.to_numpy(np.float32)))
         Z = torch.tensor(true_z[syn.hid.to_numpy()].reshape(n_races, field, -1))
         ab = sim.physical(Z, par[:, None], phys)
-        t = sim.run(ab, phys, dist, int(dist.max() / sim.DX))
+        t, _ = sim.run(ab, phys, dist, int(dist.max() / sim.DX))
         steps = (dist / sim.DX).long()
         ar = torch.arange(n_races)
         noise = lambda: torch.randn(n_races, field) * 0.15
@@ -355,14 +376,16 @@ def main():
     ap.add_argument('--horses', type=int, default=3000)
     ap.add_argument('--loss', choices=['absolute', 'centred'], default='centred')
     ap.add_argument('--abilities', choices=['six', 'merged'], default='six')
-    ap.add_argument('--stage', choices=['s1', 's2'], default='s2')
+    ap.add_argument('--stage', choices=['s1', 's2', 's3'], default='s2')
     ap.add_argument('--span', choices=['kick', 'early'], default='kick', help='S2 contention span (sim.CONTEND_SPAN)')
     ap.add_argument('--wish', choices=['free', 'intent'], default='free', help='S2 wish (sim.WISH)')
+    ap.add_argument('--traffic', choices=['full', 'none', 'half'], default='full', help='S3 blocking (sim.TRAFFIC)')
     ap.add_argument('--device', choices=['cpu', 'cuda'], default='cuda')
     ap.add_argument('--batch', type=int, default=32, help='races per training batch')
     ap.add_argument('--tag', default='', help='suffix of the run name (outputs/v3/s1_<pool><tag>_...)')
     args = ap.parse_args()
     sim.LOSS, sim.ABILITY_SET, sim.STAGE, sim.CONTEND_SPAN, sim.WISH = args.loss, args.abilities, args.stage, args.span, args.wish
+    sim.TRAFFIC = args.traffic
     global DEVICE
     DEVICE = torch.device(args.device)
     if args.device == 'cuda':
