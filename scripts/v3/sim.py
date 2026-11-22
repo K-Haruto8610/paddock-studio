@@ -61,6 +61,14 @@ WISH = 'free'
 #      Corner gaps in lengths are read as Physics.gap_scale x seconds behind the leader (learnt, the 'gap' loss).
 STALL, DRIFT, SEP, ALONG, BLOCK, WANT_OUT, MOVE_OUT = 1.0, 1.0, 1.1, 0.12, 0.2, 0.15, 0.8
 TRAFFIC = 'full'
+# Stochastic runs (design 5.3, brought forward from S4 after the first S3 runs, 2026-11-22): each race is run SAMPLES
+# times. In every run each horse has its own day's form, one draw for the whole run (not noise per step): vc and vmax
+# both shifted by FORM x N(0, 1) m/s; and its own start, a delay of START x |N(0, 1)| s at the gate. FORM and START are
+# calibrated so the runs' within-race spread matches the measured one (train.py calibrate: median sd of the 600 m-mark
+# time and of the finish time among normal finishers), never on a score. Everything (traffic rules of S3 included) runs
+# on each sampled run; the read-outs (times, corner times, gaps behind the corner leader, the leader's marks) are taken
+# per run and only then averaged. SAMPLES 1 and FORM = START = 0 are the deterministic runs of S1-S3.
+SAMPLES, FORM, START = 1, 0.0, 0.0
 # 'full'  the rules above (first S3 runs, 2026-11-22: lanes 3-5x the constant-0 error and the 4th-corner order -0.09 tau
 #         against S2; the point forecast's field is 0.35-0.6 of the real spread, so the rules fire far too often)
 # 'none'  no blocking: lanes, no overlap and the corner distance only (is the geometry alone worth anything?)
@@ -175,7 +183,7 @@ def lanes_step(y, t, v, wanted, present):
     return torch.where(present, new, y), nearest
 
 
-def run(ab, physics, distance, steps, present=None, lanes=None):
+def run(ab, physics, distance, steps, present=None, lanes=None, t0=None):
     """Runs of a field. ab: abilities [B, H] each; distance [B] (m); steps = max steps in the batch; present [B, H] (S2:
     who is in the field); lanes (S3): {'turn': [B, steps] radians per step, 'y0': [B, H] start positions}.
     Returns t [B, H, steps + 1]: elapsed time at every DX mark from the start, and (S3) y [B, H, steps + 1]."""
@@ -196,7 +204,7 @@ def run(ab, physics, distance, steps, present=None, lanes=None):
         present = torch.ones(B, H, dtype=torch.bool, device=vc.device) if present is None else present
         contend = F.softplus(physics.contend)
         save = 0.5 * torch.sigmoid(physics.shelter)
-    t = [torch.zeros(B, H, device=vc.device)]
+    t = [torch.zeros(B, H, device=vc.device) if t0 is None else t0]
     if s3:
         hold = torch.sigmoid(physics.hold)
         y = lanes['y0'].clone()
@@ -279,10 +287,24 @@ class Model(nn.Module):
         par = self.physics.par(b['course'], b['surface'], b['going'], b['log_dist'], b['cls'])
         return physical(zz, par[:, None], self.physics)
 
-    def forward(self, b):
+    def forward(self, b, samples=None, gen=None):
+        """Runs SAMPLES (or `samples`) stochastic runs of every race: t [K B, H, steps + 1] (run k of race i at k B + i);
+        self.y the lateral positions (S3) in the same layout, self.K = K."""
         ab = self.abilities(b)
-        lanes = {'turn': b['turn'], 'y0': b['y0']} if STAGE == 's3' else None
-        t, self.y = run(ab, self.physics, b['distance'], int(b['steps'].max()), b['present'], lanes)
+        K = samples or SAMPLES
+        B, H = ab['vc'].shape
+        abk = {a: x.repeat(K, 1) for a, x in ab.items()}
+        t0 = None
+        if FORM > 0 or START > 0:
+            dev = ab['vc'].device
+            eps = torch.randn(K * B, H, device=dev, generator=gen)
+            delay = torch.randn(K * B, H, device=dev, generator=gen).abs()
+            abk['vc'] = abk['vc'] + FORM * eps
+            abk['vmax'] = abk['vmax'] + FORM * eps
+            t0 = START * delay
+        lanes = {'turn': b['turn'].repeat(K, 1), 'y0': b['y0'].repeat(K, 1)} if STAGE == 's3' else None
+        t, self.y = run(abk, self.physics, b['distance'].repeat(K), int(b['steps'].max()), b['present'].repeat(K, 1), lanes, t0)
+        self.K = K
         return t, ab
 
 
@@ -314,15 +336,33 @@ def centred(p, y, m):
     return dev, (F.huber_loss(pm[has], ym[has], delta=0.5) if has.any() else p.sum() * 0)
 
 
+def repeat_batch(b, K):
+    """The batch entries read_out needs, repeated for K runs per race."""
+    return {k: b[k].repeat(K, *([1] * (b[k].dim() - 1))) for k in ('steps', 'corner_idx', 'mark_idx', 'present')}
+
+
+def read_mean(t, b, K):
+    """Read-outs of every run, then averaged over the K runs of each race: T, t600, last3, corners [B, H, 4], lead
+    [B, M], behind (seconds behind the corner's leader [B, H, 4]), lead600 (the leader's time 600 m from the start)."""
+    bk = repeat_batch(b, K)
+    T, t600, last3, corners, lead = read_out(t, bk)
+    behind = corners - softmin(corners, 0.02, 1, bk['present'][:, :, None].expand_as(corners))[:, None, :]
+    lead600 = softmin(t[:, :, int(600 / DX)], 0.05, 1, bk['present'])
+    m = lambda x: x.view(K, -1, *x.shape[1:]).mean(0)
+    return {'T': m(T), 't600': m(t600), 'last3': m(last3), 'corners': m(corners), 'lead': m(lead), 'behind': m(behind),
+            'lead600': m(lead600)}
+
+
 def corner_lengths(corners, present, physics):
     """Corner times [B, H, 4] -> lengths behind the leader of each corner (S3)."""
     lead = softmin(corners, 0.02, 1, present[:, :, None].expand_as(corners))
     return (corners - lead[:, None, :]) * torch.exp(physics.gap_scale)
 
 
-def losses(t, b, w=None, physics=None):
+def losses(ro, b, w=None, physics=None):
+    """ro: read_mean's averaged read-outs."""
     w = w or WEIGHTS[LOSS]
-    T, t600, last3, corners, lead = read_out(t, b)
+    T, t600, last3, corners, lead = ro['T'], ro['t600'], ro['last3'], ro['corners'], ro['lead']
     hub = lambda p, y, m: (F.huber_loss(p[m], y[m], delta=0.5) if m.any() else p.sum() * 0)
     if LOSS == 'centred':
         dT, mT = centred(T, b['y_T'], b['m_T'])
@@ -341,7 +381,7 @@ def losses(t, b, w=None, physics=None):
     out['corner'] = torch.stack(cl).mean() if cl else T.sum() * 0
     if STAGE == 's3':
         # passing-string lengths behind the leader at each corner (design 5.3), lengths = gap_scale x seconds
-        out['gap'] = hub(corner_lengths(corners, b['present'], physics), b['y_gap'], b['m_gap'])
+        out['gap'] = hub(ro['behind'] * torch.exp(physics.gap_scale), b['y_gap'], b['m_gap'])
     total = sum(w[k] * v for k, v in out.items())
     return total, {k: float(v.detach()) for k, v in out.items()}
 

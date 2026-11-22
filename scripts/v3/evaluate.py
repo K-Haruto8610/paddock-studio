@@ -121,7 +121,8 @@ def table(name, window, seed, act, base_name='v20'):
             lab = a[f'l{c}'].to_numpy()
             if f'y{c}' in v and not np.isnan(lab).any():
                 tab.add(f'l{c}', 'v20', code, np.abs(lab), keys)
-                tab.add(f'l{c}', 'v3', code, np.abs(v3_lanes(ct, v.loc[nums, f'y{c}'].to_numpy()) - lab), keys)
+                lane = v.loc[nums, f'lane{c}'].to_numpy() if f'lane{c}' in v else v3_lanes(ct, v.loc[nums, f'y{c}'].to_numpy())
+                tab.add(f'l{c}', 'v3', code, np.abs(lane - lab), keys)
     out = {'races': len(common), 'baseRaces': int(base.RACE_CODE.nunique()), 'v3Races': int(v3.RACE_CODE.nunique())}
     for m in ['last3', 'finTau', 'finGap', 'winner'] + [f'{k}{c}' for k in ('r', 'g', 'l') for c in (1, 2, 3, 4)]:
         m = m.replace('r1', 'r1.tau').replace('r2', 'r2.tau').replace('r3', 'r3.tau').replace('r4', 'r4.tau') if m[0] == 'r' else m

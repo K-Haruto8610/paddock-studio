@@ -133,7 +133,7 @@ def fit(model, train, val, seed, max_epochs=40, patience=8, lr=2e-3, size=32, lo
         for ks in train.batches(size, rng):
             b = train.batch(ks)
             t, _ = model(b)
-            loss, parts = sim.losses(t, b, physics=model.physics)
+            loss, parts = sim.losses(sim.read_mean(t, b, model.K), b, physics=model.physics)
             opt.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
@@ -160,10 +160,11 @@ def fit(model, train, val, seed, max_epochs=40, patience=8, lr=2e-3, size=32, lo
 def evaluate_loss(model, data, size):
     model.eval()
     tot, parts, n = 0.0, {}, 0
+    gen = torch.Generator(device=DEVICE).manual_seed(0)   # the same draws every epoch: early stopping not on noise
     for ks in data.batches(size):
         b = data.batch(ks)
-        t, _ = model(b)
-        loss, p = sim.losses(t, b, physics=model.physics)
+        t, _ = model(b, gen=gen)
+        loss, p = sim.losses(sim.read_mean(t, b, model.K), b, physics=model.physics)
         tot += float(loss) * len(ks)
         for k, x in p.items():
             parts[k] = parts.get(k, 0) + x * len(ks)
@@ -171,20 +172,40 @@ def evaluate_loss(model, data, size):
     return tot / n, {k: x / n for k, x in parts.items()}
 
 
+PRED_SAMPLES = 1   # runs per race when predicting (32 with stochastic runs)
+
+
 @torch.no_grad()
 def predict(model, data, size=96):
+    """Per horse: the read-outs averaged over the runs (sim.read_mean) and, in S3, the lane in the abreast group per
+    run (evaluate.v3_lanes on that run's corner times and lateral positions), its median over the runs."""
+    import evaluate as ev
     model.eval()
     rows = []
-    for ks in data.batches(size):
+    K = PRED_SAMPLES
+    gen = torch.Generator(device=DEVICE).manual_seed(12345)
+    for ks in data.batches(max(8, size // K)):
         b = data.batch(ks)
-        t, ab = model(b)
-        T, t600, last3, corners, lead = sim.read_out(t, b)
-        lead600 = sim.softmin(t[:, :, int(600 / sim.DX)], 0.05, 1, b['present'])   # the leader's time at 600 m (M2 check)
-        lengths = sim.corner_lengths(corners, b['present'], model.physics)
+        t, ab = model(b, samples=K, gen=gen)
+        ro = sim.read_mean(t, b, K)
+        T, t600, last3, corners, lead600 = ro['T'], ro['t600'], ro['last3'], ro['corners'], ro['lead600']
+        lengths = ro['behind'] * torch.exp(model.physics.gap_scale)
         Y = model.y
         if Y is not None:
-            ycorner = torch.gather(Y, 2, b['corner_idx'][:, None, :].expand(Y.shape[0], Y.shape[1], 4).clamp(min=0))
-            yfin = Y[torch.arange(Y.shape[0], device=Y.device), :, b['steps']]
+            bk = sim.repeat_batch(b, K)
+            idx = bk['corner_idx'][:, None, :].expand(t.shape[0], t.shape[1], 4).clamp(min=0)
+            ck = torch.gather(t, 2, idx).cpu().numpy()
+            yk = torch.gather(Y, 2, idx).cpu().numpy()
+            ycorner = yk.reshape(K, len(ks), *yk.shape[1:]).mean(0)
+            yfin = Y[torch.arange(Y.shape[0], device=Y.device), :, bk['steps']].view(K, len(ks), -1).mean(0)
+            lanes = np.full((len(ks), t.shape[1], 4), np.nan)
+            for bi, k in enumerate(ks):
+                hs = np.flatnonzero(data.present[k])
+                for c in range(4):
+                    if data.corner_idx[k, c] < 0:
+                        continue
+                    per = [ev.v3_lanes(ck[j * len(ks) + bi, hs, c], yk[j * len(ks) + bi, hs, c]) for j in range(K)]
+                    lanes[bi, hs, c] = np.median(per, 0)
         for bi, k in enumerate(ks):
             for h in np.flatnonzero(data.present[k]):
                 r = {'RACE_CODE': data.codes[k], 'UMABAN': int(data.umaban[k, h]), 'T': float(T[bi, h]), 't600': float(t600[bi, h]),
@@ -194,6 +215,7 @@ def predict(model, data, size=96):
                     r[f'gl{c + 1}'] = float(lengths[bi, h, c]) if data.corner_idx[k, c] >= 0 else np.nan
                     if Y is not None:
                         r[f'y{c + 1}'] = float(ycorner[bi, h, c]) if data.corner_idx[k, c] >= 0 else np.nan
+                        r[f'lane{c + 1}'] = float(lanes[bi, h, c])
                 if Y is not None:
                     r['yfin'] = float(yfin[bi, h])
                 for a in sim.ABILITIES:
@@ -209,8 +231,8 @@ def load_tables():
     return races, r
 
 
-def cmd_real(args):
-    torch.manual_seed(args.seed)
+def prepare(args):
+    """The window's train / validation / evaluation races and a maker of their Data (history tensors built once)."""
     races, r = load_tables()
     fit_end, start, end = WINDOWS[args.window]
     pool = r.named.to_numpy() if args.pool == 'named' else np.ones(len(r), bool)
@@ -230,10 +252,28 @@ def cmd_real(args):
     rowpos[target_rows] = np.arange(len(target_rows))
     print(f'history tensor {X.shape} in {time.time() - t0:.0f}s; train {len(train_codes)} val {len(val_codes)} eval {len(eval_codes)} races', flush=True)
     mk = lambda codes: Data(races, r, codes, X, M, C, rowpos)
-    train, val, ev = mk(train_codes), mk(val_codes), mk(eval_codes)
+    return mk, train_codes, val_codes, eval_codes, X, C
+
+
+def new_model(args, X, C):
     model = sim.Model(X.shape[2], C.shape[1]).to(DEVICE)
+    if args.init:
+        state = torch.load(OUT / f'{args.init}.pt', map_location=DEVICE)
+        missing, _ = model.load_state_dict(state, strict=False)
+        print(f'warm start from {args.init} (new: {missing})', flush=True)
+    return model
+
+
+def cmd_real(args):
+    torch.manual_seed(args.seed)
+    mk, train_codes, val_codes, eval_codes, X, C = prepare(args)
+    train, val, ev = mk(train_codes), mk(val_codes), mk(eval_codes)
+    model = new_model(args, X, C)
     log = []
-    best = fit(model, train, val, args.seed, log=log, max_epochs=args.epochs, size=args.batch)
+    if args.epochs > 0:
+        best = fit(model, train, val, args.seed, log=log, max_epochs=args.epochs, size=args.batch)
+    else:
+        best = evaluate_loss(model, val, 96)[0]   # --epochs 0: the --init model as it is (stochastic runs only)
     pred = predict(model, ev)
     name = f'{args.stage}_{args.pool}{args.tag}_{args.window}_seed{args.seed}'
     pred.to_pickle(OUT / f'{name}.pkl')
@@ -244,10 +284,58 @@ def cmd_real(args):
                         'fatigue_ms': float(torch.exp(ph.fatigue)), 'e_soft_m': float(torch.exp(ph.e_soft)),
                         'dash_ms2': float(3 + 5 * torch.sigmoid(ph.dash)), 'stage': sim.STAGE, 'span': sim.CONTEND_SPAN, 'settle_m': float(torch.exp(ph.settle)), 'wish': sim.WISH, 'wish_scale': float(torch.exp(ph.wish_scale)),
                         'contend_ms': float(torch.nn.functional.softplus(ph.contend)), 'shelter_save': float(0.5 * torch.sigmoid(ph.shelter)), 'abilitySet': sim.ABILITY_SET, 'loss': sim.LOSS,
-                        'hold': float(torch.sigmoid(ph.hold)), 'traffic': sim.TRAFFIC, 'gap_scale': float(torch.exp(ph.gap_scale)),
+                        'hold': float(torch.sigmoid(ph.hold)), 'traffic': sim.TRAFFIC, 'init': args.init,
+                        'samples': sim.SAMPLES, 'predSamples': PRED_SAMPLES, 'form': sim.FORM, 'start': sim.START, 'gap_scale': float(torch.exp(ph.gap_scale)),
                         'dist_slope': ph.dist_slope.tolist(), 'surface0': ph.surface0.tolist(), 'cls_slope': float(ph.cls_slope)}}
     (OUT / f'{name}.json').write_text(json.dumps(info, indent=1), encoding='utf-8')
     print('wrote', name, flush=True)
+
+
+@torch.no_grad()
+def spread(model, data, K, size=48):
+    """Median over races of the within-race sd (normal finishers) of the 600 m-mark time and of the finish time:
+    of the runs (mean over the K runs of a race) and of the records."""
+    model.eval()
+    gen = torch.Generator(device=DEVICE).manual_seed(777)
+    p6, pT, a6, aT = [], [], [], []
+    for ks in data.batches(size):
+        b = data.batch(ks)
+        t, _ = model(b, samples=K, gen=gen)
+        Tk, t6k, *_ = sim.read_out(t, sim.repeat_batch(b, K))
+        Tk, t6k = Tk.view(K, len(ks), -1).cpu().numpy(), t6k.view(K, len(ks), -1).cpu().numpy()
+        m = (b['m_T'] & b['m_t600']).cpu().numpy()
+        yT, y6 = b['y_T'].cpu().numpy(), b['y_t600'].cpu().numpy()
+        for bi in range(len(ks)):
+            mm = m[bi]
+            if mm.sum() < 5:
+                continue
+            p6.append(t6k[:, bi, mm].std(1, ddof=1).mean())
+            pT.append(Tk[:, bi, mm].std(1, ddof=1).mean())
+            a6.append(y6[bi, mm].std(ddof=1))
+            aT.append(yT[bi, mm].std(ddof=1))
+    return float(np.median(p6)), float(np.median(pT)), float(np.median(a6)), float(np.median(aT))
+
+
+def cmd_calibrate(args):
+    """FORM and START so the runs' within-race spread matches the records' (median sd at the 600 m mark and at the
+    finish), on races before the window's fit date only (1,500 training races + the validation races). No score is used."""
+    torch.manual_seed(args.seed)
+    mk, train_codes, val_codes, eval_codes, X, C = prepare(args)
+    rng = np.random.default_rng(args.seed)
+    codes = list(rng.choice(train_codes, 1500, replace=False)) + list(val_codes)
+    data = mk(codes)
+    model = new_model(args, X, C)
+    grid = []
+    for form in (0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4):
+        for start in (0.0, 0.2, 0.4, 0.7, 1.0):
+            sim.FORM, sim.START = form, start
+            p6, pT, a6, aT = spread(model, data, 8)
+            err = (p6 / a6 - 1) ** 2 + (pT / aT - 1) ** 2
+            grid.append({'form': form, 'start': start, 'sd600': p6, 'sdT': pT, 'actual600': a6, 'actualT': aT, 'err': err})
+            print(f'form {form:.2f} start {start:.1f}  sd600 {p6:.3f} (actual {a6:.3f})  sdT {pT:.3f} (actual {aT:.3f})  err {err:.4f}', flush=True)
+    best = min(grid, key=lambda g: g['err'])
+    print('best', best, flush=True)
+    (OUT / f'calib_{args.init}.json').write_text(json.dumps({'best': best, 'grid': grid, 'races': len(codes)}, indent=1), encoding='utf-8')
 
 
 # --- recovery test --------------------------------------------------------------------------------------------
@@ -368,7 +456,7 @@ def cmd_synthetic(args):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('mode', choices=['real', 'synthetic'])
+    ap.add_argument('mode', choices=['real', 'synthetic', 'calibrate'])
     ap.add_argument('--window', choices=list(WINDOWS), default='sel')
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--pool', choices=['named', 'all'], default='all')
@@ -380,17 +468,25 @@ def main():
     ap.add_argument('--span', choices=['kick', 'early'], default='kick', help='S2 contention span (sim.CONTEND_SPAN)')
     ap.add_argument('--wish', choices=['free', 'intent'], default='free', help='S2 wish (sim.WISH)')
     ap.add_argument('--traffic', choices=['full', 'none', 'half'], default='full', help='S3 blocking (sim.TRAFFIC)')
+    ap.add_argument('--init', default='', help='warm start from outputs/v3/<init>.pt (calibrate: the model to calibrate)')
+    ap.add_argument('--samples', type=int, default=1, help='stochastic runs per race in training (sim.SAMPLES)')
+    ap.add_argument('--pred-samples', type=int, default=0, help='runs per race when predicting (default 32 if stochastic, else 1)')
+    ap.add_argument('--form', type=float, default=0.0, help='sd of the day form, m/s (sim.FORM)')
+    ap.add_argument('--start', type=float, default=0.0, help='scale of the start delay, s (sim.START)')
     ap.add_argument('--device', choices=['cpu', 'cuda'], default='cuda')
     ap.add_argument('--batch', type=int, default=32, help='races per training batch')
     ap.add_argument('--tag', default='', help='suffix of the run name (outputs/v3/s1_<pool><tag>_...)')
     args = ap.parse_args()
     sim.LOSS, sim.ABILITY_SET, sim.STAGE, sim.CONTEND_SPAN, sim.WISH = args.loss, args.abilities, args.stage, args.span, args.wish
     sim.TRAFFIC = args.traffic
-    global DEVICE
+    sim.SAMPLES, sim.FORM, sim.START = args.samples, args.form, args.start
+    global PRED_SAMPLES
+    PRED_SAMPLES = args.pred_samples or (32 if (args.form > 0 or args.start > 0) else 1)
+    global DEVICE  # noqa
     DEVICE = torch.device(args.device)
     if args.device == 'cuda':
         torch.cuda.manual_seed_all(args.seed)
-    {'real': cmd_real, 'synthetic': cmd_synthetic}[args.mode](args)
+    {'real': cmd_real, 'synthetic': cmd_synthetic, 'calibrate': cmd_calibrate}[args.mode](args)
 
 
 if __name__ == '__main__':
