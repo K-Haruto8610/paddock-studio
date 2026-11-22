@@ -1,0 +1,46 @@
+{
+  "race_code": "2026112208050611",
+  "name": "マイルチャンピオンシップ",
+  "status": "fail",
+  "input": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 29.271619218617822,
+    "frames": 3391,
+    "duration_s": 115.846,
+    "pan": true,
+    "zoom": true
+  },
+  "cut_pts_s": [
+    13.516,
+    59.215,
+    76.547,
+    84.38
+  ],
+  "verified_full_field_example_pts_s": [
+    15.849,
+    17.733
+  ],
+  "full_field_range_exhaustive": false,
+  "field": 18,
+  "gate_open_pts_s": 15.749,
+  "verified_gate_anchor_pts_s": 16.416,
+  "phase0_processing_seconds": 189.97670899995137,
+  "processed_frames": 2954,
+  "model": "COCO YOLOv4 608, three gate crops on frames 446-488; ByteTrack-style association",
+  "gpu": "NVIDIA GeForce RTX 3070",
+  "frames_with_fewer_detections_than_starters": 1922,
+  "frames_with_all_track_labels_present": 35,
+  "minimum_confirmed_switches": 3,
+  "total_switches": null,
+  "official_result_availability": "Local JV-Data result fields unpopulated; race absent from historical frame",
+  "corner_tau_median": null,
+  "corner_exact_match": null,
+  "t600_fraction_within_0_1s": null,
+  "last3_error_s": null,
+  "finish_order_match": null,
+  "coordinate_mode": "pixel-only diagnostic; independent metric calibration unavailable",
+  "valid_metric_samples_5hz": 0,
+  "lateral_rmse_m": null,
+  "teacher_use": "hold"
+}

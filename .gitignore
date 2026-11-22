@@ -1,3 +1,6 @@
+# Owner-supplied patrol footage and all derived vision data stay local.
+/vision/data/
+
 # Dependencies
 /node_modules/
 /.pnp
