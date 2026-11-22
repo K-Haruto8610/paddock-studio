@@ -222,7 +222,7 @@ def cmd_real(args):
     info = {'best_val': best, 'log': log, 'train_races': len(train_codes), 'val_races': len(val_codes), 'eval_races': len(eval_codes),
             'physics': {'relax_m': float(torch.exp(ph.relax)), 'recovery': float(torch.sigmoid(ph.recovery)),
                         'fatigue_ms': float(torch.exp(ph.fatigue)), 'e_soft_m': float(torch.exp(ph.e_soft)),
-                        'dash_ms2': float(3 + 5 * torch.sigmoid(ph.dash)), 'stage': sim.STAGE, 'span': sim.CONTEND_SPAN, 'settle_m': float(torch.exp(ph.settle)),
+                        'dash_ms2': float(3 + 5 * torch.sigmoid(ph.dash)), 'stage': sim.STAGE, 'span': sim.CONTEND_SPAN, 'settle_m': float(torch.exp(ph.settle)), 'wish': sim.WISH, 'wish_scale': float(torch.exp(ph.wish_scale)),
                         'contend_ms': float(torch.nn.functional.softplus(ph.contend)), 'shelter_save': float(0.5 * torch.sigmoid(ph.shelter)), 'abilitySet': sim.ABILITY_SET, 'loss': sim.LOSS,
                         'dist_slope': ph.dist_slope.tolist(), 'surface0': ph.surface0.tolist(), 'cls_slope': float(ph.cls_slope)}}
     (OUT / f'{name}.json').write_text(json.dumps(info, indent=1), encoding='utf-8')
@@ -326,6 +326,8 @@ def cmd_synthetic(args):
     for a in sim.ABILITIES:
         if (sim.ABILITY_SET == 'merged' and a == 'dash') or (sim.STAGE == 's1' and a == 'wish'):
             continue
+        if sim.WISH == 'intent' and a == 'wish':
+            continue
         tv = truth[a].numpy()[hist]
         pv = pred[f'ab_{a}'].to_numpy()[hist]
         if a == 'vc':
@@ -334,7 +336,7 @@ def cmd_synthetic(args):
         res['corr'][a] = float(np.corrcoef(tv, pv)[0, 1])
         print(f'{a:8} corr(true, recovered) {res["corr"][a]:+.3f}')
     # pairwise: which abilities the records cannot tell apart (correlated errors)
-    names = [a for a in sim.ABILITIES if not ((sim.ABILITY_SET == 'merged' and a == 'dash') or (sim.STAGE == 's1' and a == 'wish'))]
+    names = [a for a in sim.ABILITIES if not ((sim.ABILITY_SET == 'merged' and a == 'dash') or (sim.STAGE == 's1' and a == 'wish') or (sim.WISH == 'intent' and a == 'wish'))]
     errs = np.column_stack([(pred[f'ab_{a}'].to_numpy() - truth[a].numpy())[hist] for a in names])
     res['abilitySet'], res['errorCorrNames'] = sim.ABILITY_SET, names
     res['errorCorr'] = np.round(np.corrcoef(errs.T), 3).tolist()
@@ -355,11 +357,12 @@ def main():
     ap.add_argument('--abilities', choices=['six', 'merged'], default='six')
     ap.add_argument('--stage', choices=['s1', 's2'], default='s2')
     ap.add_argument('--span', choices=['kick', 'early'], default='kick', help='S2 contention span (sim.CONTEND_SPAN)')
+    ap.add_argument('--wish', choices=['free', 'intent'], default='free', help='S2 wish (sim.WISH)')
     ap.add_argument('--device', choices=['cpu', 'cuda'], default='cuda')
     ap.add_argument('--batch', type=int, default=32, help='races per training batch')
     ap.add_argument('--tag', default='', help='suffix of the run name (outputs/v3/s1_<pool><tag>_...)')
     args = ap.parse_args()
-    sim.LOSS, sim.ABILITY_SET, sim.STAGE, sim.CONTEND_SPAN = args.loss, args.abilities, args.stage, args.span
+    sim.LOSS, sim.ABILITY_SET, sim.STAGE, sim.CONTEND_SPAN, sim.WISH = args.loss, args.abilities, args.stage, args.span, args.wish
     global DEVICE
     DEVICE = torch.device(args.device)
     if args.device == 'cuda':

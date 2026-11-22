@@ -39,6 +39,11 @@ STAGE = 's2'
 #                  leader has none. How much shelter is worth is learnt (design 5.2: "効くかどうかは学習に任せる").
 SHELTER_GAP = 0.3   # seconds behind the nearest horse ahead (about 1.5 lengths)
 CONTEND_SPAN = 'kick'
+WISH = 'free'
+# 'free'   wish is its own encoder output (first S2 runs; the S2 recovery test could not recover it, 0.13, and intent
+#          fell from 0.80 to 0.51: both set the early position).
+# 'intent' wish follows intent: sigmoid(-intent / Physics.wish_scale) (a horse that runs its early part faster wants to
+#          be further forward); the encoder's output 6 is then unused.
 # 'kick'  contention acts until the horse's kick (first S2 runs: ranks fell against S1, most at the 4th corner).
 # 'early' contention acts only through the position-taking stretch after the start (Physics.settle, learnt, 600 m at
 #         first); after it a horse holds its cruise (positions are taken early and then kept).
@@ -72,6 +77,7 @@ class Physics(nn.Module):
         self.contend = nn.Parameter(torch.tensor(math.log(math.e ** 0.3 - 1)))  # softplus -> m/s per unit of wish gap (S2)
         self.shelter = nn.Parameter(torch.tensor(-1.0))              # logit; drain saved in shelter = 0.5 sigmoid (S2)
         self.settle = nn.Parameter(torch.tensor(math.log(600.0)))    # metres of position taking (CONTEND_SPAN 'early')
+        self.wish_scale = nn.Parameter(torch.tensor(math.log(0.2)))  # m/s of intent per logit of wish (WISH 'intent')
 
     def par(self, course, surface, going, log_dist, cls):
         s = surface.long()
@@ -99,8 +105,12 @@ def physical(z, par, physics=None):
         kick = (W * vmax / (vmax - vc)).clamp(150, 1500)
     else:
         dash, kick = 3 + 5 * torch.sigmoid(z[..., 3]), 200 + 800 * torch.sigmoid(z[..., 5])
-    return {'vc': vc, 'reserve': W, 'vmax': vmax, 'dash': dash, 'intent': 0.8 * torch.tanh(z[..., 4]), 'kick': kick,
-            'wish': torch.sigmoid(z[..., 6])}
+    intent = 0.8 * torch.tanh(z[..., 4])
+    if WISH == 'intent':
+        wish = torch.sigmoid(-intent / (torch.exp(physics.wish_scale) if physics is not None else 0.2))
+    else:
+        wish = torch.sigmoid(z[..., 6])
+    return {'vc': vc, 'reserve': W, 'vmax': vmax, 'dash': dash, 'intent': intent, 'kick': kick, 'wish': wish}
 
 
 def field_view(t, present):
