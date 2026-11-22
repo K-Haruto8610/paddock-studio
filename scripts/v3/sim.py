@@ -362,6 +362,36 @@ def read_mean(t, b, K):
             'lead600': m(lead600)}
 
 
+READ = 'mean'
+# What the training losses see with stochastic runs (2026-11-23):
+# 'mean' the read-outs averaged over the K runs (first stochastic runs). Training on sampled runs then shrank the
+#        abilities: the noise supplies the spread, so the averaged times fit with smaller ability differences (S3_st's
+#        per-run spread 0.345 s at 600 m and 0.635 s at the finish against 0.487 / 0.898 measured)
+# 'run'  every run's own read-outs against the records, the losses averaged over the runs: each sampled run has to look
+#        like the race, so shrinking the abilities makes every run's order worse
+
+
+def read_runs(t, b, K):
+    """read_mean's read-outs for every run, not averaged: [K B, ...] (run k of race i at k B + i)."""
+    bk = repeat_batch(b, K)
+    T, t600, last3, corners, lead = read_out(t, bk)
+    behind = corners - softmin(corners, 0.02, 1, bk['present'][:, :, None].expand_as(corners))[:, None, :]
+    lead600 = softmin(t[:, :, int(600 / DX)], 0.05, 1, bk['present'])
+    return {'T': T, 't600': t600, 'last3': last3, 'corners': corners, 'lead': lead, 'behind': behind, 'lead600': lead600}
+
+
+LABELS = ('y_T', 'm_T', 'y_t600', 'm_t600', 'y_last3', 'm_last3', 'y_lead', 'm_lead', 'y_corner', 'm_corner', 'y_gap',
+          'm_gap')
+
+
+def read_loss(t, b, K, physics):
+    """The training loss of K runs per race: on the averaged read-outs (READ 'mean') or on every run (READ 'run')."""
+    if READ == 'run' and K > 1:
+        bk = {k: b[k].repeat(K, *([1] * (b[k].dim() - 1))) for k in LABELS if k in b}
+        return losses(read_runs(t, b, K), bk, physics=physics)
+    return losses(read_mean(t, b, K), b, physics=physics)
+
+
 def corner_lengths(corners, present, physics):
     """Corner times [B, H, 4] -> lengths behind the leader of each corner (S3)."""
     lead = softmin(corners, 0.02, 1, present[:, :, None].expand_as(corners))
@@ -369,7 +399,7 @@ def corner_lengths(corners, present, physics):
 
 
 def losses(ro, b, w=None, physics=None):
-    """ro: read_mean's averaged read-outs."""
+    """ro: read-outs (read_mean's averaged ones, or read_runs' with b's labels repeated per run)."""
     w = w or WEIGHTS[LOSS]
     T, t600, last3, corners, lead = ro['T'], ro['t600'], ro['last3'], ro['corners'], ro['lead']
     hub = lambda p, y, m: (F.huber_loss(p[m], y[m], delta=0.5) if m.any() else p.sum() * 0)

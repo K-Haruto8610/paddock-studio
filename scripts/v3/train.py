@@ -135,7 +135,7 @@ def fit(model, train, val, seed, max_epochs=40, patience=8, lr=2e-3, size=32, lo
         for ks in train.batches(size, rng):
             b = train.batch(ks)
             t, _ = model(b)
-            loss, parts = sim.losses(sim.read_mean(t, b, model.K), b, physics=model.physics)
+            loss, parts = sim.read_loss(t, b, model.K, model.physics)
             opt.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
@@ -166,7 +166,7 @@ def evaluate_loss(model, data, size):
     for ks in data.batches(size):
         b = data.batch(ks)
         t, _ = model(b, gen=gen)
-        loss, p = sim.losses(sim.read_mean(t, b, model.K), b, physics=model.physics)
+        loss, p = sim.read_loss(t, b, model.K, model.physics)
         tot += float(loss) * len(ks)
         for k, x in p.items():
             parts[k] = parts.get(k, 0) + x * len(ks)
@@ -293,7 +293,7 @@ def cmd_real(args):
                         'dash_ms2': float(3 + 5 * torch.sigmoid(ph.dash)), 'stage': sim.STAGE, 'span': sim.CONTEND_SPAN, 'settle_m': float(torch.exp(ph.settle)), 'wish': sim.WISH, 'wish_scale': float(torch.exp(ph.wish_scale)),
                         'contend_ms': float(torch.nn.functional.softplus(ph.contend)), 'shelter_save': float(0.5 * torch.sigmoid(ph.shelter)), 'abilitySet': sim.ABILITY_SET, 'loss': sim.LOSS,
                         'hold': float(torch.sigmoid(ph.hold)), 'traffic': sim.TRAFFIC, 'init': args.init,
-                        'samples': sim.SAMPLES, 'predSamples': PRED_SAMPLES, 'form': sim.FORM, 'start': sim.START, 'wishn': sim.WISHN,
+                        'samples': sim.SAMPLES, 'predSamples': PRED_SAMPLES, 'form': sim.FORM, 'start': sim.START, 'wishn': sim.WISHN, 'read': sim.READ,
                         'trainOnly': args.train_only, 'gap_scale': float(torch.exp(ph.gap_scale)),
                         'dist_slope': ph.dist_slope.tolist(), 'surface0': ph.surface0.tolist(), 'cls_slope': float(ph.cls_slope)}}
     (OUT / f'{name}.json').write_text(json.dumps(info, indent=1), encoding='utf-8')
@@ -538,6 +538,7 @@ def main():
     ap.add_argument('--form', type=float, default=0.0, help='sd of the day form, m/s (sim.FORM)')
     ap.add_argument('--start', type=float, default=0.0, help='scale of the start delay, s (sim.START)')
     ap.add_argument('--wishn', type=float, default=0.0, help='sd of the wished place, logits (sim.WISHN)')
+    ap.add_argument('--read', choices=['mean', 'run'], default='mean', help='training losses on averaged runs or per run (sim.READ)')
     ap.add_argument('--calib', choices=['form', 'wish'], default='form', help='calibrate: which noise sizes')
     ap.add_argument('--train-only', default='', help='comma list of parameter names to train, the rest frozen '
                                                      '(e.g. hold,gap_scale: S3 on a deterministic model)')
@@ -548,6 +549,7 @@ def main():
     sim.LOSS, sim.ABILITY_SET, sim.STAGE, sim.CONTEND_SPAN, sim.WISH = args.loss, args.abilities, args.stage, args.span, args.wish
     sim.TRAFFIC = args.traffic
     sim.SAMPLES, sim.FORM, sim.START, sim.WISHN = args.samples, args.form, args.start, args.wishn
+    sim.READ = args.read
     global PRED_SAMPLES
     PRED_SAMPLES = args.pred_samples or (32 if (args.form > 0 or args.start > 0 or args.wishn > 0) else 1)
     global DEVICE  # noqa
