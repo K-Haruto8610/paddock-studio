@@ -25,6 +25,7 @@ Candidates (corner c, v3 corner times ct, leader = min ct, anchor = the horse at
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -252,22 +253,67 @@ def scale_interval(ct_last, T, last3):
     return lo, hi
 
 
+def finish_lengths(T, k_fin):
+    """The hybrid's finish margin (lengths behind the winner): v3's finish-time gap x the factor x 5 lengths/s."""
+    return k_fin * LPS * (T - T.min())
+
+
+def race_ctx(feats, c2, k3):
+    """Per-race inputs of the candidates: C1 v2.0's spread predictions, C2 the simple spread model, C3 the factors."""
+    return {'k3': {c: k3[c]['k'] for c in (1, 2, 3, 4)}, 'S1': {c: float(feats.get(f'spread{c}', np.nan)) for c in (1, 2, 3, 4)},
+            'S2': {c: predict_c2(c2, c, {**feats, 'pace_pred': float(feats['pace'])}) for c in (1, 2, 3, 4)}}
+
+
+def race_forecast(v, cand, ctx, k_fin):
+    """THE hybrid's point forecast of one race (used by evaluate and forecast alike).
+    v: v3's deterministic run of the race (rows indexed by horse number, in output order).
+    Corner order, closing 3F and finish order are v3's as they are; the gaps are v3's shape x the chosen candidate's spread;
+    the finish margin is v3's finish-time gap x k_fin. The pace is not here: it is v2.0's, attached by the caller."""
+    nums = [int(u) for u in v.index]
+    ctm = {c: v[f'ct{c}'].to_numpy() for c in (1, 2, 3, 4)}
+    corners = [c for c in (1, 2, 3, 4) if not np.isnan(ctm[c]).any()]
+    T = v['T'].to_numpy()
+    order = sorted(range(len(nums)), key=lambda i: (T[i], nums[i]))
+    fin_rank = np.empty(len(nums), int)
+    fin_rank[order] = np.arange(1, len(nums) + 1)
+    return {'numbers': nums, 'corners': corners, 'ct': ctm, 'T': T, 'last3': v['last3'].to_numpy(),
+            'rank': {c: int_rank(ctm[c]) for c in corners}, 'gap': {c: corner_gaps(cand, ctm[c], c, ctx) for c in corners},
+            'finRank': fin_rank, 'fin': finish_lengths(T, k_fin)}
+
+
+def int_rank(ct):
+    """Whole places 1..n from times, ties by order (s4.int_rank)."""
+    return np.argsort(np.argsort(ct, kind='stable'), kind='stable') + 1
+
+
+def consistency(f):
+    """Conditions (1) and (3) of the revised gate on one race forecast: the largest violation in lengths (0 = none)."""
+    mono = max(monotone_violation(f['gap'][c], np.argsort(f['rank'][c], kind='stable')) for c in f['corners'])
+    order = monotone_violation(f['fin'], np.argsort(f['finRank'], kind='stable'))
+    return mono, order
+
+
 def cmd_candidates(args):
+    """The spread candidates on the selection races. --finish time (the owner's revision, 2026-11-23): finish margin =
+    v3's finish-time gap x k_fin (fitted like C3 on the validation races), conditions (1) and (3). --finish identity (the
+    first gate): margin recomputed with the published identity, conditions (1)-(3)."""
     import eval_standard as es
     act = ev.actuals()
-    res = {'seeds': {}, 'c3': {}, 'c2': {}}
+    res = {'finish': args.finish, 'seeds': {}, 'c3': {}, 'c2': {}}
     for seed in SEEDS:
         parts = pd.read_pickle(OUT / f'hybrid_v20_sel_seed{seed}.pkl')
         base = pd.read_pickle(OUT / f'v20_sel_seed{seed}.pkl')
         v3 = pd.read_pickle(OUT / f's4_point_sel_seed{seed}.pkl')
         k3 = fit_c3(pd.read_pickle(OUT / f'hybrid_valruns_sel_seed{seed}.pkl'), act)
+        k_fin = k3['fin']['k']
         c2 = fit_c2(parts['train'])
         res['c3'][seed] = k3
         res['c2'][seed] = {c: {k: m[k] for k in ('rows', 'coef', 'intercept')} for c, m in c2.items()}
         print('seed', seed, 'C3 factors', {c: round(v['k'], 3) for c, v in k3.items()}, flush=True)
         tab = es.RaceTable()
-        cons = {cand: {'monotone': 0, 'identity': 0, 'order': 0, 'races': 0} for cand in CANDIDATES + ('C0_S4',)}
-        worst = {cand: [] for cand in CANDIDATES + ('C0_S4',)}
+        names = CANDIDATES + ('C0_S4',)
+        cons = {cand: {'monotone': 0, 'identity': 0, 'order': 0, 'races': 0} for cand in names}
+        worst = {cand: [] for cand in names}
         spread_err = {cand: {c: [] for c in (1, 2, 3, 4)} for cand in CANDIDATES + ('v20',)}
         empty_scale, infeasible, races_n, fin_spread = 0, 0, 0, []
         common = sorted(set(base.RACE_CODE) & set(v3.RACE_CODE))
@@ -277,9 +323,7 @@ def cmd_candidates(args):
             nums = [n for n in b.index if n in v.index]
             a = act.loc[[(code, u) for u in nums]].reset_index(level=0, drop=True)
             keys = list(nums)
-            pr = parts['races'].loc[code]
-            ctx = {'k3': {c: k3[c]['k'] for c in k3}, 'S1': {c: float(pr[f'spread{c}']) for c in (1, 2, 3, 4)},
-                   'S2': {c: predict_c2(c2, c, {**pr.to_dict(), 'pace_pred': float(pr['pace'])}) for c in (1, 2, 3, 4)}}
+            ctx = race_ctx(parts['races'].loc[code].to_dict(), c2, k3)
             ctm = {c: v.loc[nums, f'ct{c}'].to_numpy() for c in (1, 2, 3, 4)}
             shown = [c for c in (1, 2, 3, 4) if not np.isnan(ctm[c]).any()]     # the corners the forecast publishes
             T, l3 = v.loc[nums, 'T'].to_numpy(), v.loc[nums, 'last3'].to_numpy()
@@ -292,15 +336,17 @@ def cmd_candidates(args):
             gap_fin = a.finish_gap.to_numpy()
             ok_fin = normal & ~np.isnan(gap_fin)
             tab.add('finGap', 'v20', code, np.where(ok_fin, np.abs(b.loc[nums, 'finSeconds'].to_numpy() - gap_fin), np.nan), keys)
+            by_t = np.argsort(T, kind='stable')
             for cand in CANDIDATES:
                 g = {c: corner_gaps(cand, ctm[c], c, ctx) for c in shown}
                 mono = max(monotone_violation(g[c], np.argsort(ctm[c], kind='stable')) for c in shown)
-                fin = identity_finish(g[last], l3)
-                ident = float(np.max(np.abs(fin - identity_finish(g[last], l3))))   # 0 by construction (recomputed)
-                order = monotone_violation(fin, np.argsort(T, kind='stable'))
+                if args.finish == 'identity':
+                    fin = identity_finish(g[last], l3)
+                else:
+                    fin = finish_lengths(T, k_fin)
+                order = monotone_violation(fin, by_t)
                 cons[cand]['races'] += 1
                 cons[cand]['monotone'] += int(mono > TOL)
-                cons[cand]['identity'] += int(ident > TOL)
                 cons[cand]['order'] += int(order > TOL)
                 worst[cand].append(order)
                 tab.add('finGap', cand, code, np.where(ok_fin, np.abs(fin / LPS - gap_fin), np.nan), keys)
@@ -309,15 +355,14 @@ def cmd_candidates(args):
                         continue
                     tab.add(f'g{c}', cand, code, np.abs(g[c] - a[f'g{c}'].to_numpy()), keys)
                     spread_err[cand][c].append(abs(float(np.quantile(g[c], SPREAD_Q)) - float(np.quantile(a[f'g{c}'].to_numpy(), SPREAD_Q))))
-            # C0 as S4 published it: finish = 5 x finish-time gap (condition 3 holds, the identity does not)
+            # C0 as S4 published it: finish = 5 x finish-time gap
             fin_s4 = LPS * (T - T.min())
             g0 = LPS * (ctm[last] - ctm[last].min())
             cons['C0_S4']['races'] += 1
             cons['C0_S4']['identity'] += int(np.max(np.abs(fin_s4 - identity_finish(g0, l3))) > TOL)
-            cons['C0_S4']['order'] += int(monotone_violation(fin_s4, np.argsort(T, kind='stable')) > TOL)
+            cons['C0_S4']['order'] += int(monotone_violation(fin_s4, by_t) > TOL)
             worst['C0_S4'].append(float(np.max(np.abs(fin_s4 - identity_finish(g0, l3)))))
             tab.add('finGap', 'C0_S4', code, np.where(ok_fin, np.abs(fin_s4 / LPS - gap_fin), np.nan), keys)
-            tab.add('finGap', 'F_k', code, np.where(ok_fin, np.abs(k3['fin']['k'] * (T - T.min()) - gap_fin), np.nan), keys)
             if ok_fin.sum() >= 3:
                 q = lambda z: float(np.quantile(z[ok_fin], SPREAD_Q))  # noqa: E731
                 fin_spread.append((q(gap_fin), q(T - T.min()), q(b.loc[nums, 'finSeconds'].to_numpy())))
@@ -326,35 +371,222 @@ def cmd_candidates(args):
                     tab.add(f'g{c}', 'v20', code, np.abs(b.loc[nums, f'gap{c}'].to_numpy() - a[f'g{c}'].to_numpy()), keys)
                     spread_err['v20'][c].append(abs(float(np.quantile(b.loc[nums, f'gap{c}'].to_numpy(), SPREAD_Q))
                                                     - float(np.quantile(a[f'g{c}'].to_numpy(), SPREAD_Q))))
-        out = {'races': races_n, 'scaleIntervalEmpty': empty_scale, 'anyMonotoneInfeasible': infeasible, 'consistency': cons,
+        out = {'races': races_n, 'kFinish': k_fin, 'scaleIntervalEmpty': empty_scale, 'anyMonotoneInfeasible': infeasible,
+               'consistency': cons,
                'orderViolationLengths': {k: [float(q) for q in np.quantile(w, [.5, .75, .9, 1])] for k, w in worst.items()},
                'mae': {}, 'spreadMae': {k: {c: float(np.mean(x)) if x else None for c, x in v.items()} for k, v in spread_err.items()},
                'finishSpread80': dict(zip(('actual', 'v3', 'v20'), map(float, np.median(np.array(fin_spread), 0))))}
         for m in ('g1', 'g2', 'g3', 'g4', 'finGap'):
             out['mae'][m] = {}
-            for s in ('v20',) + CANDIDATES + (('C0_S4', 'F_k') if m == 'finGap' else ()):
+            for s in ('v20',) + CANDIDATES + (('C0_S4',) if m == 'finGap' else ()):
                 out['mae'][m][s] = {'mae': tab.mean(m, s), 'rows': tab.count(m, s)}
                 if s != 'v20':
                     out['mae'][m][s]['vsV20'] = tab.diff(m, s, 'v20')
                     if s != 'C0':
                         out['mae'][m][s]['vsC0'] = tab.diff(m, s, 'C0')
         res['seeds'][seed] = out
-        print(f'== seed {seed}: {races_n} races; scale interval empty {empty_scale}; no monotone corner-4 gaps at all {infeasible}')
+        print(f'== seed {seed} ({args.finish}): {races_n} races; k_fin {k_fin:.3f}')
         for m, row in out['mae'].items():
             print('  ', m, '  '.join(f'{s} {v["mae"]:.3f}' for s, v in row.items()))
         for cand, cc in cons.items():
             print('   consistency', cand, cc)
-    (OUT / 'hybrid_candidates.json').write_text(json.dumps(res, indent=1, default=float), encoding='utf-8')
+    (OUT / f'hybrid_candidates_{args.finish}.json').write_text(json.dumps(res, indent=1, default=float), encoding='utf-8')
+
+
+SELECTION = OUT / 'hybrid_selection.json'
+
+
+def cmd_select(args):
+    """§5's rule on the selection window (revised gate): eligible = no violation of (1) or (3) on either seed; chosen = the
+    smallest mean of the corner 1-4 gap MAEs on both seeds (if the seeds disagree, the smallest mean over the two seeds).
+    Written once, before the report window is run; evaluate and forecast read it."""
+    res = json.loads((OUT / 'hybrid_candidates_time.json').read_text(encoding='utf-8'))
+    score, eligible = {}, []
+    for cand in CANDIDATES:
+        ok = all(res['seeds'][str(s)]['consistency'][cand]['monotone'] == 0 and res['seeds'][str(s)]['consistency'][cand]['order'] == 0
+                 for s in SEEDS)
+        score[cand] = {str(s): float(np.mean([res['seeds'][str(s)]['mae'][f'g{c}'][cand]['mae'] for c in (1, 2, 3, 4)])) for s in SEEDS}
+        if ok:
+            eligible.append(cand)
+    if not eligible:
+        raise SystemExit('no eligible candidate: (1) or (3) violated (implementation error under the revised definition)')
+    best = {str(s): min(eligible, key=lambda k: score[k][str(s)]) for s in SEEDS}
+    chosen = best['42'] if len(set(best.values())) == 1 else min(eligible, key=lambda k: np.mean(list(score[k].values())))
+    out = {'candidate': chosen, 'eligible': eligible, 'meanGapMae': score, 'bestPerSeed': best, 'finish': 'time',
+           'kFinishSelection': {str(s): res['seeds'][str(s)]['kFinish'] for s in SEEDS},
+           'recipe': {'spread': 'C2: QuantileRegressor(0.5, alpha 1e-4) per corner on field, km, surface, pace (standardised) and '
+                                'venue x surface, fitted on the v2.0 spread-model training rows before the fit date',
+                      'kFinish': "weighted median of official margin / v3 finish-time gap on the window model's validation races "
+                                 '(the 90 days before the fit date), normal finishers'},
+           'fixedAt': datetime.now().isoformat(timespec='seconds'), 'reportWindowRun': False}
+    SELECTION.write_text(json.dumps(out, indent=1), encoding='utf-8')
+    print(json.dumps(out, indent=1))
+
+
+# --- the single path: v3 runs, evaluation, forecast ---------------------------------------------------------------
+def cmd_runs(args):
+    """v3's deterministic run of the window's races, made again by the hybrid's path (s4.point_runs on the same model)."""
+    import torch
+    import s4
+    import train as tr
+    tr.DEVICE = torch.device(args.device)
+    races, r = tr.load_tables()
+    codes = s4.window_codes(races, args.window)
+    data, X, C = s4.make_data(races, r, codes)
+    point = s4.point_runs(s4.load_model(f'{s4.POINT}_{args.window}_seed{args.seed}', X, C), data)
+    point.to_pickle(OUT / f'hybrid_point_{args.window}_seed{args.seed}.pkl')
+    print(f'{args.window} seed {args.seed}: {len(codes)} races, {len(point)} horses ({args.device})', flush=True)
+
+
+def inherited_check(f, rec, nums):
+    """Per-horse comparison of the hybrid's v3 outputs with the S4 record of the same race."""
+    r = rec.loc[nums]
+    T = r['T'].to_numpy()
+    order = sorted(range(len(nums)), key=lambda i: (T[i], nums[i]))
+    fr = np.empty(len(nums), int)
+    fr[order] = np.arange(1, len(nums) + 1)
+    out = {'rankMismatch': 0, 'finRankMismatch': int((fr != f['finRank']).sum()),
+           'last3MaxDiff': float(np.max(np.abs(r['last3'].to_numpy() - f['last3']))),
+           'last3RoundedMismatch': int((np.round(r['last3'].to_numpy(), 1) != np.round(f['last3'], 1)).sum())}
+    for c in f['corners']:
+        out['rankMismatch'] += int((int_rank(r[f'ct{c}'].to_numpy()) != f['rank'][c]).sum())
+    return out
+
+
+def cmd_evaluate(args):
+    import eval_standard as es
+    import s4
+    choice = json.loads(SELECTION.read_text(encoding='utf-8'))
+    cand = choice['candidate']
+    act = ev.actuals()
+    races = pd.read_pickle(OUT / 'races.pkl')
+    pa, norms = s4.load_pace()
+    res = {'candidate': cand, 'selection': choice, 'windows': {}}
+    for window in ('sel', 'rep'):
+        for seed in SEEDS:
+            key = f'{window}/seed{seed}'
+            parts = pd.read_pickle(OUT / f'hybrid_v20_{window}_seed{seed}.pkl')
+            k3 = fit_c3(pd.read_pickle(OUT / f'hybrid_valruns_{window}_seed{seed}.pkl'), act)
+            k_fin = k3['fin']['k']
+            c2 = fit_c2(parts['train'])
+            point = pd.read_pickle(OUT / f'hybrid_point_{window}_seed{seed}.pkl')
+            rec = pd.read_pickle(OUT / f's4_point_{window}_seed{seed}.pkl')
+            base = pd.read_pickle(OUT / f'v20_{window}_seed{seed}.pkl')
+            common = sorted(set(base.RACE_CODE) & set(point.RACE_CODE))
+            tab = es.RaceTable()
+            chk = {'rankMismatch': 0, 'finRankMismatch': 0, 'last3MaxDiff': 0.0, 'last3RoundedMismatch': 0, 'fieldMismatch': 0,
+                   'paceMaxDiff': 0.0, 'paceClassMismatch': 0, 'monotone': 0, 'order': 0, 'horses': 0}
+            for code in common:
+                b = base[base.RACE_CODE == code].set_index('UMABAN')
+                v = point[point.RACE_CODE == code].set_index('UMABAN')
+                feats = parts['races'].loc[code].to_dict()
+                f = race_forecast(v, cand, race_ctx(feats, c2, k3), k_fin)
+                mono, order = consistency(f)
+                chk['monotone'] += int(mono > TOL)
+                chk['order'] += int(order > TOL)
+                nums = [n for n in b.index if n in v.index]
+                chk['fieldMismatch'] += int(sorted(nums) != sorted(f['numbers']))
+                pos = [f['numbers'].index(n) for n in nums]
+                ic = inherited_check(f, rec[rec.RACE_CODE == code].set_index('UMABAN'), f['numbers'])
+                for k in ('rankMismatch', 'finRankMismatch', 'last3RoundedMismatch'):
+                    chk[k] += ic[k]
+                chk['last3MaxDiff'] = max(chk['last3MaxDiff'], ic['last3MaxDiff'])
+                chk['horses'] += len(f['numbers'])
+                # pace: v2.0's recomputed value, carried as it is
+                pace_h = float(feats['pace'])
+                chk['paceMaxDiff'] = max(chk['paceMaxDiff'], abs(pace_h - float(b.pace.iloc[0])))
+                chk['paceClassMismatch'] += int(s4.pace_class(pace_h) != s4.pace_class(float(b.pace.iloc[0])))
+                # E0's measures: v2.0, the hybrid, and S4's record (gaps x 5, finish = finish-time gap, v3's own pace)
+                n = len(nums)
+                a = act.loc[[(code, u) for u in nums]].reset_index(level=0, drop=True)
+                keys = list(nums)
+                r4 = rec[rec.RACE_CODE == code].set_index('UMABAN').loc[nums]
+                normal = a.normal.to_numpy() & a.fin.notna().to_numpy()
+                l3 = a.last3.to_numpy()
+                ok3 = normal & ~np.isnan(l3)
+                gapf, place = a.finish_gap.to_numpy(), a.fin.to_numpy()
+                T4 = r4['T'].to_numpy()
+                sysv = {'v20': {'last3': b.loc[nums, 'last3'].to_numpy(), 'fin': b.loc[nums, 'finSeconds'].to_numpy()},
+                        'hyb': {'last3': f['last3'][pos], 'fin': f['fin'][pos] / LPS},
+                        's4': {'last3': r4['last3'].to_numpy(), 'fin': T4 - T4.min()}}
+                for s, p in sysv.items():
+                    tab.add('last3', s, code, np.where(ok3, np.abs(p['last3'] - l3), np.nan), keys)
+                    tab.add('finGap', s, code, np.where(normal & ~np.isnan(gapf), np.abs(p['fin'] - gapf), np.nan), keys)
+                    if normal.sum() >= 3:
+                        tab.add_value('finTau', s, code, es.kendall(p['fin'][normal], place[normal]))
+                        tab.add_value('winner', s, code, float(place[normal][np.argmin(p['fin'][normal])] == 1))
+                for c in b.corners.iloc[0]:
+                    if c not in f['corners'] or not labelled(a, c):
+                        continue
+                    y, g = a[f'r{c}'].to_numpy(), a[f'g{c}'].to_numpy()
+                    ct4 = r4[f'ct{c}'].to_numpy()
+                    ranks = {'v20': (b.loc[nums, f'rank{c}'].to_numpy() - 1) / (n - 1), 'hyb': (f['rank'][c][pos] - 1) / (n - 1),
+                             's4': (int_rank(ct4) - 1) / (n - 1)}
+                    gaps = {'v20': b.loc[nums, f'gap{c}'].to_numpy(), 'hyb': f['gap'][c][pos], 's4': (ct4 - ct4.min()) * LPS}
+                    for s in ranks:
+                        tab.add_value(f'r{c}.tau', s, code, es.kendall(ranks[s], y))
+                        tab.add(f'r{c}.integer', s, code, np.abs(ranks[s] - y), keys)
+                        tab.add(f'r{c}.places', s, code, np.abs(ranks[s] - y) * (n - 1), keys)
+                        tab.add(f'g{c}', s, code, np.abs(gaps[s] - g), keys)
+                if code in pa.index and not np.isnan(pa.at[code, 'pace']):
+                    rc = races.loc[code]
+                    pact = float(pa.at[code, 'pace'])
+                    pv = {'v20': float(b.pace.iloc[0]), 'hyb': pace_h,
+                          's4': float(r4.lead600.iloc[0]) - s4.norm_of(norms, rc.venue, rc.track, rc.distance, rc.surface)}
+                    for s, p in pv.items():
+                        tab.add_value('pace.mae', s, code, abs(p - pact))
+                        tab.add_value('pace.hit', s, code, float(s4.pace_class(p) == s4.pace_class(pact)))
+            out = {'races': len(common), 'kFinish': k_fin, 'checks': chk}
+            for m in sorted({k[0] for k in tab.rows}):
+                out[m] = {'v20': tab.mean(m, 'v20'), 'hyb': tab.mean(m, 'hyb'), 's4': tab.mean(m, 's4'),
+                          'vsV20': tab.diff(m, 'hyb', 'v20'), 'vsS4': tab.diff(m, 'hyb', 's4')}
+            res['windows'][key] = out
+            print(f'== {key}: {len(common)} races, k_fin {k_fin:.3f}, checks {chk}', flush=True)
+            for m in MAIN_H:
+                if m in out:
+                    d, d4 = out[m]['vsV20'], out[m]['vsS4']
+                    print(f'  {m:12} v2.0 {out[m]["v20"]:.3f}  hyb {out[m]["hyb"]:.3f}  S4 {out[m]["s4"]:.3f}  '
+                          f'vs v2.0 {d["diff"]:+.3f} [{d["lo"]:+.3f}, {d["hi"]:+.3f}]  vs S4 {d4["diff"]:+.3f}', flush=True)
+    res['verdict'] = verdict(res)
+    s4_eval = OUT / 's4_eval.json'
+    if s4_eval.exists():   # the ranges are S4's (no range depends on the gaps, the finish margin or the pace: §7)
+        res['coverageS4'] = json.loads(s4_eval.read_text(encoding='utf-8')).get('coverage', {})
+    (OUT / 'hybrid_eval.json').write_text(json.dumps(res, indent=1, default=float), encoding='utf-8')
+    print('verdict', json.dumps(res['verdict'], indent=1, default=float))
+
+
+MAIN_H = ([f'r{c}.tau' for c in (1, 2, 3, 4)] + [f'r{c}.integer' for c in (1, 2, 3, 4)] + [f'g{c}' for c in (1, 2, 3, 4)]
+          + ['last3', 'pace.mae', 'finTau', 'finGap', 'pace.hit', 'winner'])
+IMPROVE = ['g1', 'g2', 'g3', 'g4', 'finGap']   # §3: lower is better, point estimate on both seeds of the report window
+
+
+def verdict(res):
+    out = {'improve': {}, 'inherited': {}, 'consistency': {}}
+    for m in IMPROVE:
+        ds = {s: res['windows'][f'rep/seed{s}'][m]['vsV20']['diff'] for s in SEEDS}
+        out['improve'][m] = {'diff': ds, 'pass': all(d < 0 for d in ds.values())}
+    for w in ('sel', 'rep'):
+        for s in SEEDS:
+            c = res['windows'][f'{w}/seed{s}']['checks']
+            out['inherited'][f'{w}/seed{s}'] = bool(c['rankMismatch'] == 0 and c['finRankMismatch'] == 0 and c['last3MaxDiff'] <= 1e-3
+                                                    and c['last3RoundedMismatch'] == 0 and c['paceMaxDiff'] <= 1e-9
+                                                    and c['paceClassMismatch'] == 0 and c['fieldMismatch'] == 0)
+            out['consistency'][f'{w}/seed{s}'] = bool(c['monotone'] == 0 and c['order'] == 0)
+    out['pass'] = (all(v['pass'] for v in out['improve'].values()) and all(out['inherited'].values())
+                   and all(out['consistency'].values()))
+    return out
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('mode', choices=['v20parts', 'valruns', 'candidates'])
+    ap.add_argument('mode', choices=['v20parts', 'valruns', 'candidates', 'select', 'runs', 'evaluate'])
     ap.add_argument('--window', choices=['sel', 'rep'], default='sel')
     ap.add_argument('--seed', type=int, default=42)
+    ap.add_argument('--finish', choices=['time', 'identity'], default='time')
     ap.add_argument('--device', choices=['cpu', 'cuda'], default='cpu')
     args = ap.parse_args()
-    {'v20parts': cmd_v20parts, 'valruns': cmd_valruns, 'candidates': cmd_candidates}[args.mode](args)
+    {'v20parts': cmd_v20parts, 'valruns': cmd_valruns, 'candidates': cmd_candidates, 'select': cmd_select, 'runs': cmd_runs,
+     'evaluate': cmd_evaluate}[args.mode](args)
 
 
 if __name__ == '__main__':
