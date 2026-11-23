@@ -21,7 +21,8 @@ const {parsePaceForecast, paceForRace} = await import(pathToFileURL(path.join(ou
 
 const data = JSON.parse(await fs.readFile('public/data/forecasts.json', 'utf8'));
 const replays = JSON.parse(await fs.readFile('public/data/replays.json', 'utf8'));
-const raw = JSON.parse(await fs.readFile('public/data/pace_forecasts.json', 'utf8'));
+// PACE_FILE: check another model's file (e.g. a v3 forecast in outputs/v3) instead of the bundled one
+const raw = JSON.parse(await fs.readFile(process.env.PACE_FILE ?? 'public/data/pace_forecasts.json', 'utf8'));
 const parsed = parsePaceForecast(raw);
 assert.ok(parsed.ok, 'Bundled file matches paddock.pace-forecast/v1: ' + (parsed.error ?? ''));
 const file = parsed.data;

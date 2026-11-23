@@ -29,7 +29,10 @@ import sim  # noqa: E402
 ROOT = cs.ROOT
 OUT = ROOT / 'outputs' / 'v3'
 H = 18
-WINDOWS = {'sel': ('20250601', '20250601', '20250831'), 'rep': ('20250901', '20250901', '20251231')}
+WINDOWS = {'sel': ('20250601', '20250601', '20250831'), 'rep': ('20250901', '20250901', '20251231'),
+           # pub: the published model (S4), fitted on everything to the end of 2025 like v2.0's; its "evaluation" races are
+           # 2026's, not a score (the report window is rep)
+           'pub': ('20260101', '20260101', '20261231')}
 torch.set_num_threads(6)
 DEVICE = torch.device('cpu')  # --device cuda: the RTX 3070 (torch 2.15.0+cu132)
 
