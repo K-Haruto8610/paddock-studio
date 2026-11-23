@@ -205,7 +205,7 @@ def race_lock(folder):
         yield
 
 
-def review_result(code, official, run):
+def review_result(code, official, run, mykeibadb=False):
     qa_start = time.perf_counter()
     meta = read_json(run/"run.json")
     review_file = run / "review.json"
@@ -214,7 +214,11 @@ def review_result(code, official, run):
         review = {}
     rows = pd.read_csv(run/"frames.csv", dtype={"RACE_CODE": str})
     events = pd.read_csv(run/"events.csv", dtype={"RACE_CODE": str})
-    finish = official_finish(code, official.index)
+    if mykeibadb:
+        from .io_local import mykeibadb_results
+        official, finish = mykeibadb_results(code, official)
+    else:
+        finish = official_finish(code, official.index)
     summary, timing, detail = assess(rows, events, official, finish, review)
     counts = pd.read_csv(run/"frame_counts.csv")
     detail["detection_shortfall_intervals"] = ranges(counts.loc[counts.detections < len(official), "frame"])
@@ -313,7 +317,9 @@ def main():
     run.add_argument("--device", default="cuda:0")
     batch = sub.add_parser("batch", help="Process only the listed reviewed races, reusing completed extraction")
     batch.add_argument("keys", nargs="+")
-    sub.add_parser("qa").add_argument("key")
+    qa = sub.add_parser("qa")
+    qa.add_argument("key")
+    qa.add_argument("--mykeibadb", action="store_true", help="Refresh labels from the local DB before scoring")
     frame = sub.add_parser("frame")
     frame.add_argument("key")
     frame.add_argument("index", type=int)
@@ -347,7 +353,7 @@ def main():
         else:
             with race_lock(folder):
                 run = folder / read_json(folder/"current.json")["run_id"]
-                result = review_result(code, official, run)
+                result = review_result(code, official, run, mykeibadb=args.mykeibadb)
     print(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False))
 
 

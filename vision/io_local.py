@@ -85,3 +85,32 @@ def official_finish(code, horses):
     if not ranks.index.is_unique:
         raise ValueError("Duplicate official finish records")
     return ranks.reindex(horses).dropna().astype(int).to_dict()
+
+
+def mykeibadb_results(code, field):
+    """Read this race only. Empty JV-Data sentinels must never become labels."""
+    import sys
+    import pymysql
+    sys.path.insert(0, os.environ.get("KEIBA_SOURCE", "C:/Users/jouza/Downloads/keiba-yosou/mykeiba"))
+    try:
+        from backend.config import settings
+    finally:
+        sys.path.pop(0)
+    config = settings.pymysql_kwargs
+    if config.get("host", "localhost") not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError("Expected loopback mykeibadb")
+    corners = [f"CORNER{i}_JUNI" for i in range(1, 5)]
+    columns = ["UMABAN", "SOHA_TIME", "KOHAN_3F", "KAKUTEI_CHAKUJUN", *corners]
+    with pymysql.connect(**config) as db, db.cursor() as q:
+        q.execute("SELECT " + ",".join(columns) + " FROM umagoto_race_joho WHERE RACE_CODE=%s", (code,))
+        raw = pd.DataFrame(q.fetchall(), columns=columns).apply(pd.to_numeric, errors="coerce").set_index("UMABAN")
+    if not raw.index.is_unique:
+        raise ValueError("Duplicate official horse numbers")
+    raw = raw.reindex(field.index)
+    times = raw.SOHA_TIME.where(raw.SOHA_TIME.between(1,9998) & ((raw.SOHA_TIME % 1000) < 600))
+    out = field.copy()
+    out["soha"] = times.floordiv(1000)*60 + times.mod(1000)/10
+    out["last3"] = raw.KOHAN_3F.where(raw.KOHAN_3F.between(280,500))/10
+    out[corners] = raw[corners].where((raw[corners] >= 1) & (raw[corners] <= len(field)))
+    ranks = raw.KAKUTEI_CHAKUJUN
+    return out, ranks[ranks.between(1,len(field))].astype(int).to_dict()

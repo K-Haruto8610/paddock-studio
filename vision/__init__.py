@@ -75,4 +75,23 @@
    指紋が同一なら再利用し、途中で終了したレースは次回再処理する。
    python -m vision.patrol manifest で全レースの最新QAを表示する。
    映像・画像・重み・軌跡・レビュー・manifest はすべて Git 除外の vision/data/ 内。
+
+マイルCSのYOLO11試験はローカルの重みと requirements-yolo11.txt を使う。
+vision.pack sample で馬群を切り出し、pack/drafts の YOLO 形式の下書きを修正する。
+手で修正したフレーム番号は drafts/manual_drafts.json の frames に保存する。
+vision.propagate_drafts は学習用の近傍フレームにラベルを移し、vision.tune_pack は
+ローカルで微調整する。vision.check_pack で手修正した検証枠との一対一一致を測る。
+python -m vision.pack infer <キー> --weights <重みのパス> で検出結果を保存する。
+続いて python -m vision.track_pack <キー>、python -m vision.cut_review <キー>、
+python -m vision.metric_pack <キー> の順に実行する。既定の実験名は
+patrol11s-reviewed-1280-0.1。別の重み・閾値では各コマンドの --experiment を指定する。
+カット前後の進行方向を pack/cut_axes.json に [{"frame":番号,"pre":[dx,dy],"post":[dx,dy]}]
+で置く。各ベクトルは先頭方向を指す。目視確認した対応は実験フォルダ直下の
+cuts/identity_anchors.json の pairs に confirmed=true と horse=実際の馬番を付けて保存する。
+公式着順で逆追跡するには同フォルダ直下の finish_crossings.json に confirmed=true と
+crossings の各要素 {"rank":通過順位,"frame":元フレーム,"box_id":追跡入力の検出番号} を用意する。
+前後が一致した匿名IDの数と、馬番まで独立に照合できた観測数を別々に記録する。
+公式結果取込後、旧抽出は python -m vision.patrol qa <キー> --mykeibadb、
+YOLO11抽出は python -m vision.metric_pack <キー> --qa-only で再採点できる。
+アンカーを追加した場合は追跡・書き出しも再実行する。
 """
